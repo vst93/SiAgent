@@ -155,7 +155,7 @@ func (s *Server) archiveAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var bindings int
-	if err := s.store.db.QueryRow("SELECT count(*) FROM wecom_channels WHERE agent_id=? AND archived=0", agentID).Scan(&bindings); err != nil {
+	if err := s.store.db.QueryRow("SELECT count(*) FROM channels WHERE agent_id=? AND archived=0", agentID).Scan(&bindings); err != nil {
 		internal(w)
 		return
 	}

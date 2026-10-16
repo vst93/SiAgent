@@ -108,7 +108,7 @@ func TestChannelHistoryCleanupRetainsDedupAndStartsFreshMemberContext(t *testing
 		t.Fatal(err)
 	}
 	var member, content string
-	if err := f.store.db.QueryRow("SELECT member,content FROM wecom_inbox WHERE msg_id='400'").Scan(&member, &content); err != nil || member != "" || content != "" {
+	if err := f.store.db.QueryRow("SELECT member,content FROM channel_inbox WHERE msg_id='400'").Scan(&member, &content); err != nil || member != "" || content != "" {
 		t.Fatal("channel history content was retained")
 	}
 	f.server.runtime = f.runtime

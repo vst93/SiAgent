@@ -452,15 +452,13 @@ try {
     0,
   );
   await page.getByRole("button", { name: "上传 Skill", exact: false }).click();
-  await page
-    .getByLabel("选择技能包", { exact: true })
-    .setInputFiles({
-      name: "SKILL.md",
-      mimeType: "text/markdown",
-      buffer: Buffer.from(
-        "---\nname: disposable-skill\ndescription: Archive flow fixture.\n---\nReference only.\n",
-      ),
-    });
+  await page.getByLabel("选择技能包", { exact: true }).setInputFiles({
+    name: "SKILL.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from(
+      "---\nname: disposable-skill\ndescription: Archive flow fixture.\n---\nReference only.\n",
+    ),
+  });
   await page.getByLabel("我已确认该技能来自可信来源").check();
   await page.getByRole("button", { name: "上传并保存", exact: true }).click();
   await page
@@ -1036,6 +1034,58 @@ try {
     1,
   );
   await config("渠道接入");
+  await page.getByRole("button", { name: "新增渠道", exact: false }).click();
+  assert.equal(
+    await page.getByLabel("渠道类型", { exact: true }).inputValue(),
+    "wecom-bot",
+  );
+  assert.equal(
+    await page.getByLabel("企业 CorpID", { exact: true }).count(),
+    0,
+  );
+  await page.getByLabel("渠道名称", { exact: true }).fill("Browser bot");
+  await page.getByLabel("BotID", { exact: true }).fill("browser-bot");
+  await page
+    .getByLabel("机器人 Secret", { exact: true })
+    .fill("browser-bot-private");
+  await page.getByRole("button", { name: "保存渠道配置", exact: true }).click();
+  await page
+    .getByRole("heading", { name: "Browser bot", exact: true })
+    .waitFor();
+  assert.equal(await page.getByLabel("回调 URL", { exact: true }).count(), 0);
+  await page.getByRole("button", { name: "编辑配置", exact: true }).click();
+  assert.equal(
+    await page.getByLabel("机器人 Secret", { exact: true }).inputValue(),
+    "",
+  );
+  assert.equal(
+    await page.getByLabel("BotID", { exact: true }).isDisabled(),
+    true,
+  );
+  await page.screenshot({
+    path: join(artifacts, "channel-bot-editor-desktop.png"),
+    fullPage: true,
+  });
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    );
+    await page.screenshot({
+      path: join(artifacts, `channel-bot-editor-${width}.png`),
+      fullPage: true,
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  const genericChannels = await page.evaluate(() =>
+    fetch("/api/channels").then((response) => response.text()),
+  );
+  assert(!genericChannels.includes("browser-bot-private"));
+  await page.getByRole("button", { name: "新增渠道", exact: false }).click();
+  await page.getByLabel("渠道类型", { exact: true }).selectOption("wecom-app");
   const channelKey = Buffer.alloc(32, 7);
   const channelAES = channelKey.toString("base64").replace(/=$/, "");
   await page.getByLabel("企业 CorpID", { exact: true }).fill("wx-browser");
@@ -1045,8 +1095,9 @@ try {
     .fill("browser-channel-secret");
   await page.getByLabel("回调 Token", { exact: true }).fill("browserToken");
   await page.getByLabel("EncodingAESKey", { exact: true }).fill(channelAES);
-  await page.getByRole("button", { name: "保存企微配置", exact: true }).click();
+  await page.getByRole("button", { name: "保存渠道配置", exact: true }).click();
   await page.getByText("渠道配置已保存。", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "编辑配置", exact: true }).click();
   assert.equal(
     await page.getByLabel("应用 Secret", { exact: true }).inputValue(),
     "",
@@ -1059,6 +1110,7 @@ try {
     await page.getByLabel("EncodingAESKey", { exact: true }).inputValue(),
     "",
   );
+  await page.getByRole("button", { name: "取消", exact: true }).click();
   const callbackURL = await page
     .getByLabel("回调 URL", { exact: true })
     .inputValue();
@@ -1124,7 +1176,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert(
     await page.evaluate(() => {
-      const pane = document.querySelector(".wecom-workspace");
+      const pane = document.querySelector(".channels-workspace");
       return (
         document.documentElement.scrollWidth <= innerWidth &&
         pane.scrollWidth <= pane.clientWidth
@@ -1402,7 +1454,7 @@ try {
   await page.getByRole("heading", { name: "欢迎回来" }).waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "Browser passed: safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, WeCom configuration/masked secrets/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, no JS errors.",
+    "Browser passed: safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, no JS errors.",
   );
 } finally {
   releaseHold();

@@ -77,5 +77,8 @@ func (s *Store) migrateModelOptions() error {
 	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateChannelProviders()
 }

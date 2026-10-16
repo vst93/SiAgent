@@ -58,7 +58,7 @@ func TestVersionOneUpgradePreservesCredentialsAndHistory(t *testing.T) {
 	if err := store.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 8 {
+	if version != 9 {
 		t.Fatalf("wrong migration version: %d", version)
 	}
 	server, err := New(store, &fakeRuntime{}, func() bool { return true }, "")
@@ -95,6 +95,7 @@ func TestVersionTwoUpgradePreservesToolHistory(t *testing.T) {
 	f := newFixture(t)
 	f.setup(t)
 	f.model(t, "prior-model", "prior-secret")
+	downgradeChannelFixture(t, f.store)
 	if _, err := f.store.db.Exec(`
  DROP TABLE conversation_cleanup; ALTER TABLE models DROP COLUMN options; DROP TABLE wecom_outbox; DROP TABLE wecom_inbox; DROP TABLE wecom_sessions; DROP TABLE wecom_channels; ALTER TABLE conversations DROP COLUMN channel_id; DROP INDEX conversations_agent; ALTER TABLE conversations DROP COLUMN agent_id; ALTER TABLE agents DROP COLUMN model_id; ALTER TABLE agents DROP COLUMN archived; ALTER TABLE models DROP COLUMN archived; DROP TABLE run_sources; DROP TABLE knowledge_bindings; DROP TABLE knowledge_fts; DROP TABLE knowledge_chunks; DROP TABLE knowledge_versions; DROP TABLE knowledge_documents; DROP TABLE knowledge_bases;
  DROP TABLE agent_capabilities; DROP TABLE skills; DROP TABLE mcps;
@@ -141,6 +142,7 @@ func TestVersionThreeUpgradePreservesCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireStatus(t, f.request(t, "PUT", "/api/agent/capabilities", map[string]any{"skills": []string{skill.ID}, "mcps": []MCPBinding{{ID: config.ID, Tools: []string{"read"}}}, "confirm": true}, true, nil), 200)
+	downgradeChannelFixture(t, f.store)
 	if _, err := f.store.db.Exec(`DROP TABLE conversation_cleanup; ALTER TABLE models DROP COLUMN options; DROP TABLE wecom_outbox; DROP TABLE wecom_inbox; DROP TABLE wecom_sessions; DROP TABLE wecom_channels; ALTER TABLE conversations DROP COLUMN channel_id; DROP INDEX conversations_agent; ALTER TABLE conversations DROP COLUMN agent_id; ALTER TABLE agents DROP COLUMN model_id; ALTER TABLE agents DROP COLUMN archived; ALTER TABLE models DROP COLUMN archived; DROP TABLE run_sources; DROP TABLE knowledge_bindings; DROP TABLE knowledge_fts; DROP TABLE knowledge_chunks; DROP TABLE knowledge_versions; DROP TABLE knowledge_documents; DROP TABLE knowledge_bases; PRAGMA user_version=3;`); err != nil {
 		t.Fatal(err)
 	}
@@ -205,6 +207,7 @@ func TestVersionFourUpgradeKeepsNativeKnowledgeAndConversationOwnership(t *testi
 	if _, err := f.store.db.Exec("INSERT INTO run_sources VALUES(?,?,?)", run, reference.SourceID, string(raw)); err != nil {
 		t.Fatal(err)
 	}
+	downgradeChannelFixture(t, f.store)
 	if _, err := f.store.db.Exec(`DROP TABLE conversation_cleanup; ALTER TABLE models DROP COLUMN options; DROP TABLE wecom_outbox; DROP TABLE wecom_inbox; DROP TABLE wecom_sessions; DROP TABLE wecom_channels; ALTER TABLE conversations DROP COLUMN channel_id; DROP INDEX conversations_agent; ALTER TABLE conversations DROP COLUMN agent_id; ALTER TABLE agents DROP COLUMN model_id; ALTER TABLE agents DROP COLUMN archived; ALTER TABLE models DROP COLUMN archived; PRAGMA user_version=4;`); err != nil {
 		t.Fatal(err)
 	}
@@ -246,6 +249,7 @@ func TestVersionFiveUpgradePreservesMultipleModelsAndAgents(t *testing.T) {
 	model := createTestModel(t, f, "second", "second-secret")
 	role := saveTestAgent(t, f, Agent{Name: "Second role", Enabled: true, ModelID: model.ID})
 	conversation := agentConversation(t, f, role.ID)
+	downgradeChannelFixture(t, f.store)
 	if _, err := f.store.db.Exec(`DROP TABLE conversation_cleanup; ALTER TABLE models DROP COLUMN options; DROP TABLE wecom_outbox; DROP TABLE wecom_inbox; DROP TABLE wecom_sessions; DROP TABLE wecom_channels; ALTER TABLE conversations DROP COLUMN channel_id; PRAGMA user_version=5;`); err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +274,7 @@ func TestVersionFiveUpgradePreservesMultipleModelsAndAgents(t *testing.T) {
 		t.Fatal("channel migration changed existing conversation")
 	}
 	var channels int
-	if err := upgraded.db.QueryRow("SELECT count(*) FROM wecom_channels").Scan(&channels); err != nil || channels != 0 {
+	if err := upgraded.db.QueryRow("SELECT count(*) FROM channels").Scan(&channels); err != nil || channels != 0 {
 		t.Fatal("channel schema not initialized")
 	}
 }
@@ -281,6 +285,7 @@ func TestVersionSixUpgradeAddsMaintenanceWithoutChangingChannelCredentials(t *te
 	f.model(t, "fixture", "key")
 	channel := createChannel(t, f, false)
 	conversation := f.conversation(t)
+	downgradeChannelFixture(t, f.store)
 	if _, err := f.store.db.Exec("DROP TABLE conversation_cleanup; ALTER TABLE models DROP COLUMN options; PRAGMA user_version=6;"); err != nil {
 		t.Fatal(err)
 	}
@@ -306,5 +311,22 @@ func TestVersionSixUpgradeAddsMaintenanceWithoutChangingChannelCredentials(t *te
 	var pending int
 	if err := upgraded.db.QueryRow("SELECT count(*) FROM conversation_cleanup").Scan(&pending); err != nil || pending != 0 {
 		t.Fatal("maintenance table not initialized")
+	}
+}
+
+func downgradeChannelFixture(t *testing.T, s *Store) {
+	t.Helper()
+	_, err := s.db.Exec(`
+ DROP INDEX IF EXISTS active_channel_identity;
+ ALTER TABLE channels RENAME TO wecom_channels;
+ ALTER TABLE wecom_channels ADD COLUMN corp_id TEXT NOT NULL DEFAULT '';
+ ALTER TABLE wecom_channels ADD COLUMN app_id INTEGER NOT NULL DEFAULT 0;
+ UPDATE wecom_channels SET corp_id=json_extract(config,'$.corp_id'),app_id=CAST(json_extract(config,'$.app_id') AS INTEGER);
+ ALTER TABLE channel_sessions RENAME TO wecom_sessions;
+ ALTER TABLE channel_inbox RENAME TO wecom_inbox;
+ ALTER TABLE channel_outbox RENAME TO wecom_outbox;
+ `)
+	if err != nil {
+		t.Fatal(err)
 	}
 }

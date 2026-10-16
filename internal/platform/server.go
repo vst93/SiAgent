@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"siagent/internal/channels"
 	"siagent/internal/knowledge"
 	agentruntime "siagent/internal/runtime"
 	"siagent/internal/wecom"
@@ -24,32 +25,40 @@ import (
 
 type Runtime interface{ Send(any) error }
 type Server struct {
-	maintenanceWork  sync.Mutex
-	channelConfigMu  sync.Mutex
-	wecomClient      *wecom.Client
-	channelWork      sync.Mutex
-	store            *Store
-	runtime          Runtime
-	ready            func() bool
-	mu               sync.Mutex
-	token            string
-	publicURL        string
-	secure           bool
-	loginFailures    int
-	loginWindow      time.Time
-	limits           Limits
-	stopping         bool
-	lastStatus       time.Time
-	restarting       bool
-	schedulerCtx     context.Context
-	pendingTests     map[string]chan agentruntime.Event
-	knowledge        *knowledge.Core
-	knowledgePending map[string]context.CancelFunc
-	knowledgeWork    sync.WaitGroup
+	maintenanceWork    sync.Mutex
+	channelConfigMu    sync.Mutex
+	wecomClient        *wecom.Client
+	channelProviders   *channels.Registry
+	channelTests       map[string]bool
+	channelConnections channelConnections
+	channelWork        sync.Mutex
+	store              *Store
+	runtime            Runtime
+	ready              func() bool
+	mu                 sync.Mutex
+	token              string
+	publicURL          string
+	secure             bool
+	loginFailures      int
+	loginWindow        time.Time
+	limits             Limits
+	stopping           bool
+	lastStatus         time.Time
+	restarting         bool
+	schedulerCtx       context.Context
+	pendingTests       map[string]chan agentruntime.Event
+	knowledge          *knowledge.Core
+	knowledgePending   map[string]context.CancelFunc
+	knowledgeWork      sync.WaitGroup
 }
 
 func New(store *Store, runtime Runtime, ready func() bool, publicURL string) (*Server, error) {
 	s := &Server{wecomClient: wecom.NewClient(), pendingTests: make(map[string]chan agentruntime.Event), schedulerCtx: context.Background(), store: store, runtime: runtime, ready: ready, publicURL: strings.TrimRight(publicURL, "/")}
+	s.channelConnections.values = make(map[string]channelConnection)
+	s.channelTests = make(map[string]bool)
+	if err := s.ConfigureChannelAdapters("node", "runtime/dist/channel-wecom.js"); err != nil {
+		return nil, err
+	}
 	if publicURL != "" {
 		parsed, err := url.Parse(publicURL)
 		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
@@ -113,6 +122,14 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/skills", s.authorize(http.HandlerFunc(s.importSkill)))
 	mux.Handle("POST /api/skills/import", s.authorize(http.HandlerFunc(s.importSkill)))
 	mux.Handle("GET /api/skills/{id}/files/{path...}", s.authorize(http.HandlerFunc(s.skillFile)))
+	mux.Handle("GET /api/channel-providers", s.authorize(http.HandlerFunc(s.listChannelProviders)))
+	mux.Handle("GET /api/channels", s.authorize(http.HandlerFunc(s.listGenericChannels)))
+	mux.Handle("POST /api/channels", s.authorize(http.HandlerFunc(s.saveGenericChannel)))
+	mux.Handle("PUT /api/channels/{channel}", s.authorize(http.HandlerFunc(s.saveGenericChannel)))
+	mux.Handle("DELETE /api/channels/{channel}", s.authorize(http.HandlerFunc(s.archiveChannel)))
+	mux.Handle("POST /api/channels/{channel}/test", s.authorize(http.HandlerFunc(s.testGenericChannel)))
+	mux.Handle("GET /api/channels/{channel}/diagnostics", s.authorize(http.HandlerFunc(s.channelDiagnostics)))
+	mux.Handle("POST /api/channel-deliveries/{delivery}/retry", s.authorize(http.HandlerFunc(s.retryChannelSend)))
 	mux.Handle("GET /api/wecom/channels", s.authorize(http.HandlerFunc(s.listChannels)))
 	mux.Handle("POST /api/wecom/channels", s.authorize(http.HandlerFunc(s.saveChannel)))
 	mux.Handle("PUT /api/wecom/channels/{channel}", s.authorize(http.HandlerFunc(s.saveChannel)))

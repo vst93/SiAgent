@@ -1,6 +1,6 @@
 # 部署、停机备份与恢复
 
-平台入口为一个 Go 进程，负责私有 Node/Pi Durable 子进程及其生命周期。一个实例只使用一个数据目录。当前 schema 为 8；正式容器构建和真实企业集成尚未验收，发布状态见 [release-checklist.md](release-checklist.md)。
+平台入口为一个 Go 进程，负责私有 Node/Pi Durable 子进程、独立渠道适配进程及其生命周期。一个实例只使用一个数据目录。当前 schema 为 9；正式容器构建和真实企业集成尚未验收，发布状态见 [release-checklist.md](release-checklist.md)。
 
 ## 本地构建与启动
 
@@ -132,7 +132,7 @@ SIAGENT_PUBLIC_URL=https://agent.example.com docker compose -p siagent-restored 
 
 1. 停止完整服务，按上述步骤备份数据，并保留可运行的旧二进制/依赖或镜像版本。
 2. 在隔离副本中用目标版本验证迁移和业务读取；涉及外部收发时使用独立测试应用或断开网络。
-3. 确认后升级正式实例。平台 schema 1–7 会迁移至 8；更高版本数据库拒绝打开，主密钥缺失或密文不能解密时拒绝启动。
+3. 确认后升级正式实例。平台 schema 1–8 会迁移至 9；更高版本数据库拒绝打开，主密钥缺失或密文不能解密时拒绝启动。
 4. 升级失败时停止新版本，保留故障目录供诊断，切回旧版本并恢复**升级前完整备份**至空目录。不要用旧程序直接打开升级后的数据，也不要只回退 SQLite 单文件。
 
 异常退出后的未完成任务会标为中断；结果不明的 MCP 调用和企微发送不自动重放。平台只对确定性的本地知识处理进行安全恢复，不承诺透明恢复外部副作用。
@@ -166,3 +166,13 @@ python3 tests/container.py --image siagent:check
 默认 Compose 使用 json-file 日志驱动，每份最大 10m，最多 3 份。裸进程只输出到标准错误，应由宿主的服务管理器配置保留与轮转；不在数据目录另建无界日志文件。反向代理的回调路径示例关闭访问日志，避免 URL 验证的 echostr 密文落入请求 URL 日志。
 
 `DELETE /api/conversations/{id}` 要求登录、CSRF 及 `{"confirm":true}`，接受后返回 202；`GET /api/storage` 同样要求登录。schema 7 保存清理请求；升级前备份完整目录，回退仍须使用升级前备份。
+
+## 聊天渠道适配器
+
+企微智能机器人使用出站 WebSocket 长连接，不要求公网回调或设置 `SIAGENT_PUBLIC_URL`。镜像已安装固定版本官方 SDK，正常构建即可使用 BotID 与 Secret；旧自建应用仍需公网 HTTPS 回调。参见 [channels.md](channels.md)。
+
+额外可信包安装在 `<data>/channel-adapters/<package>/`，重启后发现。格式错误的包会跳过并记录安装错误；连接或适配进程异常不停止基础 Web 对话。平台不自动下载包或执行依赖安装脚本。包含安装代码和依赖的整个数据目录仍应停机备份；重建容器后会重新加载这些包。协议及限制见 [channel-adapters.md](channel-adapters.md)。
+
+`-channel-worker` / `SIAGENT_CHANNEL_WORKER` 可独立指定内置机器人传输入口，默认 `runtime/dist/channel-wecom.js`；修改模型 `-runtime` 不改变渠道入口。Node 路径复用 `-node`。每个启用的进程适配渠道使用独立 Node 进程，应按实际渠道数量准备内存。停用后关闭对应连接和进程。
+
+schema 8 → 9 迁移保留旧渠道、会话及出站状态。升级前停止 Go 及其所有子进程并完整备份；旧二进制不能直接打开新数据库，回退必须恢复旧完整备份。

@@ -28,7 +28,7 @@ export const configSections = [
   {
     id: "channels",
     title: "渠道接入",
-    description: "配置企业微信内部应用，将消息交给指定 Agent。",
+    description: "选择聊天渠道适配器，连接消息平台并绑定 Agent。",
     icon: "⇄",
   },
   {

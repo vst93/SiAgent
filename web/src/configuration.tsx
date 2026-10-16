@@ -3,7 +3,7 @@ import { AgentWorkspace, type Agent, type Model } from "./agents";
 import { ModelsWorkspace } from "./models";
 import { KnowledgeWorkspace } from "./knowledge";
 import { PluginsWorkspace } from "./plugins";
-import { WecomWorkspace } from "./wecom";
+import { ChannelsWorkspace } from "./channels";
 import { ExecutionSettings } from "./runtime-controls";
 import { configSections, type ConfigSection, type Page } from "./navigation";
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
@@ -96,7 +96,7 @@ export function Configuration({
           {section === "knowledge" && <KnowledgeWorkspace request={request} />}
           {section === "tools" && <PluginsWorkspace request={request} />}
           {section === "channels" && (
-            <WecomWorkspace
+            <ChannelsWorkspace
               request={request}
               agents={agents}
               onConversation={onConversation}

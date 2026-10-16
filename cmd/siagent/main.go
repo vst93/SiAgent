@@ -32,6 +32,7 @@ func run() error {
 	publicURL := flag.String("public-url", env("SIAGENT_PUBLIC_URL", ""), "public HTTP(S) origin; HTTPS enables Secure cookies")
 	script := flag.String("runtime", "runtime/dist/index.js", "runtime adapter entrypoint")
 	node := flag.String("node", "node", "Node.js executable")
+	channelWorker := flag.String("channel-worker", env("SIAGENT_CHANNEL_WORKER", "runtime/dist/channel-wecom.js"), "built-in channel transport entrypoint")
 	probe := flag.String("probe", "", "run a model prompt through the private protocol, then exit")
 	conversation := flag.String("conversation", "probe", "probe conversation identifier")
 	tool := flag.Bool("probe-tool", false, "explicitly enable the harmless add tool for a probe")
@@ -105,6 +106,9 @@ func run() error {
 	defer store.Close()
 	api, err := platform.New(store, supervisor, supervisor.Ready.Load, *publicURL)
 	if err != nil {
+		return err
+	}
+	if err := api.ConfigureChannelAdapters(*node, *channelWorker); err != nil {
 		return err
 	}
 	if token := api.SetupToken(); token != "" {

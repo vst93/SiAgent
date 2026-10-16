@@ -38,7 +38,7 @@ func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var busy int
-	if err := s.store.db.QueryRow(`SELECT (SELECT count(*) FROM runs WHERE conversation_id=? AND (released=0 OR status IN ('queued','running','cancelling'))) + (SELECT count(*) FROM wecom_inbox WHERE conversation_id=? AND finalized=0) + (SELECT count(*) FROM wecom_outbox o JOIN wecom_inbox i ON i.id=o.inbox_id WHERE i.conversation_id=? AND o.state IN ('pending','retry','sending'))`, conversation, conversation, conversation).Scan(&busy); err != nil {
+	if err := s.store.db.QueryRow(`SELECT (SELECT count(*) FROM runs WHERE conversation_id=? AND (released=0 OR status IN ('queued','running','cancelling'))) + (SELECT count(*) FROM channel_inbox WHERE conversation_id=? AND finalized=0) + (SELECT count(*) FROM channel_outbox o JOIN channel_inbox i ON i.id=o.inbox_id WHERE i.conversation_id=? AND o.state IN ('pending','retry','sending'))`, conversation, conversation, conversation).Scan(&busy); err != nil {
 		internal(w)
 		return
 	}
@@ -53,7 +53,7 @@ func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 	if _, err = tx.Exec("INSERT OR IGNORE INTO conversation_cleanup(conversation_id,created) VALUES(?,?)", conversation, time.Now().UnixMilli()); err == nil {
-		_, err = tx.Exec("DELETE FROM wecom_sessions WHERE conversation_id=?", conversation)
+		_, err = tx.Exec("DELETE FROM channel_sessions WHERE conversation_id=?", conversation)
 	}
 	if err != nil || tx.Commit() != nil {
 		internal(w)
@@ -117,9 +117,9 @@ func (s *Server) MaintenanceTick(ctx context.Context) error {
 	for _, query := range []string{
 		"DELETE FROM messages WHERE conversation_id=?",
 		"DELETE FROM runs WHERE conversation_id=?",
-		"DELETE FROM wecom_outbox WHERE inbox_id IN (SELECT id FROM wecom_inbox WHERE conversation_id=?)",
-		"UPDATE wecom_inbox SET content='',member='',agent_id='',run_id='',conversation_id='',error='管理员已清理会话历史，去重标识保留。',state='rejected',finalized=1,hinted=1 WHERE conversation_id=?",
-		"DELETE FROM wecom_sessions WHERE conversation_id=?",
+		"DELETE FROM channel_outbox WHERE inbox_id IN (SELECT id FROM channel_inbox WHERE conversation_id=?)",
+		"UPDATE channel_inbox SET content='',member='',reply_context='{}',agent_id='',run_id='',conversation_id='',error='管理员已清理会话历史，去重标识保留。',state='rejected',finalized=1,hinted=1 WHERE conversation_id=?",
+		"DELETE FROM channel_sessions WHERE conversation_id=?",
 		"DELETE FROM conversations WHERE id=?",
 		"DELETE FROM conversation_cleanup WHERE conversation_id=?",
 	} {

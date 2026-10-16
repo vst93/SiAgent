@@ -4,7 +4,7 @@
 
 当前已实现内部使用路径，并完成阶段三运行可靠性及阶段四 Skills / MCP、阶段五原生知识库的本地功能：**启动 → 使用首次令牌设置管理员密码 → 配置模型 → 默认助手对话**。支持 Web 流式 Markdown 回答、取消、按当前配置获取模型列表与下拉选择、模型连接测试、助手指令与启停、会话历史和重启后继续对话。
 
-可按需上传 Skills 技能包或本机文件夹、连接 stdio / Streamable HTTP MCP，并逐项授权给指定助手。知识库支持独立管理、文档处理、中英文全文检索和可打开的回答来源，不依赖 MCP。企业微信内部自建应用已实现配置、加密回调、成员会话及异步投递，并通过本地完整链路验证；真实企业收发、外部模型及第三方 MCP 兼容性仍待验收。实现进度见 [docs/progress.md](docs/progress.md)。
+可按需上传 Skills 技能包或本机文件夹、连接 stdio / Streamable HTTP MCP，并逐项授权给指定助手。知识库支持独立管理、文档处理、中英文全文检索和可打开的回答来源，不依赖 MCP。渠道采用可插拔适配器，内置基于官方 SDK 的企微智能机器人长连接（BotID/Secret）与兼容自建应用；通用消息底座统一管理会话、去重、任务和投递，并通过本地协议链路验证；真实企业收发、外部模型及第三方 MCP 兼容性仍待验收。实现进度见 [docs/progress.md](docs/progress.md)；企微配置及扩展见 [渠道说明](docs/channels.md)。
 
 ## 本地启动
 
@@ -49,6 +49,7 @@ docker compose logs siagent
 | `SIAGENT_PUBLIC_URL` / `-public-url` | 空 | 浏览器源地址；HTTPS 时启用 Secure Cookie |
 | `-runtime` | `runtime/dist/index.js` | Runtime 入口 |
 | `-node` | `node` | Node.js 可执行文件 |
+| `SIAGENT_CHANNEL_WORKER` / `-channel-worker` | `runtime/dist/channel-wecom.js` | 独立的内置渠道传输入口 |
 
 健康检查：`/health/live` 表示 Go 存活，`/health/ready` 表示 Runtime 就绪，均不检查外部模型。模型可用性在设置中单独测试。Runtime 异常退出最多退避重启 3 次，耗尽后整个平台退出；运行结果不明时标记中断，不自动重试。
 
@@ -64,11 +65,12 @@ docker compose logs siagent
   skills/<id>/                  系统管理的 Skill 目录：指令、脚本与参考文件
   knowledge/<document>/<version>/ Go 管理的原文件、解析文本；索引及元数据在平台数据库
   knowledge/staging/            临时上传，未提交残留在启动时清理
+  channel-adapters/<package>/    可选可信渠道适配包，启动时发现，包含清单和依赖
   workspaces/<agent_id>/        各助手独立的本地 MCP 工作目录；不是操作系统沙箱
   workspaces/connection-tests/   MCP 连接测试工作目录
 ```
 
-平台数据库当前版本为 **8**。从版本 1–7 升级时自动迁移，已验证管理员、模型密钥、消息、既有工具历史、Skills/MCP 授权、知识库及来源保留，历史会话归属默认助手，版本 6 增加企微渠道与永久会话来源，版本 7 增加持久化会话清理，版本 8 增加模型协议与生成参数；升级前先停机备份完整数据目录。迁移后旧版程序不能直接打开该数据库，回退需要恢复升级前的完整备份。
+平台数据库当前版本为 **9**。从版本 1–8 升级时自动迁移，已验证管理员、模型密钥、消息、既有工具历史、Skills/MCP 授权、知识库及来源保留，历史会话归属默认助手，版本 6 增加企微渠道与永久会话来源，版本 7 增加持久化会话清理，版本 8 增加模型协议与生成参数，版本 9 迁移为通用渠道表并保留旧企微记录；升级前先停机备份完整数据目录。迁移后旧版程序不能直接打开该数据库，回退需要恢复升级前的完整备份。
 
 两个模块的 SQLite 均启用 WAL。数据目录创建权限为 0700，进程 umask 为 0077。主密钥独立保存，模型密钥、MCP 环境变量/请求头、企微 Secret/Token/AES Key 及任务凭据快照使用 AES-256-GCM 加密；完整备份被读取时，这种加密不能保护其中的密钥。
 

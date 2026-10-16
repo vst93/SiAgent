@@ -104,21 +104,3 @@ type Message struct {
 func ValidMember(value string) bool {
 	return value != "" && !strings.EqualFold(value, "@all") && len(value) <= 256 && utf8.ValidString(value) && !strings.ContainsAny(value, "|;\x00\r\n") && strings.TrimSpace(value) == value
 }
-
-// Split preserves UTF-8 boundaries and leaves room for part counters below 2048 bytes.
-func Split(text string) []string {
-	const budget = 1800
-	parts := []string{}
-	for len(text) > 0 && len(parts) < 64 {
-		end := min(budget, len(text))
-		for end < len(text) && !utf8.RuneStart(text[end]) {
-			end--
-		}
-		parts = append(parts, text[:end])
-		text = text[end:]
-	}
-	if text != "" {
-		parts[len(parts)-1] = "回复过长，剩余内容未发送。请联系管理员在工作台查看完整回复。"
-	}
-	return parts
-}

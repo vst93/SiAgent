@@ -128,7 +128,7 @@ export function ConversationMaintenance({
             此操作将永久删除消息、运行与工具记录，以及模型上下文。已发生的外部操作不会撤销。
           </p>
           <p className="muted">
-            请先等待或取消未完成的任务；有待发送回复的对话暂不能删除。企微消息的去重标识会保留。
+            请先等待或取消未完成的任务；有待发送回复的对话暂不能删除。渠道消息的去重标识会保留。
           </p>
           <label className="checkbox-label">
             <input

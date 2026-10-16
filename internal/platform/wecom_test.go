@@ -229,19 +229,19 @@ func TestWecomHintRetryUnknownAndRecoveryNeverReplay(t *testing.T) {
 		t.Fatal("unknown outcome retried or later segment was sent")
 	}
 	var unknown, blocked int
-	if err := f.store.db.QueryRow("SELECT count(*) FROM wecom_outbox WHERE state='unknown'").Scan(&unknown); err != nil {
+	if err := f.store.db.QueryRow("SELECT count(*) FROM channel_outbox WHERE state='unknown'").Scan(&unknown); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.store.db.QueryRow("SELECT count(*) FROM wecom_outbox WHERE state='blocked'").Scan(&blocked); err != nil {
+	if err := f.store.db.QueryRow("SELECT count(*) FROM channel_outbox WHERE state='blocked'").Scan(&blocked); err != nil {
 		t.Fatal(err)
 	}
 	if unknown != 1 || blocked < 1 {
 		t.Fatal("unknown outcome did not stop remaining parts")
 	}
 	var delivery string
-	f.store.db.QueryRow("SELECT id FROM wecom_outbox WHERE state='unknown'").Scan(&delivery)
+	f.store.db.QueryRow("SELECT id FROM channel_outbox WHERE state='unknown'").Scan(&delivery)
 	requireStatus(t, f.request(t, "POST", "/api/wecom/deliveries/"+delivery+"/retry", nil, true, nil), 409)
-	if _, err := f.store.db.Exec("UPDATE wecom_outbox SET state='sending' WHERE id=?", delivery); err != nil {
+	if _, err := f.store.db.Exec("UPDATE channel_outbox SET state='sending' WHERE id=?", delivery); err != nil {
 		t.Fatal(err)
 	}
 	requireStatus(t, callback(t, f, c, "101", "member", "not admitted yet"), 200)
@@ -253,11 +253,11 @@ func TestWecomHintRetryUnknownAndRecoveryNeverReplay(t *testing.T) {
 	endpointClient := wecom.NewClient()
 	endpointClient.HTTP.Transport = f.server.wecomClient.HTTP.Transport
 	_ = endpointClient
-	if err := f.store.db.QueryRow("SELECT count(*) FROM wecom_outbox WHERE state='unknown'").Scan(&unknown); err != nil || unknown != 1 {
+	if err := f.store.db.QueryRow("SELECT count(*) FROM channel_outbox WHERE state='unknown'").Scan(&unknown); err != nil || unknown != 1 {
 		t.Fatal("sending recovered as retryable")
 	}
 	var state string
-	f.store.db.QueryRow("SELECT state FROM wecom_inbox WHERE msg_id='101'").Scan(&state)
+	f.store.db.QueryRow("SELECT state FROM channel_inbox WHERE msg_id='101'").Scan(&state)
 	if state != "rejected" || len(f.runtime.requests) != 1 {
 		t.Fatal("restart replayed pending admission")
 	}
@@ -285,7 +285,7 @@ func TestWecomChannelBindingAndArchiveGuards(t *testing.T) {
 		t.Fatal("blank update did not preserve encrypted credential")
 	}
 	var stored string
-	if err := f.store.db.QueryRow("SELECT secrets FROM wecom_channels WHERE id=?", c.ID).Scan(&stored); err != nil || strings.Contains(stored, "channel-secret") {
+	if err := f.store.db.QueryRow("SELECT secrets FROM channels WHERE id=?", c.ID).Scan(&stored); err != nil || strings.Contains(stored, "channel-secret") {
 		t.Fatal("channel credential saved in plaintext")
 	}
 }
@@ -301,7 +301,7 @@ func TestWecomKnownFailureCanRetryDeliveryWithoutAnotherRun(t *testing.T) {
 	modes <- "fail"
 	tickChannel(t, f, time.Now())
 	var delivery string
-	f.store.db.QueryRow("SELECT id FROM wecom_outbox WHERE state='failed'").Scan(&delivery)
+	f.store.db.QueryRow("SELECT id FROM channel_outbox WHERE state='failed'").Scan(&delivery)
 	if delivery == "" {
 		t.Fatal("known rejection did not fail")
 	}
@@ -322,14 +322,14 @@ func TestWecomRetryLimitAndDisabledDelivery(t *testing.T) {
 	requireStatus(t, callback(t, f, c, "901", "member", "question"), 200)
 	tickChannel(t, f, now)
 	completeChannelRun(t, f, f.runtime.requests[0]["run_id"].(string), "reply")
-	if _, err := f.store.db.Exec("UPDATE wecom_channels SET enabled=0 WHERE id=?", c.ID); err != nil {
+	if _, err := f.store.db.Exec("UPDATE channels SET enabled=0 WHERE id=?", c.ID); err != nil {
 		t.Fatal(err)
 	}
 	tickChannel(t, f, now)
 	if len(sent) != 0 {
 		t.Fatal("disabled channel sent a reply")
 	}
-	if _, err := f.store.db.Exec("UPDATE wecom_channels SET enabled=1 WHERE id=?", c.ID); err != nil {
+	if _, err := f.store.db.Exec("UPDATE channels SET enabled=1 WHERE id=?", c.ID); err != nil {
 		t.Fatal(err)
 	}
 	for _, delay := range []time.Duration{0, 3 * time.Second, 10 * time.Second} {
@@ -341,7 +341,7 @@ func TestWecomRetryLimitAndDisabledDelivery(t *testing.T) {
 		t.Fatal("retry limit did not bound attempts")
 	}
 	var failed int
-	f.store.db.QueryRow("SELECT count(*) FROM wecom_outbox WHERE state='failed' AND attempts=3").Scan(&failed)
+	f.store.db.QueryRow("SELECT count(*) FROM channel_outbox WHERE state='failed' AND attempts=3").Scan(&failed)
 	if failed != 1 {
 		t.Fatal("retry exhaustion not marked failed")
 	}

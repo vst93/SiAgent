@@ -14,7 +14,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 )
 
 func encrypted(key []byte, corp, text string) string {
@@ -123,22 +122,6 @@ func TestHTTPClientOutcomeAndTokenCache(t *testing.T) {
 	}
 	if result := client.Send(context.Background(), a, "@all", "bad"); result.State != "failed" || sends != 7 {
 		t.Fatal("broadcast recipient reached API")
-	}
-}
-func TestMessageSplitUTF8BoundedAndTruncationExplicit(t *testing.T) {
-	text := strings.Repeat("中文🙂", 2000)
-	parts := Split(text)
-	if strings.Join(parts, "") != text {
-		t.Fatal("split lost text")
-	}
-	for _, part := range parts {
-		if len(part) > 1800 || !utf8.ValidString(part) {
-			t.Fatal("invalid split")
-		}
-	}
-	huge := Split(strings.Repeat("x", 200000))
-	if len(huge) != 64 || !strings.Contains(huge[63], "剩余内容未发送") {
-		t.Fatal("unbounded or silent truncation")
 	}
 }
 func TestTokenRequestCancellationIsSafeToRetry(t *testing.T) {

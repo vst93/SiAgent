@@ -192,7 +192,7 @@ export function ChatWorkspace({
                 ◌
               </span>
               <span>{item.title}</span>
-              {item.channel_id && <small className="channel-tag">企微</small>}
+              {item.channel_id && <small className="channel-tag">渠道</small>}
             </button>
           ))}
           {!conversations.length && (
@@ -448,7 +448,7 @@ export function ChatWorkspace({
               </form>
               {snapshot?.conversation.channel_id && (
                 <p className="context-warning">
-                  企微会话仅供查看和取消任务，请在企微发送消息。新建对话可独立测试助手。
+                  渠道会话仅供查看和取消任务，请在原聊天平台发送消息。新建对话可独立测试助手。
                 </p>
               )}
 
