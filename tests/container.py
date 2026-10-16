@@ -119,7 +119,7 @@ class Deployment:
         else:
             name = self.prefix + '-' + role
             self.containers.append(name)
-            self.docker('run', '-d', '--pull', 'never', '--init', '--name', name, '--network', self.network, '-p', '127.0.0.1::8080', '--mount', f'type=volume,source={name},target=/data', self.image, stdout=subprocess.DEVNULL)
+            self.docker('run', '-d', '--pull', 'never', '--init', '--name', name, '--network', self.network, '-e', 'NO_PROXY=*', '-e', 'no_proxy=*', '-p', '127.0.0.1::8080', '--mount', f'type=volume,source={name},target=/data', self.image, stdout=subprocess.DEVNULL)
             address = self.docker('port', name, '8080/tcp', stdout=subprocess.PIPE).stdout.decode().strip()
         api = API('http://' + address)
         deadline = time.monotonic() + 40

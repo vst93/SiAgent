@@ -1,6 +1,6 @@
 # 部署、停机备份与恢复
 
-平台入口为一个 Go 进程，负责私有 Node/Pi Durable 子进程、独立渠道适配进程及其生命周期。一个实例只使用一个数据目录。当前 schema 为 10；正式容器构建和真实企业集成尚未验收，发布状态见 [release-checklist.md](release-checklist.md)。
+平台入口为一个 Go 进程，负责私有 Node/Pi Durable 子进程、独立渠道适配进程及其生命周期。一个实例只使用一个数据目录。当前 schema 为 10；容器业务与卷备份恢复已通过本地 Docker 29 验收，真实企业集成尚未验收，发布状态见 [release-checklist.md](release-checklist.md)。
 
 ## 本地构建与启动
 
@@ -34,7 +34,7 @@ docker compose logs -f siagent
 
 默认只向宿主机 `127.0.0.1:8080` 发布端口，数据在 Compose 命名卷。容器以 `node` 用户运行，包含 Node Runtime、嵌入前端的 Go 程序和 Poppler；不需要外部数据库。停止宽限时间为 15 秒，停机等待 Go 及 Runtime 收尾。
 
-这些容器配置已纳入 CI 构建/HEALTHCHECK/非 root/0700 权限/Poppler/跨容器重建及跨数据卷备份恢复检查，但本机无 Docker，**本地未实际构建或运行容器，新增 CI 也尚无云端运行结果**。
+容器业务已在本机 Docker 29 通过 `tests/container.py`：HEALTHCHECK、非 root/0700 权限、Poppler、真实 Runtime 对话、跨容器重建及跨数据卷备份恢复均通过。本地因 Go Bookworm 镜像下载停滞，使用缓存的 Go 1.26 Alpine 编译阶段生成同样的 CGO_ENABLED=0 静态程序，最终运行镜像仍为 Node 24.22.0 Bookworm；[GitHub CI](https://github.com/vst93/SiAgent/actions/runs/38946294294) 已通过仓库正式 Dockerfile 的完整构建及容器业务/卷恢复验收。测试服务直连同一网络的模型协议服务，不依赖宿主 Docker 客户端注入的代理。
 
 公网使用 HTTPS 反向代理，并在 Compose 环境中设置浏览器实际源地址：
 

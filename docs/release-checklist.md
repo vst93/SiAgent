@@ -1,11 +1,11 @@
 # 发布检查
 
-当前可以作为本地验证过的内部候选版本，**尚未满足正式发布验收**。真实企业微信、真实模型/第三方 MCP 兼容性及 Docker 实际运行仍缺环境证据；不能用协议测试服务或 CI 配置文件代替实际运行结果。
+当前可以作为本地验证过的内部候选版本，**尚未满足正式发布验收**。真实企业微信、真实模型/第三方 MCP 兼容性仍缺环境证据；不能用协议测试服务或 CI 配置文件代替实际运行结果。
 
 ## 已有本地证据
 
 - [x] `make install` / `make build`，固定 Runtime SDK 及 lockfile 依赖，前端由 Go 嵌入。
-- [x] `make test`：19 项 Runtime 测试及全部 Go 竞态检查，包含真实 Node/Pi Durable 的企微本地完整链路。
+- [x] `make test`：37 项 Runtime 测试及全部 Go 竞态检查，包含真实 Node/Pi Durable 的企微本地完整链路。
 - [x] `go vet ./...` 及 Linux amd64 `CGO_ENABLED=0` 交叉编译。
 - [x] `python3 tests/e2e.py`：首次配置、认证、真实 Runtime、排队/取消/超时、中断不重放、MCP 清理、知识库及多助手。
 - [x] 同一进程测试完成整个 Go/Node 停机、完整归档、逐文件 SHA-256 核对、新目录恢复、原账户新登录、原密钥/文件/来源恢复和原 Runtime 上下文续聊。
@@ -28,16 +28,16 @@
 
 共享验收流程已通过 `python3 tests/container.py --local` 在真实 Go/Node 进程上的配置、对话、完整归档、逐文件校验、新目录恢复和上下文续聊检查。此模式不执行 Docker，也不验证容器权限或网络。
 
-Docker 环境可运行 `make test-container`，或在已有 `siagent:check` 镜像时运行 `python3 tests/container.py --image siagent:check`。脚本使用独立内部网络、本地模型协议服务及两份临时命名卷，结束后清理本次创建的资源，不访问现有业务数据卷。
+Docker 环境可运行 `make test-container`，或在已有 `siagent:check` 镜像时运行 `python3 tests/container.py --image siagent:check`。脚本使用独立测试网络、本地模型协议服务和两份临时命名卷；应用 API 仅绑定 127.0.0.1，模型请求直连测试服务。结束后清理本次创建的资源，不访问现有业务数据卷。
 
-该工作流尚未提交或在云端运行；本机没有 Docker，容器检查仍待实际执行。待 CI 有运行记录后，将链接、构建摘要及失败修复记录填入本清单。
+工作流已经提交并执行。已修复 macOS 临时目录符号链接、Windows 测试修改 SystemRoot/脚本作用域和 Docker 29 内部网络不发布端口的问题；[Linux/macOS/Windows 安装器检查](https://github.com/vst93/SiAgent/actions/runs/38947185059) 已全部通过。`tests/container.py --image siagent:agent-policy-ci` 已在本地 Docker 29 完成真实卷验收；编译阶段差异见 [部署说明](deployment.md)。[完整云端检查](https://github.com/vst93/SiAgent/actions/runs/38946294294) 已通过构建、打包安装、Go/Runtime、进程 E2E、浏览器、vet、正式 Dockerfile 构建及真实容器卷验收。
 
 ## 正式发布前仍需补齐
 
 | 检查 | 当前状态 | 需要的证据 |
 | --- | --- | --- |
-| 干净 Linux 构建/运行 | 已交叉编译，CI 待运行 | 新环境安装、启动、登录与基本对话 |
-| Docker 构建及真实持久化卷 | 未执行 | 构建成功、健康检查、非 root、重启后数据保留、卷备份/恢复 |
+| 干净 Linux 构建/运行 | GitHub CI 已通过 Linux 打包、私有 Node 与安装启动检查 | 独立生产环境的登录与业务验收 |
+| Docker 构建及真实持久化卷 | 本地 Docker 29 与云端 CI 业务、重建及真实卷恢复通过 | 生产宿主部署验收 |
 | 真实模型服务 | 未执行 | 指定供应商和版本下文本、工具、取消、错误处理及脱敏记录 |
 | 第三方 MCP | 未执行 | 指定 stdio/HTTP 产品版本、工具授权和结果不明处理 |
 | 企业微信实际收发 | 未执行 | [wecom-validation.md](wecom-validation.md) 的官方回调、成员实际收到回复等证据 |
