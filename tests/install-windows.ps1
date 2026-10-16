@@ -46,7 +46,8 @@ public class FakeWSL {
     }
     $env:LOCALAPPDATA = Join-Path $root 'local app data'
     $env:SIAGENT_WSL_TEST_LOG = Join-Path $root 'wsl.log'
-    $script:badChecksum = $false
+    # Inherit the fixture flag; $script: in the invoked installer is a different scope.
+    $badChecksum = $false
     function Invoke-RestMethod { param($Uri, $Headers); return @{ tag_name = 'v1.2.3' } }
     function Invoke-WebRequest {
         param([switch]$UseBasicParsing, $Uri, $OutFile)
@@ -55,7 +56,7 @@ public class FakeWSL {
         }
         elseif ($Uri -like '*/SHA256SUMS') {
             $hash = (Get-FileHash (Join-Path $project 'scripts/install.sh') -Algorithm SHA256).Hash
-            if ($script:badChecksum) { $hash = '0' * 64 }
+            if ($badChecksum) { $hash = '0' * 64 }
             return @{ Content = "$hash  ./install.sh`n" }
         }
         else { throw "Unexpected download: $Uri" }
@@ -65,7 +66,7 @@ public class FakeWSL {
     $before = Get-Content -LiteralPath $shim -Raw
     if (-not $before.Contains('"/home/test-user/.local/bin/siagent" %*')) { throw 'Wrong Windows command shim' }
     if (-not $before.Contains('REM SiAgent WSL launcher')) { throw 'Missing shim ownership marker' }
-    $script:badChecksum = $true
+    $badChecksum = $true
     $failed = $false
     try { & (Join-Path $project 'scripts/install.ps1') -Version v1.2.3 -NoModifyPath }
     catch { if ($_.Exception.Message -notlike '*SHA-256 mismatch*') { throw }; $failed = $true }
