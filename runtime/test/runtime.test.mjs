@@ -20,7 +20,7 @@ async function fixture(t) {
     for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw);
     requests.push({ ...body, authorization: req.headers.authorization });
-    if (req.headers.authorization === 'Bearer rejected') {
+    if (req.headers.authorization === 'Bearer rejected' || (body.model === 'summary-fails' && body.messages.some(message => message.role === 'system' && JSON.stringify(message.content).includes('context summarization assistant')))) {
       res.writeHead(401, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: { message: 'Incorrect API key', type: 'invalid_api_key' } }));
       return;
@@ -28,7 +28,11 @@ async function fixture(t) {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (delta, finish_reason = null) => res.write(`data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture', choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
     send({ role: 'assistant', content: '' });
+    if (body.messages.some(message => message.role === 'system' && JSON.stringify(message.content).includes('context summarization assistant'))) {
+      send({content:'Checkpoint summary: previous facts are retained.'}); send({},'stop'); res.end('data: [DONE]\n\n'); return;
+    }
     const last = body.messages.at(-1);
+    if(last?.content === 'think') send({reasoning_content:'A provider reasoning summary.'});
     if (last?.content === 'hang') { send({ content: 'partial' }); return; }
     if (last?.content === 'fail') { res.end('data: invalid-json\n\n'); return; }
     if (last?.content?.startsWith('mcp:')) {
@@ -169,7 +173,7 @@ test('SIGKILL recovery marks interrupted without issuing another model request',
   reopened.send('start', { run_id: 'next', conversation_id: 'chat', input: 'hello' });
   const result = await reopened.wait(terminal('next'));
   assert.equal(result.type, 'run_completed');
-  assert.match(JSON.stringify(result.data.entries), /hang/);
+  assert(f.requests.at(-1).messages.some(message => message.role === "user" && message.content === "hang"));
   assert.equal(f.requests.length, 2);
 });
 
@@ -435,4 +439,83 @@ test('model Token window allows inputs beyond the deprecated byte limit', {timeo
  const f=await fixture(t);const r=f.start();await r.wait(e=>e.type==='ready');
  r.send('start',{run_id:'long-context',conversation_id:'long-context',input:'x'.repeat(30000),model:{base_url:f.baseUrl,name:'fixture',api_key:'test-only',options:{context_window:131072,max_tokens:4096}},limits:{context_bytes:1024}});
  const result=await r.wait(terminal('long-context'));assert.equal(result.type,'run_completed');assert.equal(f.requests.length,1);
+});
+
+
+test('configured recent context trims model requests while durable history remains and tools stay paired', { timeout: 30000 }, async t => {
+ const f=await fixture(t);const r=f.start();await r.wait(e=>e.type==='ready');
+ for(const [run,input,probe] of [['old','old fact',false],['tool-turn','tool',true],['current','new question',false]]){
+  r.send('start',{run_id:run,conversation_id:'bounded',input,probe_tool:probe,context_policy:{strategy:'recent',max_turns:2}});
+  assert.equal((await r.wait(terminal(run))).type,'run_completed');await r.wait(e=>e.run_id===run&&e.type==='run_released');
+ }
+ const messages=f.requests.at(-1).messages;
+ assert(!messages.some(m=>m.role==='user'&&m.content==='old fact'));
+ assert(messages.some(m=>m.role==='assistant'&&m.tool_calls?.length));
+ assert(messages.some(m=>m.role==='tool'));
+ r.send('start',{run_id:'restore-full',conversation_id:'bounded',input:'show history',context_policy:{strategy:'full'}});
+ assert.equal((await r.wait(terminal('restore-full'))).type,'run_completed');
+ assert(f.requests.at(-1).messages.some(m=>m.role==='user'&&m.content==='old fact'));
+});
+
+test('reasoning output is opt-in and provider summaries never mix into the final answer', { timeout: 30000 }, async t => {
+ const f=await fixture(t);const r=f.start();await r.wait(e=>e.type==='ready');
+ const model={name:'fixture',base_url:f.baseUrl,api_key:'test-only',options:{reasoning:true,thinking_level:'low'}};
+ for (const thinking of [false,true]) {
+  const run='thinking-'+thinking;
+  r.send('start',{run_id:run,conversation_id:run,input:'think',model,output_policy:{thinking,tools:'summary',sources:true,progress:true}});
+  const result=await r.wait(terminal(run));assert.equal(result.type,'run_completed');assert.equal(result.data.answer,'hello');
+  await r.wait(e=>e.run_id===run&&e.type==='run_released');
+  const thoughts=r.events.filter(e=>e.run_id===run&&e.type==='thinking_delta').map(e=>e.data.text).join('');
+  assert.equal(thoughts,thinking?'A provider reasoning summary.':'');
+ }
+});
+
+test('automatic summary compacts older context and preserves recent verbatim text across restart', { timeout: 60000 }, async t => {
+ const f=await fixture(t);const r=f.start();await r.wait(e=>e.type==='ready');
+ const model={name:'fixture',base_url:f.baseUrl,api_key:'test-only',options:{context_window:4096,max_tokens:256}};
+ for(let index=0;index<9;index++){
+  const run='summary-'+index;
+  r.send('start',{run_id:run,conversation_id:'summarized',input:`fact-${index}: `+'historical details '.repeat(70),model,context_policy:{strategy:'summary',summary_threshold:50,keep_recent_tokens:256}});
+  const result=await r.wait(terminal(run));assert.equal(result.type,'run_completed',JSON.stringify(result.data));
+  await r.wait(e=>e.run_id===run&&e.type==='run_released');
+ }
+ assert(r.events.some(e=>e.type==='compaction_start'));
+ assert(r.events.some(e=>e.type==='compaction_end'));
+ assert(f.requests.some(request=>request.messages.some(m=>JSON.stringify(m.content).includes('Checkpoint summary: previous facts'))));
+ const closed=once(r.child,'close');r.child.kill('SIGTERM');await closed;
+ const reopened=f.start();await reopened.wait(e=>e.type==='ready');
+ reopened.send('start',{run_id:'after-summary-restart',conversation_id:'summarized',input:'continue',model,context_policy:{strategy:'summary',summary_threshold:50,keep_recent_tokens:256}});
+ assert.equal((await reopened.wait(terminal('after-summary-restart'))).type,'run_completed');
+ assert(f.requests.at(-1).messages.some(m=>JSON.stringify(m.content).includes('Checkpoint summary: previous facts')));
+});
+
+
+test('failed summarization stops without silently dropping history or retrying the request', { timeout: 30000 }, async t => {
+ const f=await fixture(t);const r=f.start();await r.wait(e=>e.type==='ready');
+ const model={name:'summary-fails',base_url:f.baseUrl,api_key:'test-only',options:{context_window:4096,max_tokens:256}};
+ let failed=false;
+ for(let index=0;index<9;index++) {
+  const run='summary-failure-'+index;
+  r.send('start',{run_id:run,conversation_id:'summary-failure',input:`fact-${index}: `+'historical details '.repeat(70),model,context_policy:{strategy:'summary',summary_threshold:50,keep_recent_tokens:256}});
+  const result=await r.wait(terminal(run));await r.wait(e=>e.run_id===run&&e.type==='run_released');
+  if(result.type==='run_failed'){assert.equal(result.data.error_code,'compaction_failed');failed=true;break;}
+  assert.equal(result.type,'run_completed');
+ }
+ assert(failed,'summary rejection did not fail the run');
+ assert.equal(f.requests.filter(request=>request.messages.some(m=>m.role==='system'&&JSON.stringify(m.content).includes('context summarization assistant'))).length,1);
+ assert(r.events.some(e=>e.type==='compaction_end'&&e.data.failed));
+});
+
+test('recent strategy continues after archived history exceeds the model window', { timeout: 30000 }, async t => {
+ const f=await fixture(t);const r=f.start();await r.wait(e=>e.type==='ready');
+ const model={name:'fixture',base_url:f.baseUrl,api_key:'test-only',options:{context_window:2048,max_tokens:256}};
+ for(let index=0;index<12;index++) {
+  const run='long-archive-'+index;
+  r.send('start',{run_id:run,conversation_id:'long-archive',input:`turn-${index}: `+'historical details '.repeat(50),model,context_policy:{strategy:'recent',max_turns:2}});
+  const result=await r.wait(terminal(run));assert.equal(result.type,'run_completed',JSON.stringify(result.data));
+  await r.wait(e=>e.run_id===run&&e.type==='run_released');
+ }
+ const users=f.requests.at(-1).messages.filter(message=>message.role==='user');
+ assert.equal(users.length,2);assert(users[0].content.startsWith('turn-10:'));assert(users[1].content.startsWith('turn-11:'));
+ assert(!JSON.stringify(f.requests.at(-1)).includes('turn-0:'));
 });

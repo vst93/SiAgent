@@ -143,36 +143,6 @@ func (s *Server) recoverChannels() error {
 	_, err := s.store.db.Exec("UPDATE channel_outbox SET state='unknown',error='服务在发送确认前退出，请人工核对渠道，不自动重发。' WHERE state='sending'; UPDATE channel_inbox SET state='rejected',error='服务已重启，该消息尚未开始处理，请重新发送。' WHERE state='pending';")
 	return err
 }
-func (s *Server) channelConversation(ctx context.Context, channel, member, agent string, reset bool) (string, error) {
-	var conversation string
-	err := s.store.db.QueryRowContext(ctx, "SELECT conversation_id FROM channel_sessions WHERE channel_id=? AND member=? AND agent_id=?", channel, member, agent).Scan(&conversation)
-	if err == nil && !reset {
-		return conversation, nil
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return "", err
-	}
-	a, err := s.agentByID(agent)
-	if err != nil {
-		return "", err
-	}
-	if !a.Enabled || a.Archived {
-		return "", &admissionError{409, "助手已停用或归档，请联系管理员。"}
-	}
-	tx, err := s.store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback()
-	conversation = id()
-	if _, err := tx.ExecContext(ctx, "INSERT INTO conversations(id,title,created,agent_id,channel_id) VALUES(?,'新对话',?,?,?)", conversation, time.Now().UnixMilli(), agent, channel); err != nil {
-		return "", err
-	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO channel_sessions VALUES(?,?,?,?) ON CONFLICT(channel_id,member,agent_id) DO UPDATE SET conversation_id=excluded.conversation_id", channel, member, agent, conversation); err != nil {
-		return "", err
-	}
-	return conversation, tx.Commit()
-}
 func (s *Server) admitChannelInbox(ctx context.Context) error {
 	for range 4 {
 		var inbox, channel, member, agent, text string
@@ -233,19 +203,19 @@ func (s *Server) queueChannelText(tx *sql.Tx, inbox, channel, member, kind, text
 	return nil
 }
 func (s *Server) prepareChannelReplies(ctx context.Context, now time.Time) error {
-	rows, err := s.store.db.QueryContext(ctx, "SELECT i.id,i.channel_id,i.member,i.state,i.error,i.run_id,i.created,i.hinted FROM channel_inbox i JOIN channels c ON c.id=i.channel_id WHERE i.finalized=0 AND c.archived=0 AND (i.hinted=0 OR i.state='rejected' OR EXISTS(SELECT 1 FROM runs r WHERE r.id=i.run_id AND r.status NOT IN ('queued','running','cancelling'))) ORDER BY i.created,i.rowid LIMIT 200")
+	rows, err := s.store.db.QueryContext(ctx, "SELECT i.id,i.channel_id,i.member,i.state,i.error,i.run_id,i.created,i.hinted,i.agent_id FROM channel_inbox i JOIN channels c ON c.id=i.channel_id WHERE i.finalized=0 AND c.archived=0 AND (i.hinted=0 OR i.state='rejected' OR EXISTS(SELECT 1 FROM runs r WHERE r.id=i.run_id AND r.status NOT IN ('queued','running','cancelling'))) ORDER BY i.created,i.rowid LIMIT 200")
 	if err != nil {
 		return err
 	}
 	type item struct {
-		id, channel, member, state, reason, run string
-		created                                 int64
-		hinted                                  bool
+		id, channel, member, state, reason, run, agent string
+		created                                        int64
+		hinted                                         bool
 	}
 	items := []item{}
 	for rows.Next() {
 		var i item
-		if err := rows.Scan(&i.id, &i.channel, &i.member, &i.state, &i.reason, &i.run, &i.created, &i.hinted); err != nil {
+		if err := rows.Scan(&i.id, &i.channel, &i.member, &i.state, &i.reason, &i.run, &i.created, &i.hinted, &i.agent); err != nil {
 			rows.Close()
 			return err
 		}
@@ -259,53 +229,69 @@ func (s *Server) prepareChannelReplies(ctx context.Context, now time.Time) error
 	for _, i := range items {
 		done := i.state == "rejected"
 		text := i.reason
-		if i.run != "" {
-			var status, reason, answer string
-			if err := s.store.db.QueryRowContext(ctx, "SELECT r.status,r.error,m.content FROM runs r JOIN messages m ON m.run_id=r.id AND m.role='assistant' WHERE r.id=?", i.run).Scan(&status, &reason, &answer); err != nil {
+		progress := true
+		if i.run == "" && !done {
+			a, err := s.agentByID(i.agent)
+			if err != nil {
 				return err
 			}
+			progress = a.Policy.Output.Progress
+		}
+		if i.run != "" {
+			var status, reason, answer, config, thinking string
+			if err := s.store.db.QueryRowContext(ctx, "SELECT r.status,r.error,m.content,r.config,r.thinking FROM runs r JOIN messages m ON m.run_id=r.id AND m.role='assistant' WHERE r.id=?", i.run).Scan(&status, &reason, &answer, &config, &thinking); err != nil {
+				return err
+			}
+			var snapshot runConfig
+			if err := json.Unmarshal([]byte(config), &snapshot); err != nil {
+				return err
+			}
+			output := snapshot.Agent.effectivePolicy().Output
+			progress = output.Progress
 			if terminal(status) {
 				done = true
 				if status == "completed" {
 					text = answer
-					refs, readErr := s.store.db.QueryContext(ctx, "SELECT reference FROM run_sources WHERE run_id=? ORDER BY rowid LIMIT 8", i.run)
-					if readErr != nil {
-						return readErr
-					}
-					titles := []string{}
-					for refs.Next() {
-						var raw string
-						if err := refs.Scan(&raw); err != nil {
-							refs.Close()
-							return err
+					if output.Sources {
+						refs, readErr := s.store.db.QueryContext(ctx, "SELECT reference FROM run_sources WHERE run_id=? ORDER BY rowid LIMIT 8", i.run)
+						if readErr != nil {
+							return readErr
 						}
-						var ref struct {
-							Title    string `json:"title"`
-							Version  int    `json:"version"`
-							Location struct {
-								Page      int `json:"page"`
-								Paragraph int `json:"paragraph"`
-							} `json:"location"`
+						titles := []string{}
+						for refs.Next() {
+							var raw string
+							if err := refs.Scan(&raw); err != nil {
+								refs.Close()
+								return err
+							}
+							var ref struct {
+								Title    string `json:"title"`
+								Version  int    `json:"version"`
+								Location struct {
+									Page      int `json:"page"`
+									Paragraph int `json:"paragraph"`
+								} `json:"location"`
+							}
+							if err := json.Unmarshal([]byte(raw), &ref); err != nil {
+								refs.Close()
+								return err
+							}
+							title := fmt.Sprintf("%s · v%d", ref.Title, ref.Version)
+							if ref.Location.Page > 0 {
+								title += fmt.Sprintf(" · 第%d页", ref.Location.Page)
+							} else if ref.Location.Paragraph > 0 {
+								title += fmt.Sprintf(" · 第%d段", ref.Location.Paragraph)
+							}
+							titles = append(titles, title)
 						}
-						if err := json.Unmarshal([]byte(raw), &ref); err != nil {
-							refs.Close()
-							return err
+						readErr = refs.Err()
+						refs.Close()
+						if readErr != nil {
+							return readErr
 						}
-						title := fmt.Sprintf("%s · v%d", ref.Title, ref.Version)
-						if ref.Location.Page > 0 {
-							title += fmt.Sprintf(" · 第%d页", ref.Location.Page)
-						} else if ref.Location.Paragraph > 0 {
-							title += fmt.Sprintf(" · 第%d段", ref.Location.Paragraph)
+						if len(titles) > 0 {
+							text += "\n\n本轮检索来源：\n" + strings.Join(titles, "\n")
 						}
-						titles = append(titles, title)
-					}
-					readErr = refs.Err()
-					refs.Close()
-					if readErr != nil {
-						return readErr
-					}
-					if len(titles) > 0 {
-						text += "\n\n本轮检索来源：\n" + strings.Join(titles, "\n")
 					}
 
 					if strings.TrimSpace(text) == "" {
@@ -317,7 +303,18 @@ func (s *Server) prepareChannelReplies(ctx context.Context, now time.Time) error
 						text += "\n已产生的内容：\n" + answer
 					}
 				}
+				var err error
+				text, err = s.channelRunOutput(i.run, text, thinking, snapshot)
+				if err != nil {
+					return err
+				}
 			}
+		}
+		if !done && !progress {
+			if _, err := s.store.db.ExecContext(ctx, "UPDATE channel_inbox SET hinted=1 WHERE id=?", i.id); err != nil {
+				return err
+			}
+			continue
 		}
 		if !done && (i.hinted || now.UnixMilli()-i.created < 10000) {
 			continue

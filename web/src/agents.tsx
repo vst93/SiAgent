@@ -1,3 +1,8 @@
+import {
+  AgentPolicySettings,
+  defaultAgentPolicy,
+  type AgentPolicy,
+} from "./agent-policy";
 import { Icon } from "./icons";
 import { CapabilitySettings } from "./capabilities";
 import { KnowledgeBindings } from "./knowledge-bindings";
@@ -23,6 +28,7 @@ export type Model = {
   archived: boolean;
 };
 export type Agent = {
+  policy: AgentPolicy;
   id: string;
   name: string;
   instructions: string;
@@ -47,6 +53,7 @@ export function AgentWorkspace({
   onSelect: (id: string) => void;
 }) {
   const blank = {
+    policy: defaultAgentPolicy,
     id: "",
     name: "",
     instructions: "你是一位简洁、可靠的助手。请使用用户的语言回答。",
@@ -55,10 +62,17 @@ export function AgentWorkspace({
     archived: false,
   };
   const [editor, setEditor] = useState<Agent>(agents[0] ?? blank);
-  const [tab, setTab] = useState<"basic" | "knowledge" | "tools">("basic");
+  const [tab, setTab] = useState<
+    "basic" | "session" | "context" | "output" | "knowledge" | "tools"
+  >("basic");
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [pending, setPending] = useState(false);
+  function selectTab(next: typeof tab) {
+    setTab(next);
+    setFeedback("");
+    setError("");
+  }
   async function action(work: () => Promise<void>) {
     setPending(true);
     setError("");
@@ -79,6 +93,7 @@ export function AgentWorkspace({
         editor.id ? `/agents/${editor.id}` : "/agents",
         editor.id ? "PUT" : "POST",
         {
+          policy: editor.policy,
           name: editor.name,
           instructions: editor.instructions,
           enabled: editor.enabled,
@@ -148,21 +163,36 @@ export function AgentWorkspace({
         <nav className="editor-tabs" aria-label="Agent 配置">
           <button
             aria-pressed={tab === "basic"}
-            onClick={() => setTab("basic")}
+            onClick={() => selectTab("basic")}
           >
             基本信息
           </button>
+          {(
+            [
+              ["session", "会话限制"],
+              ["context", "上下文"],
+              ["output", "回复输出"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              aria-pressed={tab === key}
+              onClick={() => selectTab(key)}
+            >
+              {label}
+            </button>
+          ))}
           <button
             disabled={!editor.id}
             aria-pressed={tab === "knowledge"}
-            onClick={() => setTab("knowledge")}
+            onClick={() => selectTab("knowledge")}
           >
             知识库关联
           </button>
           <button
             disabled={!editor.id}
             aria-pressed={tab === "tools"}
-            onClick={() => setTab("tools")}
+            onClick={() => selectTab("tools")}
           >
             工具授权
           </button>
@@ -187,66 +217,82 @@ export function AgentWorkspace({
           <>
             <form onSubmit={saveAgent}>
               <fieldset disabled={pending || editor.archived}>
-                <label>
-                  助手名称
-                  <input
-                    required
-                    maxLength={100}
-                    value={editor.name}
-                    onChange={(event) =>
-                      setEditor({ ...editor, name: event.target.value })
-                    }
+                {tab === "basic" ? (
+                  <>
+                    <label>
+                      助手名称
+                      <input
+                        required
+                        maxLength={100}
+                        value={editor.name}
+                        onChange={(event) =>
+                          setEditor({ ...editor, name: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label>
+                      使用模型
+                      <select
+                        required
+                        aria-label="使用模型"
+                        value={editor.model_id}
+                        onChange={(event) =>
+                          setEditor({
+                            ...editor,
+                            model_id: Number(event.target.value),
+                          })
+                        }
+                      >
+                        {models
+                          .filter(
+                            (model) =>
+                              !model.archived || model.id === editor.model_id,
+                          )
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.name} · {model.base_url}
+                              {model.archived ? "（已归档）" : ""}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label htmlFor="agent-role">角色指令</label>
+                    <textarea
+                      id="agent-role"
+                      rows={6}
+                      maxLength={20000}
+                      value={editor.instructions}
+                      onChange={(event) =>
+                        setEditor({
+                          ...editor,
+                          instructions: event.target.value,
+                        })
+                      }
+                    />
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={editor.enabled}
+                        onChange={(event) =>
+                          setEditor({
+                            ...editor,
+                            enabled: event.target.checked,
+                          })
+                        }
+                      />
+                      允许接收新任务
+                    </label>
+                    <p className="muted">
+                      停用后拒绝新消息，已有任务继续执行；可在对应会话单独取消。
+                    </p>
+                  </>
+                ) : (
+                  <AgentPolicySettings
+                    section={tab}
+                    value={editor.policy}
+                    onChange={(policy) => setEditor({ ...editor, policy })}
                   />
-                </label>
-                <label>
-                  使用模型
-                  <select
-                    required
-                    aria-label="使用模型"
-                    value={editor.model_id}
-                    onChange={(event) =>
-                      setEditor({
-                        ...editor,
-                        model_id: Number(event.target.value),
-                      })
-                    }
-                  >
-                    {models
-                      .filter(
-                        (model) =>
-                          !model.archived || model.id === editor.model_id,
-                      )
-                      .map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.name} · {model.base_url}
-                          {model.archived ? "（已归档）" : ""}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <label htmlFor="agent-role">角色指令</label>
-                <textarea
-                  id="agent-role"
-                  rows={6}
-                  maxLength={20000}
-                  value={editor.instructions}
-                  onChange={(event) =>
-                    setEditor({ ...editor, instructions: event.target.value })
-                  }
-                />
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={editor.enabled}
-                    onChange={(event) =>
-                      setEditor({ ...editor, enabled: event.target.checked })
-                    }
-                  />
-                  允许接收新任务
-                </label>
-                <p className="muted">
-                  停用后拒绝新消息，已有任务继续执行；可在对应会话单独取消。
-                </p>
+                )}
                 {!models.some((model) => !model.archived) && (
                   <p className="permission-notice">
                     请先在 <a href="#/settings/models">模型连接</a>

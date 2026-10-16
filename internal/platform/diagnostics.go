@@ -116,7 +116,7 @@ func (s *Server) runDetails(w http.ResponseWriter, r *http.Request) {
 	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
 		events[i], events[j] = events[j], events[i]
 	}
-	respond(w, 200, map[string]any{"run": run, "started": started, "released": released, "agent_id": snapshot.Agent.ID, "agent_name": snapshot.Agent.Name, "model_id": snapshot.ModelID, "model": snapshot.Model, "model_version": snapshot.ModelVersion, "limits": snapshot.Limits, "tools": tools, "events": events, "event_limit": 200})
+	respond(w, 200, map[string]any{"run": run, "started": started, "released": released, "agent_id": snapshot.Agent.ID, "agent_name": snapshot.Agent.Name, "model_id": snapshot.ModelID, "model": snapshot.Model, "model_version": snapshot.ModelVersion, "limits": snapshot.Limits, "output": snapshot.Agent.effectivePolicy().Output, "context_policy": snapshot.Agent.effectivePolicy().Context, "tools": tools, "events": events, "event_limit": 200})
 }
 
 // Tool arguments/results are private business data, fetched only on explicit expansion.

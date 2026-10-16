@@ -198,7 +198,7 @@ export function ExecutionSettings({ request }: { request: Api }) {
     try {
       setLimits(await request<Limits>("/limits", "PUT", limits));
       setFeedback(
-        "限制已保存。并发与队列上限立即生效，时限和上下文限制用于新提交的任务。",
+        "限制已保存。并发与队列上限立即生效，时限和工具轮数用于新提交的任务。",
       );
     } catch (error) {
       setError(message(error));
@@ -261,7 +261,8 @@ export function ExecutionSettings({ request }: { request: Api }) {
               ))}
             </div>
             <small>
-              总等待数不能小于单个会话的等待数。上下文与输出长度由模型配置决定；达到模型窗口限制时提示新建会话，保留已有内容。
+              总等待数不能小于单个会话的等待数。上下文策略在 Agent
+              中配置，窗口与最大输出由模型连接决定。
             </small>
             <div className="form-actions">
               <button disabled={pending}>保存运行限制</button>
@@ -316,6 +317,9 @@ const labels: Record<string, string> = {
   interrupted: "结果不明，需核对",
 };
 const kinds: Record<string, string> = {
+  thinking_delta: "思考摘要已保存",
+  compaction_start: "正在压缩上下文",
+  compaction_end: "上下文压缩已结束",
   queued: "已进入队列",
   cancel_requested: "已请求取消",
   timeout_requested: "已请求超时停止",

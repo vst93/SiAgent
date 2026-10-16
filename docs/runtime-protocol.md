@@ -14,6 +14,7 @@ Go 持久化队列、配置快照、用户可见消息、工具摘要及诊断�
 
 - `model` 为提交时保存的连接快照，仅通过 IPC 传入，包装层在内存中使用；省略时使用 CLI 探针的模型环境变量。每个 Harness 使用独立 Models collection，不共享活跃模型配置。
 - `instructions` 是本次运行的助手指令；不额外注入 Go 平台历史，历史上下文由 Runtime 恢复。
+- `context_policy` 是冻结的 Agent 上下文策略，支持 `full`、`recent`、`time`、`summary` 及轮数、时间窗口和摘要预算；省略时兼容旧协议，使用完整历史。`output_policy` 控制思考摘要展示、工具输出级别、来源和渠道提示；Runtime 只据此决定是否发出 `thinking_delta`，其余由 Go 展示层处理。字段与范围见 [Agent 策略说明](agent-policy.md)。
 - `limits` 默认运行 300,000 ms、工具 60,000 ms、工具最多 10 轮。Go 高级设置保存为秒，派发时转换为毫秒。私有测试协议允许较短的毫秒时限；管理 API 最少 1 秒。
 - 可选 `probe_tool:true` 仅供探针显式开放无副作用的 `add` 和 `wait`。普通 Web 任务没有这些工具，也不开放 Shell 或任意文件工具。
 - Runtime 自身最多承载 8 个活跃运行，同一会话最多 1 个；Go 默认并发 2 个并负责 FIFO 队列，绝不把同会话队列直接交给 Runtime。
@@ -26,9 +27,11 @@ Go 持久化队列、配置快照、用户可见消息、工具摘要及诊断�
 | `ready` | 恢复核对完成；`data.model_configured` 仅表示探针环境配置，不表示外部模型已验证 |
 | `run_started` | 内部执行记录已建立，可能仍在打开会话 |
 | `message_delta` | `data.text` 为新增文本，包含首段及结束时剩余文本 |
+| `thinking_delta` | 仅开启展示时发出，`data.text` 为模型实际返回的推理文本，与回答分开保存；普通诊断只记录大小 |
+| `compaction_start` / `compaction_end` | 上下文压缩生命周期，结束时 `data.failed` 表示失败；不复制摘要正文到诊断 |
 | `tool_start` / `tool_end` | SDK 工具事件，携带工具名、调用标识及内部结果信息；诊断事件仅保存摘要，参数/结果作为独立业务详情按需鉴权查询 |
 | `run_cancelling` | 已开始取消，当前调用可能还没停止 |
-| `run_completed` / `run_failed` / `run_cancelled` / `run_interrupted` | 运行终态；成功时 `data.answer` 为本轮最终文本；可能含内部 `entries`，Go 不将其直接转发给 Web |
+| `run_completed` / `run_failed` / `run_cancelled` / `run_interrupted` | 运行终态；成功时 `data.answer` 为本轮最终文本；可能含本轮新建的内部 `entries`，不重复传递全部历史；超过 8 MiB 时省略并设 `entries_truncated:true`，Go 不将其直接转发给 Web |
 | `run_released` | Harness 和 MCP 连接/本地进程均已关闭，活跃映射已移除，此时才能复用运行位和同会话存储 |
 | `cancel_ack` | 取消请求处理完成；运行终态沿用原 start 请求 ID |
 | `status` | `data` 为内部执行记录，包含 run_id、conversation_id、status、seq、released；未知运行返回 null |
@@ -37,9 +40,9 @@ Go 持久化队列、配置快照、用户可见消息、工具摘要及诊断�
 
 运行事件携带 `request_id`、`run_id`、`conversation_id` 和逐条递增的 `seq`。内部执行日志保存序号，不保存协议帧以供重放。终态和释放是两个事件；收到终态不能立即把同会话存储交给下一条任务。
 
-失败分类 `error_code` 包含 `auth`、`quota`、`not_found`、`timeout`、`tool_timeout`、`tool_rounds`、`context_limit`、`tool_setup`、`tool_uncertain` 和通用 `request_failed`。Go 使用固定错误文案，不向用户直接回显供应商错误原文。工具异常/模型失败不自动重跑整个任务。
+失败分类 `error_code` 包含 `auth`、`quota`、`not_found`、`timeout`、`tool_timeout`、`tool_rounds`、`context_limit`、`compaction_failed`、`tool_setup`、`tool_uncertain` 和通用 `request_failed`。Go 使用固定错误文案，不向用户直接回显供应商错误原文。工具异常/模型失败不自动重跑整个任务。
 
-请求错误包含 `invalid_json`、`invalid_request`、`invalid_run`、`invalid_limits`、`unknown_type`、`model_not_configured`、`busy`、`duplicate_run`、`run_not_cancellable`、`stopping`。无法解析 JSON 时没有请求 ID。
+请求错误包含 `invalid_json`、`invalid_request`、`invalid_run`、`invalid_limits`、`invalid_context_policy`、`invalid_output_policy`、`unknown_type`、`model_not_configured`、`busy`、`duplicate_run`、`run_not_cancellable`、`stopping`。无法解析 JSON 时没有请求 ID。
 
 ## 持久化、缺失事件和状态核对
 
@@ -51,7 +54,7 @@ Go 每 5 秒核对尚未释放的运行。Runtime 确认 released=1 或不存在
 
 ## 超时、停止与恢复
 
-运行或工具超时先触发取消，并停止后续模型/工具调用；在执行已停止后发布失败终态。工具轮数上限在新一轮工具执行前拦截。上下文在调用模型前检查，不静默裁剪历史。
+运行或工具超时先触发取消，并停止后续模型/工具调用；在执行已停止后发布失败终态。工具轮数上限在新一轮工具执行前拦截。上下文在调用模型前按冻结策略选择和检查；近期策略只裁剪请求中的完整旧轮次，摘要策略使用原生 compaction，持久化历史保留。压缩失败停止本次任务。
 
 Go 对已进入取消/释放核对的运行给出 10 秒确认宽限，仍无确认时强制重启 Runtime。管道写入最多等待 2 秒，避免失去响应的子进程使调度器永久阻塞。强制退出时未知操作标为中断，不承诺撤销外部副作用。
 

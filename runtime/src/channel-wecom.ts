@@ -125,6 +125,9 @@ export function runWorker(wsUrl?: string) {
             type: "incoming",
             incoming: {
               id: body.msgid,
+              chat_type: body.chattype,
+              sender_id: sender,
+              group_id: chat,
               session: JSON.stringify([body.chattype, chat, sender]),
               kind: body.msgtype,
               text:

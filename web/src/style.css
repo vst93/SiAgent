@@ -3832,3 +3832,51 @@ summary::-webkit-details-marker {
 details[open] > summary > .disclosure-icon {
   transform: rotate(90deg);
 }
+
+.agent-policy-fields {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.agent-policy-fields label {
+  margin: 0;
+}
+.agent-policy-fields p {
+  margin: 0;
+}
+.agent-policy-fields small {
+  color: var(--muted);
+}
+.policy-description {
+  padding: 10px 12px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+}
+.policy-input-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.thinking-output,
+.run-tool-output {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.thinking-output > summary,
+.run-tool-output > summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  list-style: none;
+}
+.thinking-output[open] > summary,
+.run-tool-output[open] > summary {
+  margin-bottom: 8px;
+}
+@media (max-width: 600px) {
+  .policy-input-grid {
+    grid-template-columns: 1fr;
+  }
+}

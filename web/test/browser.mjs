@@ -611,8 +611,24 @@ try {
     .locator(".message.assistant .message-text")
     .filter({ hasText: "[redacted]" })
     .waitFor();
+  const presentedTools = page.locator(".run-tool-output").last();
+  await presentedTools.locator("summary").click();
+  await presentedTools
+    .getByText("Browser MCP / inspect", { exact: true })
+    .waitFor();
+  assert.equal(
+    await presentedTools
+      .getByText("查看调用参数与结果", { exact: true })
+      .count(),
+    0,
+  );
+  await presentedTools.locator("summary").click();
   await page.locator(".run-diagnostics summary").last().click();
-  await page.getByText("Browser MCP / inspect", { exact: true }).waitFor();
+  await page
+    .locator(".run-diagnostics")
+    .last()
+    .getByText("Browser MCP / inspect", { exact: true })
+    .waitFor();
   await page.getByText("查看调用参数与结果", { exact: true }).click();
   await page
     .locator(".resource-preview")
@@ -1288,6 +1304,135 @@ try {
       exact: true,
     })
     .waitFor();
+  const policyTab = (name) =>
+    page
+      .getByRole("navigation", { name: "Agent 配置", exact: true })
+      .getByRole("button", { name, exact: true });
+  const savePolicy = async () => {
+    await page.getByRole("button", { name: "保存助手", exact: true }).click();
+    await page
+      .getByText("助手已保存，新任务使用新配置；已有任务保持提交时的配置。", {
+        exact: true,
+      })
+      .waitFor();
+  };
+  await policyTab("会话限制").click();
+  await page
+    .getByLabel("允许的会话类型", { exact: true })
+    .selectOption("group");
+  await page
+    .getByLabel("群聊上下文范围", { exact: true })
+    .selectOption("shared");
+  await page
+    .getByLabel("空闲多久后开启新会话（分钟）", { exact: true })
+    .fill("60");
+  await page
+    .getByLabel("允许用户通过 /new 开启新会话", { exact: true })
+    .uncheck();
+  await savePolicy();
+  let policyAgents = await page.evaluate(() =>
+    fetch("/api/agents").then((response) => response.json()),
+  );
+  let financePolicy = policyAgents.find((agent) => agent.name === "财务助手");
+  assert.deepEqual(financePolicy.policy.session, {
+    types: "group",
+    group_scope: "shared",
+    idle_minutes: 60,
+    allow_reset: false,
+  });
+  await page.screenshot({
+    path: join(artifacts, "agent-session-desktop.png"),
+    fullPage: true,
+  });
+  await page
+    .locator(".agent-card")
+    .filter({ hasText: "财务助手" })
+    .getByRole("button", { name: "进入对话", exact: true })
+    .click();
+  assert(
+    await page
+      .getByRole("button", { name: "新对话", exact: true })
+      .isDisabled(),
+  );
+  assert(await page.getByLabel("发送给助手的消息").isDisabled());
+  await config("Agent");
+  await page
+    .locator(".agent-card")
+    .filter({ hasText: "财务助手" })
+    .locator(".agent-card-select")
+    .click();
+  await policyTab("会话限制").click();
+  await page.getByLabel("允许的会话类型", { exact: true }).selectOption("all");
+  await savePolicy();
+  await policyTab("上下文").click();
+  await page.getByLabel("上下文策略", { exact: true }).selectOption("summary");
+  await page.getByLabel("输入预算使用阈值（%）", { exact: true }).fill("65");
+  await page.getByLabel("保留近期原文（Token）", { exact: true }).fill("2048");
+  await savePolicy();
+  await page.screenshot({
+    path: join(artifacts, "agent-context-desktop.png"),
+    fullPage: true,
+  });
+  await page.getByLabel("上下文策略", { exact: true }).selectOption("time");
+  await page.getByLabel("最多保留对话轮数", { exact: true }).fill("5");
+  await page.getByLabel("历史时间窗口（分钟）", { exact: true }).fill("60");
+  await savePolicy();
+  await policyTab("回复输出").click();
+  await page.getByLabel("回复预设", { exact: true }).selectOption("detailed");
+  assert(
+    await page
+      .getByLabel("展示模型返回的思考摘要", { exact: true })
+      .isChecked(),
+  );
+  assert.equal(
+    await page.getByLabel("工具调用展示", { exact: true }).inputValue(),
+    "detailed",
+  );
+  await page.getByLabel("回复预设", { exact: true }).selectOption("concise");
+  assert(
+    !(await page
+      .getByLabel("渠道等待超过 10 秒时发送处理中提示", { exact: true })
+      .isChecked()),
+  );
+  await page.getByLabel("回复预设", { exact: true }).selectOption("balanced");
+  await savePolicy();
+  policyAgents = await page.evaluate(() =>
+    fetch("/api/agents").then((response) => response.json()),
+  );
+  financePolicy = policyAgents.find((agent) => agent.name === "财务助手");
+  assert.equal(financePolicy.policy.context.strategy, "time");
+  assert.equal(financePolicy.policy.context.max_turns, 5);
+  assert.equal(financePolicy.policy.context.max_age_minutes, 60);
+  assert.equal(financePolicy.policy.context.summary_threshold, 65);
+  assert.equal(financePolicy.policy.output.tools, "summary");
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const label of ["会话限制", "上下文", "回复输出"]) {
+      await policyTab(label).click();
+      await page.locator(".agent-editor").evaluate((editor) => {
+        const pane = document.querySelector(".configuration-content");
+        pane.scrollTop +=
+          editor.getBoundingClientRect().top -
+          pane.getBoundingClientRect().top -
+          8;
+      });
+      assert(
+        await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth <= innerWidth &&
+            document.querySelector(".configuration-content").scrollWidth <=
+              document.querySelector(".configuration-content").clientWidth,
+        ),
+        `Agent policy overflow: ${label}/${width}`,
+      );
+      await page.screenshot({
+        path: join(artifacts, `agent-policy-${label}-${width}.png`),
+        fullPage: true,
+      });
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await policyTab("基本信息").click();
   await page.screenshot({
     path: join(artifacts, "agents-desktop.png"),
     fullPage: true,
@@ -1454,7 +1599,7 @@ try {
   await page.getByRole("heading", { name: "欢迎回来" }).waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "Browser passed: safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, no JS errors.",
+    "Browser passed: safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, no JS errors.",
   );
 } finally {
   releaseHold();

@@ -53,7 +53,7 @@ MVP 不加入 Embedding、独立向量服务、重排序、复杂 RAG 工作流�
 - `internal/knowledge/core.go`：元数据、版本、后台作业、事务发布、绑定和删除一致性。
 - `internal/knowledge/parse.go`、`local.go`：文件提取、定位、切分、gse 分词、FTS5 与版本来源读取。
 - `internal/platform/knowledge.go`：复用平台认证的管理 API，以及按运行快照校验的私有执行面。
-- `internal/platform/store.go`、`conversations.go`、`scheduler.go`：schema 9（知识库在 4 引入）、提交绑定快照、派发及持久化来源展示。
+- `internal/platform/store.go`、`conversations.go`、`scheduler.go`：schema 10（知识库在 4 引入）、提交绑定快照、派发及持久化来源展示。
 - `runtime/src/knowledge.ts`、`index.ts`：Pi Durable 原生工具、RPC 请求/结果和取消，不加入知识库业务实现。
 - `web/src/knowledge.tsx`、`main.tsx`：独立管理工作台、认证来源页及回答来源链接。
 - `internal/knowledge/core_test.go`、`internal/platform/knowledge_test.go`、`migration_test.go`、Runtime/完整进程/浏览器测试：核心一致性、权限及用户闭环验证。

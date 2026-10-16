@@ -57,7 +57,7 @@
 | Skills | Go 导入并校验本地 SKILL.md，展示依赖/脚本资源；选中指令通过 Durable configure 注入，资源通过 defineTool 限定读取。已验证未选中 Skill 和越界路径不可访问；不自动执行脚本 |
 | MCP | 通过固定 MCP SDK 连接，经 defineTool 注册所选工具；stdio 精确环境、工作区、取消/超时、未知结果、Runtime SIGKILL 进程清理及 Streamable HTTP 初始化/认证/发现/调用/取消/会话关闭已在本地验证，见 [tools.md](tools.md)。未验证第三方产品，不开放默认 Shell |
 | 知识库 | defineTool 注册 knowledge_search / knowledge_read，私有 RPC 请求 Go Core；验证未绑定不注册、取消及迟到回复；完整 Go/Node 和浏览器验证实际本地索引、运行权限、来源、更新与重启。知识库不依赖 MCP，见 [knowledge.md](knowledge.md) |
-| 上下文压缩 | 上游提供 compact 和自动 compaction API；**尚未完成本项目的行为验证**，包装层关闭自动压缩，不承诺长对话。当前按模型窗口与输出预留执行 SDK Token 估算检查，超限提示新会话，并保留独立内部资源保护；不静默裁剪历史 |
+| 上下文压缩 | 已验证原生 compaction 的阈值触发、近期原文保留、摘要入模、重启续聊，以及摘要请求失败后停止且不重试；Agent 可选择最近轮数、时间窗口、摘要或完整历史。近期裁剪保留整轮工具配对，不删除历史。真实模型的摘要质量与费用仍需按场景验收，见 [Agent 策略说明](agent-policy.md) |
 
 ## 尚未完成的阶段一验收
 

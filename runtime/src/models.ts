@@ -1,3 +1,8 @@
+import {
+  selectContext,
+  estimateSelectedTokens,
+  type ContextPolicy,
+} from "./context.js";
 import { estimateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import { createModels, createProvider } from "@earendil-works/pi-ai/models";
 import type {
@@ -28,6 +33,7 @@ export type ModelConfig = {
 export function configuredModels(
   config: ModelConfig,
   check: (context: unknown, failure?: string) => void,
+  policy?: ContextPolicy,
 ) {
   const o = {
     api: "openai-completions",
@@ -62,12 +68,20 @@ export function configuredModels(
     ...(o.temperature != null ? { temperature: o.temperature } : {}),
     ...(o.top_p != null ? { samplingParams: { top_p: o.top_p } } : {}),
   };
+  const now = Date.now();
+  const prepare = (context: TranscriptContext) =>
+    policy
+      ? selectContext(context, policy, o.context_window - o.max_tokens, now)
+      : context;
   const guard = (context: TranscriptContext) => {
     // Keep room for entry metadata inside the 16 MiB private protocol frame.
     const failure =
       Buffer.byteLength(JSON.stringify(context)) > 8 * 1024 * 1024
         ? "request_size_limit"
-        : estimateContextTokens(context).tokens + o.max_tokens >
+        : (policy?.strategy === "recent" || policy?.strategy === "time"
+              ? estimateSelectedTokens(context)
+              : estimateContextTokens(context).tokens) +
+              o.max_tokens >
             o.context_window
           ? "context_limit"
           : undefined;
@@ -75,18 +89,25 @@ export function configuredModels(
     if (failure) throw new Error(failure);
   };
   const checkedStream: StreamFunction = (model, context, options) => {
+    context = prepare(context);
     guard(context);
-    return stream(model, context, { ...options, ...settings });
+    return stream(model, context, {
+      ...options,
+      ...settings,
+      maxTokens: Math.min(options?.maxTokens ?? o.max_tokens, o.max_tokens),
+    });
   };
   const checkedSimple: StreamFunction<string, SimpleStreamOptions> = (
     model,
     context,
     options,
   ) => {
+    context = prepare(context);
     guard(context);
     return simple(model, context, {
       ...options,
       ...settings,
+      maxTokens: Math.min(options?.maxTokens ?? o.max_tokens, o.max_tokens),
       reasoning:
         o.reasoning && o.thinking_level !== "off"
           ? o.thinking_level

@@ -344,6 +344,9 @@ func (s *Server) testGenericChannel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) receiveChannel(ctx context.Context, channelID string, version int, in channels.Incoming) error {
+	if err := normalizeIncoming(&in); err != nil {
+		return err
+	}
 	if in.ID == "" || len(in.ID) > 256 || in.Session == "" || len(in.Session) > 2048 || len(in.Text) > 100000 || len(in.Kind) > 64 || !utf8.ValidString(in.ID+in.Session+in.Text+in.Kind) || strings.ContainsAny(in.ID+in.Session, "\x00\r\n") {
 		return errors.New("invalid channel message")
 	}
@@ -386,6 +389,10 @@ func (s *Server) receiveChannel(ctx context.Context, channelID string, version i
 	}
 	if waiting >= 1000 {
 		return errors.New("channel queue full")
+	}
+	kind, group, sender := channelIdentity(in.Session)
+	if sender == "" || (kind == "group" && group == "") {
+		return errors.New("invalid conversation identity")
 	}
 	text := strings.TrimSpace(in.Text)
 	state, reason := "pending", ""

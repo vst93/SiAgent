@@ -1,3 +1,9 @@
+import {
+  contextPolicy,
+  compactionSettings,
+  type ContextPolicy,
+  type OutputPolicy,
+} from "./context.js";
 import { randomUUID } from "node:crypto";
 import { knowledgeTools } from "./knowledge.js";
 import {
@@ -67,6 +73,7 @@ const defaults: Limits = {
 };
 type Control = {
   limits: Limits;
+  contextPolicy?: ContextPolicy;
   failure?: string;
   rounds: number;
   timers: Map<string, ReturnType<typeof setTimeout>>;
@@ -79,7 +86,7 @@ function configuredModels(config: ModelConfig, control?: Control) {
     if (control && !control.failure && failure) control.failure = failure;
     if (control?.failure) throw new Error(control.failure);
   };
-  return buildModels(config, check);
+  return buildModels(config, check, control?.contextPolicy);
 }
 // A deliberately harmless probe, selected explicitly per run. No shell/filesystem tools.
 const add = defineTool({
@@ -156,7 +163,14 @@ const open = async (
     {
       models: configuredModels(config, control),
       registry: localRegistry,
-      settings: { retry: { maxRetries: 0 }, compaction: { enabled: false } },
+      settings: {
+        retry: { maxRetries: 0 },
+        compaction: compactionSettings(
+          control?.contextPolicy ?? contextPolicy(),
+          config.options?.context_window ?? 32768,
+          config.options?.max_tokens ?? 4096,
+        ),
+      },
     },
     ctx,
   );
@@ -216,6 +230,8 @@ type Request = {
   model?: ModelConfig;
   instructions?: string;
   limits?: Partial<Limits>;
+  context_policy?: Partial<ContextPolicy>;
+  output_policy?: OutputPolicy;
   reason?: string;
   agent_id?: string;
   capabilities?: Capabilities;
@@ -345,8 +361,41 @@ async function execute(req: Request, state: Active) {
       },
       ctx,
     );
+    const initialView = await conversation.viewState(ctx);
+    const previousEntries = new Set(
+      initialView.value.entries.map((entry) => entry.id),
+    );
+    initialView.dispose();
     const events = await watchEvents(harness, conversation.id, ctx);
     let printed = "";
+    let thinkingPrinted = "";
+    let thinkingEmitted = 0;
+    const thoughts = new Map<number, string>();
+    const publishThinking = () => {
+      if (!req.output_policy?.thinking) return;
+      const text = [...thoughts.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([, v]) => v)
+        .join("")
+        .slice(0, 64000);
+      if (
+        text.startsWith(thinkingPrinted) &&
+        text.length > thinkingPrinted.length &&
+        thinkingEmitted < 64000
+      ) {
+        const separator =
+          thinkingPrinted.length === 0 && thinkingEmitted > 0 ? "\n\n" : "";
+        const delta = (separator + text.slice(thinkingPrinted.length)).slice(
+          0,
+          64000 - thinkingEmitted,
+        );
+        runEvent(runID, req.request_id, "thinking_delta", {
+          text: redact(delta, secretValues),
+        });
+        thinkingEmitted += delta.length;
+      }
+      thinkingPrinted = text;
+    };
     const blocks = new Map<number, string>();
     const publish = () => {
       const text = [...blocks.entries()]
@@ -359,7 +408,15 @@ async function execute(req: Request, state: Active) {
         });
       printed = text;
     };
-    const replace = (content: readonly { type: string; text?: string }[]) => {
+    const replace = (
+      content: readonly { type: string; text?: string; thinking?: string }[],
+    ) => {
+      thoughts.clear();
+      content.forEach((block, index) => {
+        if (block.type === "thinking")
+          thoughts.set(index, block.thinking ?? "");
+      });
+      publishThinking();
       blocks.clear();
       content.forEach((block, index) => {
         if (block.type === "text") blocks.set(index, block.text ?? "");
@@ -376,10 +433,22 @@ async function execute(req: Request, state: Active) {
           event.message.role === "assistant"
         ) {
           printed = "";
+          thinkingPrinted = "";
+          thoughts.clear();
           replace(event.message.content);
         } else if (event.type === "message_update") {
           for (const change of event.changes) {
-            if (change.type === "text_delta")
+            if (change.type === "thinking_delta")
+              thoughts.set(
+                change.contentIndex,
+                (thoughts.get(change.contentIndex) ?? "") + change.delta,
+              );
+            else if (
+              (change.type === "thinking_start" || change.type === "block") &&
+              change.block.type === "thinking"
+            )
+              thoughts.set(change.contentIndex, change.block.thinking);
+            else if (change.type === "text_delta")
               blocks.set(
                 change.contentIndex,
                 (blocks.get(change.contentIndex) ?? "") + change.delta,
@@ -392,9 +461,21 @@ async function execute(req: Request, state: Active) {
             else if (change.type === "message") replace(change.message.content);
           }
           publish();
+          publishThinking();
         } else if (event.type === "message_end") {
           const message = event.entry.model?.[0];
           if (message?.role === "assistant") replace(message.content);
+        } else if (
+          event.type === "compaction_start" ||
+          event.type === "compaction_end"
+        ) {
+          if (event.type === "compaction_end" && event.error)
+            control.failure ??= "compaction_failed";
+          runEvent(runID, req.request_id, event.type, {
+            ...(event.type === "compaction_end"
+              ? { failed: Boolean(event.error) }
+              : {}),
+          });
         } else if (
           event.type === "tool_execution_start" ||
           event.type === "tool_execution_end"
@@ -517,8 +598,14 @@ async function execute(req: Request, state: Active) {
               : /404|not.found/i.test(detail)
                 ? "not_found"
                 : "request_failed";
+      const currentEntries = entries.filter(
+        (entry) => !previousEntries.has(entry.id),
+      );
+      const entriesTruncated =
+        Buffer.byteLength(JSON.stringify(currentEntries)) > 8 * 1024 * 1024;
       runEvent(runID, req.request_id, `run_${status}`, {
-        entries,
+        entries: entriesTruncated ? [] : currentEntries,
+        ...(entriesTruncated ? { entries_truncated: true } : {}),
         answer,
         error_code:
           status === "failed" ? (control.failure ?? errorCode) : undefined,
@@ -675,6 +762,15 @@ async function dispatch(req: Request) {
       journal.prepare("SELECT 1 FROM executions WHERE run_id=?").get(req.run_id)
     )
       throw new Error("duplicate_run");
+    const policy = contextPolicy(req.context_policy);
+    if (
+      req.output_policy &&
+      (typeof req.output_policy.thinking !== "boolean" ||
+        !["hidden", "summary", "detailed"].includes(req.output_policy.tools) ||
+        typeof req.output_policy.sources !== "boolean" ||
+        typeof req.output_policy.progress !== "boolean")
+    )
+      throw new Error("invalid_output_policy");
     journal
       .prepare(
         "INSERT INTO executions(run_id,conversation_id,status) VALUES (?,?,'running')",
@@ -697,7 +793,13 @@ async function dispatch(req: Request) {
     }
     const state: Active = {
       conversationID: req.conversation_id,
-      control: { limits, rounds: 0, timers: new Map(), uncertain: new Set() },
+      control: {
+        limits,
+        contextPolicy: policy,
+        rounds: 0,
+        timers: new Map(),
+        uncertain: new Set(),
+      },
     };
     active.set(req.run_id, state);
     runEvent(req.run_id, req.request_id, "run_started");

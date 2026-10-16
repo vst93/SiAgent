@@ -27,10 +27,13 @@ type Message struct {
 	Created int64  `json:"created"`
 }
 type Run struct {
-	ID      string `json:"id"`
-	Status  string `json:"status"`
-	Error   string `json:"error"`
-	Created int64  `json:"created"`
+	Output   *OutputPolicy `json:"output,omitempty"`
+	Thinking string        `json:"thinking,omitempty"`
+	Tools    []ToolCall    `json:"tools,omitempty"`
+	ID       string        `json:"id"`
+	Status   string        `json:"status"`
+	Error    string        `json:"error"`
+	Created  int64         `json:"created"`
 }
 type RunSource struct {
 	RunID string `json:"run_id"`
@@ -92,6 +95,10 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "助手已停用或归档，不能创建新对话。")
 		return
 	}
+	if a.Policy.Session.Types == "group" {
+		fail(w, 403, "此助手仅接收群聊消息，请在绑定的群聊中使用。")
+		return
+	}
 	v := Conversation{ID: id(), Title: "新对话", Created: time.Now().UnixMilli(), AgentID: a.ID}
 	if _, err := s.store.db.Exec("INSERT INTO conversations(id,title,created,agent_id) VALUES(?,?,?,?)", v.ID, v.Title, v.Created, v.AgentID); err != nil {
 		internal(w)
@@ -122,17 +129,56 @@ func (s *Server) snapshot(conversationID string) (Snapshot, error) {
 	if err != nil {
 		return result, err
 	}
-	rows, err = s.store.db.Query("SELECT id,status,error,created FROM runs WHERE conversation_id=? ORDER BY created,rowid", conversationID)
+	configs := map[string]runConfig{}
+	rows, err = s.store.db.Query("SELECT id,status,error,created,config,thinking FROM runs WHERE conversation_id=? ORDER BY created,rowid", conversationID)
 	if err != nil {
 		return result, err
 	}
 	for rows.Next() {
 		var run Run
-		if err := rows.Scan(&run.ID, &run.Status, &run.Error, &run.Created); err != nil {
+		var config, thinking string
+		if err := rows.Scan(&run.ID, &run.Status, &run.Error, &run.Created, &config, &thinking); err != nil {
 			rows.Close()
 			return result, err
 		}
+		var configSnapshot runConfig
+		if err := json.Unmarshal([]byte(config), &configSnapshot); err != nil {
+			rows.Close()
+			return result, err
+		}
+		configs[run.ID] = configSnapshot
+		output := configSnapshot.Agent.effectivePolicy().Output
+		run.Output = &output
+		if output.Thinking {
+			run.Thinking = thinking
+		}
 		result.Runs = append(result.Runs, run)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return result, err
+	}
+	rows, err = s.store.db.Query("SELECT t.run_id,t.call_id,t.name,t.status FROM tool_calls t JOIN runs r ON r.id=t.run_id WHERE r.conversation_id=? ORDER BY t.rowid", conversationID)
+	if err != nil {
+		return result, err
+	}
+	runIndex := map[string]int{}
+	for i, run := range result.Runs {
+		runIndex[run.ID] = i
+	}
+	for rows.Next() {
+		var runID string
+		var tool ToolCall
+		if err := rows.Scan(&runID, &tool.ID, &tool.Name, &tool.Status); err != nil {
+			rows.Close()
+			return result, err
+		}
+		i := runIndex[runID]
+		tool.DisplayName = toolDisplayName(configs[runID], tool.Name)
+		if result.Runs[i].Output.Tools != "hidden" {
+			result.Runs[i].Tools = append(result.Runs[i].Tools, tool)
+		}
 	}
 	err = rows.Err()
 	rows.Close()
@@ -153,7 +199,9 @@ func (s *Server) snapshot(conversationID string) (Snapshot, error) {
 		if err := json.Unmarshal([]byte(raw), &source.Hit); err != nil {
 			return result, err
 		}
-		result.Sources = append(result.Sources, source)
+		if i, ok := runIndex[source.RunID]; ok && result.Runs[i].Output.Sources {
+			result.Sources = append(result.Sources, source)
+		}
 	}
 	return result, rows.Err()
 }
@@ -239,6 +287,15 @@ func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, a
 	if !agent.Enabled || agent.Archived {
 		return Run{}, &admissionError{409, "助手已停用或归档，新消息暂不接收；已排队任务正常处理。"}
 	}
+	if agent.Policy.Session.Types == "group" {
+		var channel string
+		if err := s.store.db.QueryRow("SELECT channel_id FROM conversations WHERE id=?", conversationID).Scan(&channel); err != nil {
+			return Run{}, err
+		}
+		if channel == "" {
+			return Run{}, &admissionError{403, "此助手仅接收群聊消息。"}
+		}
+	}
 	model, err := s.store.modelByID(agent.ModelID)
 	if err != nil {
 		return Run{}, err
@@ -288,8 +345,10 @@ func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, a
 		}
 	}
 	var bytes int
-	if err := s.store.db.QueryRow("SELECT coalesce(sum(length(CAST(content AS BLOB))),0) FROM messages WHERE conversation_id=?", conversationID).Scan(&bytes); err != nil {
-		return Run{}, err
+	if agent.Policy.Context.Strategy == "full" {
+		if err := s.store.db.QueryRow("SELECT coalesce(sum(length(CAST(content AS BLOB))),0) FROM messages WHERE conversation_id=?", conversationID).Scan(&bytes); err != nil {
+			return Run{}, err
+		}
 	}
 	contextBudget := 8 * 1024 * 1024
 	if bytes+len(input)+len(agent.Instructions)+skillBytes+1024 > contextBudget {

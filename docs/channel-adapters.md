@@ -79,10 +79,18 @@ stdin/stdout 使用一行一个 JSON 对象，每帧 `v:1`，最多 256 KiB。st
 ```
 
 - `id`：渠道内稳定的厂商消息 ID，最多 256 字节，作为持久化去重标识。
-- `session`：最多 2048 字节的稳定范围标识，由适配器负责包含聊天类型、群、成员等隔离维度，不能以临时连接 ID 代替。
+- `session`：最多 2048 字节的稳定来源范围标识，不能以临时连接 ID 代替。
+- `chat_type` / `sender_id` / `group_id`：支持群聊的适配器应提供这三个标准字段。`chat_type` 为 `single` 或 `group`；`sender_id` 为稳定成员 ID，群聊必须提供稳定 `group_id`，私聊的群 ID 为空。身份字段各最多 256 字节。平台生成稳定三元组 session，由 Agent 策略决定按群内成员或全群共享上下文。回复的 target 保持原成员来源，不被共享上下文键替换。
+- 兼容旧企微 `[聊天类型, 群ID, 成员ID]` JSON session。只提供不透明 session 的旧适配器按私聊处理；群聊必须升级身份字段后才能使用类型限制和群共享。
 - `kind`：当前 Agent 底座消费 `text`，其他类型形成明确的文字范围说明。
 - `text`：UTF-8 文本，最多 100000 字节，仍受 Agent 的输入与上下文限制。
 - `reply_context`：用于回复的厂商协议上下文，最多 16 项、序列化 8 KiB。作为业务数据持久化，清理会话时移除，不能在其中传入用于其他系统的凭据。
+
+群聊示例：
+
+```json
+{"v":1,"type":"incoming","incoming":{"id":"message-2","chat_type":"group","sender_id":"member-1","group_id":"room-1","kind":"text","text":"团队问题","reply_context":{"request_id":"opaque-vendor-context"}}}
+```
 
 平台在入站提交或确认同内容重复后发送：
 

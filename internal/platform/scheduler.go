@@ -140,6 +140,9 @@ func (s *Server) dispatch() error {
 			return err
 		}
 		request := map[string]any{"v": 1, "type": "start", "request_id": runID, "run_id": runID, "conversation_id": conversationID, "input": input, "instructions": snapshot.Agent.Instructions, "model": map[string]any{"base_url": snapshot.BaseURL, "name": snapshot.Model, "api_key": key, "options": snapshot.ModelOptions}, "limits": map[string]int{"run_timeout_ms": snapshot.Limits.RunTimeout * 1000, "tool_timeout_ms": snapshot.Limits.ToolTimeout * 1000, "tool_rounds": snapshot.Limits.ToolRounds}}
+		policy := snapshot.Agent.effectivePolicy()
+		request["context_policy"] = policy.Context
+		request["output_policy"] = policy.Output
 		request["capabilities"] = snapshot.Capabilities
 		request["mcp_secrets"] = credentials.MCPs
 		request["agent_id"] = snapshot.Agent.ID

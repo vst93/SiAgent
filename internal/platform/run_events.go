@@ -47,7 +47,7 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 		return nil
 	}
 	switch event.Type {
-	case "run_started", "message_delta", "run_completed", "run_failed", "run_cancelled", "run_cancelling", "run_released", "run_interrupted", "tool_start", "tool_end", "error":
+	case "run_started", "message_delta", "thinking_delta", "compaction_start", "compaction_end", "run_completed", "run_failed", "run_cancelled", "run_cancelling", "run_released", "run_interrupted", "tool_start", "tool_end", "error":
 	default:
 		return nil
 	}
@@ -99,6 +99,29 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 	message := ""
 	data := map[string]any{}
 	switch event.Type {
+	case "thinking_delta":
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return err
+		}
+		var config string
+		if err := tx.QueryRow("SELECT config FROM runs WHERE id=?", runID).Scan(&config); err != nil {
+			return err
+		}
+		var snapshot runConfig
+		if err := json.Unmarshal([]byte(config), &snapshot); err != nil {
+			return err
+		}
+		if snapshot.Agent.effectivePolicy().Output.Thinking {
+			if _, err := tx.Exec("UPDATE runs SET thinking=substr(thinking||?,1,64000) WHERE id=?", payload.Text, runID); err != nil {
+				return err
+			}
+		}
+		data["bytes"] = len(payload.Text)
+	case "compaction_start", "compaction_end":
+	// Compaction content stays in private Runtime storage; diagnostics show lifecycle only.
 	case "message_delta":
 		var payload struct {
 			Text string `json:"text"`
@@ -152,6 +175,8 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 			message = "工具调用结果不明，已停止后续执行；请核对外部系统，不会自动重试。"
 		case "request_size_limit":
 			message = "请求数据量超过平台内部保护上限，请新建对话；已有内容未删除。"
+		case "compaction_failed":
+			message = "上下文摘要生成失败，本次任务已停止。请检查模型服务，或调整 Agent 上下文策略后重新发送；历史和已有工具记录保留。"
 		case "context_limit":
 			message = "本会话已接近上下文限制，请新建对话。已有内容未删除。"
 		}

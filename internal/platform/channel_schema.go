@@ -26,5 +26,8 @@ func (s *Store) migrateChannelProviders() error {
 	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateAgentPolicies()
 }

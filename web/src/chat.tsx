@@ -1,3 +1,5 @@
+import type { AgentPolicy } from "./agent-policy";
+import { ToolCallDetails } from "./capabilities";
 import { Icon } from "./icons";
 import { MessageMarkdown } from "./message-markdown";
 import { FormEvent, useEffect, useRef, useState } from "react";
@@ -12,6 +14,9 @@ export type Conversation = {
   channel_id?: string;
 };
 export type Run = {
+  output?: AgentPolicy["output"];
+  thinking?: string;
+  tools?: { id: string; name: string; display_name?: string; status: string }[];
   id: string;
   status: string;
   error: string;
@@ -37,6 +42,12 @@ const statusNames: Record<string, string> = {
   failed: "未完成",
   cancelled: "已取消",
   interrupted: "已中断",
+};
+const toolStatusNames: Record<string, string> = {
+  running: "执行中",
+  completed: "已完成",
+  failed: "失败",
+  interrupted: "结果不明，请核对",
 };
 const active = (run: Run) =>
   run.status === "running" || run.status === "cancelling";
@@ -99,6 +110,7 @@ export function ChatWorkspace({
   const blocked =
     pending ||
     !ready ||
+    agent?.policy.session.types === "group" ||
     Boolean(snapshot?.conversation.channel_id) ||
     agent?.enabled === false ||
     agent?.archived === true ||
@@ -151,7 +163,12 @@ export function ChatWorkspace({
             className="new-chat"
             onClick={newConversation}
             disabled={
-              !model || loading || pending || !agent?.enabled || agent.archived
+              !model ||
+              loading ||
+              pending ||
+              !agent?.enabled ||
+              agent.archived ||
+              agent.policy.session.types === "group"
             }
           >
             <Icon name="plus" size={16} />
@@ -303,6 +320,19 @@ export function ChatWorkspace({
                               )}
                             </time>
                           </div>
+                          {message.role === "assistant" && run?.thinking && (
+                            <details className="thinking-output">
+                              <summary>
+                                <Icon
+                                  name="caret-right"
+                                  size={14}
+                                  className="disclosure-icon"
+                                />
+                                思考摘要
+                              </summary>
+                              <MessageMarkdown content={run.thinking} />
+                            </details>
+                          )}
                           <div className="message-text">
                             <MessageMarkdown
                               content={
@@ -373,6 +403,40 @@ export function ChatWorkspace({
                               {run.error && (
                                 <p className="error">{run.error}</p>
                               )}
+                              {run.tools && run.tools.length > 0 && (
+                                <details className="run-tool-output">
+                                  <summary>
+                                    <Icon
+                                      name="caret-right"
+                                      size={14}
+                                      className="disclosure-icon"
+                                    />
+                                    工具调用（{run.tools.length}）
+                                  </summary>
+                                  <ul className="tool-list">
+                                    {run.tools.map((tool) => (
+                                      <li key={tool.id}>
+                                        <div>
+                                          <strong>
+                                            {tool.display_name || tool.name}
+                                          </strong>
+                                          <span>
+                                            {statusNames[tool.status] ??
+                                              tool.status}
+                                          </span>
+                                          {run.output?.tools === "detailed" && (
+                                            <ToolCallDetails
+                                              request={request}
+                                              runID={run.id}
+                                              callID={tool.id}
+                                            />
+                                          )}
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </details>
+                              )}
                               <RunDiagnostics run={run} request={request} />
                               {run.status === "cancelled" && (
                                 <p className="muted">
@@ -406,10 +470,15 @@ export function ChatWorkspace({
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder={
-                    agent?.enabled === false ? "助手已停用" : "给助手发消息…"
+                    agent?.policy.session.types === "group"
+                      ? "此助手仅接收群聊消息"
+                      : agent?.enabled === false
+                        ? "助手已停用"
+                        : "给助手发消息…"
                   }
                   maxLength={100000}
                   disabled={
+                    agent?.policy.session.types === "group" ||
                     agent?.enabled === false ||
                     agent?.archived ||
                     Boolean(snapshot?.conversation.channel_id)
@@ -455,6 +524,13 @@ export function ChatWorkspace({
                   </div>
                 </div>
               </form>
+              {agent?.policy.session.types === "group" &&
+                !snapshot?.conversation.channel_id && (
+                  <p className="context-warning">
+                    此助手仅接收群聊消息。请在已绑定的群聊中使用，Web
+                    中仍可查看历史和运行详情。
+                  </p>
+                )}
               {snapshot?.conversation.channel_id && (
                 <p className="context-warning">
                   渠道会话仅供查看和取消任务，请在原聊天平台发送消息。新建对话可独立测试助手。

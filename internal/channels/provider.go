@@ -41,6 +41,9 @@ type Config struct {
 	Secrets  map[string]string `json:"secrets"`
 }
 type Incoming struct {
+	ChatType     string            `json:"chat_type,omitempty"`
+	SenderID     string            `json:"sender_id,omitempty"`
+	GroupID      string            `json:"group_id,omitempty"`
 	Fingerprint  string            `json:"-"`
 	ID           string            `json:"id"`
 	Session      string            `json:"session"`

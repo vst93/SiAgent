@@ -2,17 +2,19 @@ package platform
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strings"
 )
 
 type Agent struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Instructions string `json:"instructions"`
-	Enabled      bool   `json:"enabled"`
-	ModelID      int64  `json:"model_id"`
-	Archived     bool   `json:"archived"`
+	Policy       AgentPolicy `json:"policy"`
+	ID           string      `json:"id"`
+	Name         string      `json:"name"`
+	Instructions string      `json:"instructions"`
+	Enabled      bool        `json:"enabled"`
+	ModelID      int64       `json:"model_id"`
+	Archived     bool        `json:"archived"`
 }
 
 func agentPath(r *http.Request) string {
@@ -24,7 +26,11 @@ func agentPath(r *http.Request) string {
 func (s *Server) agent() (Agent, error) { return s.agentByID("default") }
 func (s *Server) agentByID(id string) (Agent, error) {
 	var a Agent
-	err := s.store.db.QueryRow("SELECT id,name,instructions,enabled,model_id,archived FROM agents WHERE id=?", id).Scan(&a.ID, &a.Name, &a.Instructions, &a.Enabled, &a.ModelID, &a.Archived)
+	var policy string
+	err := s.store.db.QueryRow("SELECT id,name,instructions,enabled,model_id,archived,policy FROM agents WHERE id=?", id).Scan(&a.ID, &a.Name, &a.Instructions, &a.Enabled, &a.ModelID, &a.Archived, &policy)
+	if err == nil {
+		a.Policy, err = parseAgentPolicy([]byte(policy), defaultAgentPolicy())
+	}
 	return a, err
 }
 func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +50,7 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, a)
 }
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.db.Query("SELECT id,name,instructions,enabled,model_id,archived FROM agents ORDER BY CASE WHEN id='default' THEN 0 ELSE 1 END,rowid")
+	rows, err := s.store.db.Query("SELECT id,name,instructions,enabled,model_id,archived,policy FROM agents ORDER BY CASE WHEN id='default' THEN 0 ELSE 1 END,rowid")
 	if err != nil {
 		internal(w)
 		return
@@ -53,7 +59,13 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	values := []Agent{}
 	for rows.Next() {
 		var a Agent
-		if err := rows.Scan(&a.ID, &a.Name, &a.Instructions, &a.Enabled, &a.ModelID, &a.Archived); err != nil {
+		var policy string
+		if err := rows.Scan(&a.ID, &a.Name, &a.Instructions, &a.Enabled, &a.ModelID, &a.Archived, &policy); err != nil {
+			internal(w)
+			return
+		}
+		a.Policy, err = parseAgentPolicy([]byte(policy), defaultAgentPolicy())
+		if err != nil {
 			internal(w)
 			return
 		}
@@ -67,10 +79,11 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Name         string `json:"name"`
-		Instructions string `json:"instructions"`
-		Enabled      bool   `json:"enabled"`
-		ModelID      int64  `json:"model_id"`
+		Policy       json.RawMessage `json:"policy"`
+		Name         string          `json:"name"`
+		Instructions string          `json:"instructions"`
+		Enabled      bool            `json:"enabled"`
+		ModelID      int64           `json:"model_id"`
 	}
 	if !decode(w, r, &input) {
 		return
@@ -83,6 +96,7 @@ func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	agentID := agentPath(r)
+	basePolicy := defaultAgentPolicy()
 	status := 200
 	if r.Method == "POST" {
 		agentID = id()
@@ -104,10 +118,17 @@ func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 			fail(w, 409, "助手已归档，仅可查看历史。")
 			return
 		}
+		basePolicy = old.Policy
 		if input.ModelID == 0 {
 			input.ModelID = old.ModelID
 		}
 	}
+	policy, err := parseAgentPolicy(input.Policy, basePolicy)
+	if err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	encodedPolicy, _ := json.Marshal(policy)
 	model, err := s.store.modelByID(input.ModelID)
 	if err == sql.ErrNoRows || model.Archived {
 		fail(w, 400, "请选择存在且未归档的模型。")
@@ -118,9 +139,9 @@ func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "POST" {
-		_, err = s.store.db.Exec("INSERT INTO agents(id,name,instructions,enabled,model_id) VALUES(?,?,?,?,?)", agentID, input.Name, input.Instructions, input.Enabled, input.ModelID)
+		_, err = s.store.db.Exec("INSERT INTO agents(id,name,instructions,enabled,model_id,policy) VALUES(?,?,?,?,?,?)", agentID, input.Name, input.Instructions, input.Enabled, input.ModelID, string(encodedPolicy))
 	} else {
-		_, err = s.store.db.Exec("UPDATE agents SET name=?,instructions=?,enabled=?,model_id=? WHERE id=?", input.Name, input.Instructions, input.Enabled, input.ModelID, agentID)
+		_, err = s.store.db.Exec("UPDATE agents SET name=?,instructions=?,enabled=?,model_id=?,policy=? WHERE id=?", input.Name, input.Instructions, input.Enabled, input.ModelID, string(encodedPolicy), agentID)
 	}
 	if err != nil {
 		internal(w)
