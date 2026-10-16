@@ -1,0 +1,1205 @@
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { KnowledgeDialog } from "./knowledge-dialog";
+
+type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
+type Base = {
+  id: string;
+  name: string;
+  description: string;
+  documents: number;
+};
+type Document = {
+  id: string;
+  title: string;
+  filename: string;
+  active_version: number;
+  version: number;
+  state: string;
+  error: string;
+  size: number;
+  characters: number;
+  chunks: number;
+  deleted: boolean;
+  cleanup_pending: boolean;
+};
+export type KnowledgeHit = {
+  source_id: string;
+  knowledge_id: string;
+  document_id: string;
+  version: number;
+  title: string;
+  text: string;
+  source_url: string;
+  location?: {
+    page?: number;
+    paragraph?: number;
+    start?: number;
+    end?: number;
+  };
+};
+type Source = KnowledgeHit & {
+  deleted: boolean;
+  historical: boolean;
+  document_text: string;
+  offset: number;
+  next_offset?: number;
+  total_characters: number;
+};
+const message = (error: unknown) =>
+  error instanceof Error ? error.message : "操作未完成，请稍后重试。";
+const states: Record<string, string> = {
+  queued: "等待处理",
+  processing: "正在处理",
+  ready: "可检索",
+  failed: "处理失败",
+  deleted: "已删除",
+};
+const size = (bytes: number) =>
+  bytes >= 1048576
+    ? `${(bytes / 1048576).toFixed(1)} MiB`
+    : `${(bytes / 1024).toFixed(1)} KiB`;
+
+function DeleteDialog({
+  title,
+  description,
+  onClose,
+  onDelete,
+}: {
+  title: string;
+  description: string;
+  onClose: () => void;
+  onDelete: () => Promise<void>;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <KnowledgeDialog title={title} pending={pending} onClose={onClose}>
+      <p>{description}</p>
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      <footer>
+        <button data-dialog-cancel disabled={pending} onClick={onClose}>
+          取消
+        </button>
+        <button
+          className="danger-button"
+          disabled={pending}
+          onClick={async () => {
+            setPending(true);
+            setError("");
+            try {
+              await onDelete();
+              onClose();
+            } catch (error) {
+              setError(message(error));
+            } finally {
+              setPending(false);
+            }
+          }}
+        >
+          {pending ? "正在删除…" : "确认删除"}
+        </button>
+      </footer>
+    </KnowledgeDialog>
+  );
+}
+
+function LibraryEditor({
+  request,
+  base,
+  onClose,
+  onSaved,
+}: {
+  request: Api;
+  base: Base | null;
+  onClose: () => void;
+  onSaved: (base: Base) => void;
+}) {
+  const [name, setName] = useState(base?.name ?? "");
+  const [description, setDescription] = useState(base?.description ?? "");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+    try {
+      const result = await request<Base>(
+        base ? `/knowledge/bases/${base.id}` : "/knowledge/bases",
+        base ? "PUT" : "POST",
+        { name, description },
+      );
+      onSaved({ ...result, documents: base?.documents ?? 0 });
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <KnowledgeDialog
+      title={base ? "编辑知识库" : "新建知识库"}
+      pending={pending}
+      onClose={onClose}
+    >
+      <form onSubmit={save}>
+        <fieldset disabled={pending}>
+          <label>
+            知识库名称
+            <input
+              required
+              maxLength={80}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="例如：产品手册、财务制度"
+            />
+          </label>
+          <label>
+            知识库说明
+            <textarea
+              rows={3}
+              maxLength={1000}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="简要说明资料内容与用途（选填）"
+            />
+          </label>
+        </fieldset>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        <footer>
+          <button
+            type="button"
+            data-dialog-cancel
+            disabled={pending}
+            onClick={onClose}
+          >
+            取消
+          </button>
+          <button className="primary" disabled={pending}>
+            {pending ? "正在保存…" : base ? "保存知识库" : "创建知识库"}
+          </button>
+        </footer>
+      </form>
+    </KnowledgeDialog>
+  );
+}
+
+function UploadDialog({
+  request,
+  baseID,
+  replacement,
+  pdf,
+  onClose,
+  onUploaded,
+}: {
+  request: Api;
+  baseID: string;
+  replacement: Document | null;
+  pdf: boolean | null;
+  onClose: () => void;
+  onUploaded: (document: Document) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  async function upload(event: FormEvent) {
+    event.preventDefault();
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) {
+      setError("单个文件不能超过 20 MiB，请拆分后上传。");
+      return;
+    }
+    setPending(true);
+    setError("");
+    try {
+      const data = new FormData();
+      data.append("file", file);
+      const result = await request<Document>(
+        `/knowledge/bases/${baseID}/documents${replacement ? `/${replacement.id}` : ""}`,
+        replacement ? "PUT" : "POST",
+        data,
+      );
+      onUploaded(result);
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <KnowledgeDialog
+      title={replacement ? "替换文档" : "上传文档"}
+      pending={pending}
+      onClose={onClose}
+    >
+      <form onSubmit={upload}>
+        {replacement && <p className="kb-target-name">{replacement.title}</p>}
+        <div className="kb-file-picker">
+          <label>
+            选择文档
+            <input
+              required
+              type="file"
+              accept=".txt,.md,.markdown,.pdf"
+              disabled={pending}
+              onChange={(event) => {
+                setFile(event.target.files?.[0] ?? null);
+                setError("");
+              }}
+            />
+          </label>
+          {file && (
+            <p>
+              {file.name} · {size(file.size)}
+            </p>
+          )}
+        </div>
+        <p className="kb-help">
+          UTF-8 TXT、Markdown、文本 PDF，单文件最多 20 MiB。不支持扫描件与
+          Office。
+        </p>
+        {replacement && (
+          <p className="kb-help">
+            新版本处理成功后切换；失败时仍使用已发布版本。
+          </p>
+        )}
+        {pdf === false && (
+          <p className="error">
+            PDF 解析依赖未就绪；TXT 与 Markdown 可正常上传。
+          </p>
+        )}
+        <details className="kb-limits">
+          <summary>查看处理限制</summary>
+          <p>
+            提取最多 100 万字符、5000 个片段；PDF 最多 1000
+            页。文档在本地提取与建立索引，不会在上传时发送给模型。
+          </p>
+        </details>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        <footer>
+          <button
+            type="button"
+            data-dialog-cancel
+            disabled={pending}
+            onClick={onClose}
+          >
+            取消
+          </button>
+          <button className="primary" disabled={pending || !file}>
+            {pending
+              ? "正在上传…"
+              : replacement
+                ? "上传替换版本"
+                : "上传并建立索引"}
+          </button>
+        </footer>
+      </form>
+    </KnowledgeDialog>
+  );
+}
+
+export function KnowledgeWorkspace({ request }: { request: Api }) {
+  const [bases, setBases] = useState<Base[]>([]);
+  const [selected, setSelected] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState("");
+  const [pdf, setPDF] = useState<boolean | null>(null);
+  const [editor, setEditor] = useState<{ base: Base | null } | null>(null);
+  const [deleting, setDeleting] = useState<Base | null>(null);
+  const current = bases.find((base) => base.id === selected);
+  const mounted = useRef(true);
+  async function refresh() {
+    const values = await request<Base[]>("/knowledge/bases");
+    if (!mounted.current) return;
+    setBases(values);
+    setSelected((id) =>
+      values.some((base) => base.id === id) ? id : (values[0]?.id ?? ""),
+    );
+  }
+  useEffect(() => {
+    mounted.current = true;
+    void Promise.all([
+      request<Base[]>("/knowledge/bases"),
+      request<{ pdf_available: boolean }>("/knowledge/status"),
+    ])
+      .then(([values, status]) => {
+        if (!mounted.current) return;
+        setBases(values);
+        setSelected(values[0]?.id ?? "");
+        setPDF(status.pdf_available);
+      })
+      .catch((error) => {
+        if (mounted.current) setError(message(error));
+      })
+      .finally(() => {
+        if (mounted.current) setLoading(false);
+      });
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  return (
+    <div className="knowledge-workspace">
+      {loading ? (
+        <p className="kb-loading" role="status">
+          正在读取知识库…
+        </p>
+      ) : (
+        <>
+          <div className="kb-library-toolbar">
+            <label>
+              <span className="sr-only">选择知识库</span>
+              <select
+                aria-label="选择知识库"
+                value={selected}
+                disabled={!bases.length}
+                onChange={(event) => {
+                  setSelected(event.target.value);
+                  setFeedback("");
+                  setError("");
+                }}
+              >
+                {!bases.length && <option value="">尚未创建知识库</option>}
+                {bases.map((base) => (
+                  <option key={base.id} value={base.id}>
+                    {base.name} · {base.documents} 份文档
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="kb-library-controls">
+              {current && (
+                <details
+                  className="kb-actions kb-library-actions"
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget))
+                      event.currentTarget.open = false;
+                  }}
+                >
+                  <summary>管理知识库</summary>
+                  <div>
+                    <button
+                      onClick={(event) => {
+                        event.currentTarget.closest("details")!.open = false;
+                        setEditor({ base: current });
+                      }}
+                    >
+                      编辑知识库
+                    </button>
+                    <button
+                      className="kb-danger"
+                      onClick={(event) => {
+                        event.currentTarget.closest("details")!.open = false;
+                        setDeleting(current);
+                      }}
+                    >
+                      删除知识库
+                    </button>
+                  </div>
+                </details>
+              )}
+              <button
+                className="primary"
+                onClick={() => setEditor({ base: null })}
+                disabled={!!error && !bases.length}
+              >
+                ＋ 新建知识库
+              </button>
+            </div>
+          </div>
+          {error && (
+            <div className="kb-feedback error" role="alert">
+              {error}
+              <button
+                onClick={() => {
+                  setError("");
+                  setLoading(true);
+                  void refresh()
+                    .catch((error) => setError(message(error)))
+                    .finally(() => setLoading(false));
+                }}
+              >
+                重新读取知识库
+              </button>
+            </div>
+          )}
+          {feedback && (
+            <p className="kb-feedback success" role="status">
+              {feedback}
+            </p>
+          )}
+          {current ? (
+            <LibraryDocuments
+              key={current.id}
+              request={request}
+              base={current}
+              pdf={pdf}
+              onChanged={() => {
+                void refresh().catch((error) => {
+                  if (mounted.current) setError(message(error));
+                });
+              }}
+            />
+          ) : (
+            !error && (
+              <div className="kb-empty">
+                <span className="kb-empty-icon" aria-hidden="true">
+                  ▤
+                </span>
+                <h2>还没有知识库</h2>
+                <p>点击上方“新建知识库”，整理一组文档后即可测试检索。</p>
+              </div>
+            )
+          )}
+          <p className="kb-scope-note">
+            文档在本地处理。Agent 的访问范围在{" "}
+            <a href="#/settings/agents">Agent 配置</a>中单独授权。
+          </p>
+        </>
+      )}
+      {editor && (
+        <LibraryEditor
+          request={request}
+          base={editor.base}
+          onClose={() => setEditor(null)}
+          onSaved={(base) => {
+            setBases((values) =>
+              values.some((value) => value.id === base.id)
+                ? values.map((value) => (value.id === base.id ? base : value))
+                : [...values, base],
+            );
+            setSelected(base.id);
+            setEditor(null);
+            setFeedback(
+              editor.base ? "知识库已更新。" : "知识库已创建，可以上传文档。",
+            );
+          }}
+        />
+      )}
+      {deleting && (
+        <DeleteDialog
+          title={`删除知识库“${deleting.name}”？`}
+          description="删除后，全部文档退出检索，并解除 Agent 的关联。已有对话来源保留删除标记，此操作无法撤销。"
+          onClose={() => setDeleting(null)}
+          onDelete={async () => {
+            await request(`/knowledge/bases/${deleting.id}`, "DELETE");
+            const remaining = bases.filter((base) => base.id !== deleting.id);
+            setBases(remaining);
+            setSelected((id) =>
+              id === deleting.id ? (remaining[0]?.id ?? "") : id,
+            );
+            setFeedback("知识库已删除，文档文件将清理，历史引用标识保留。");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function LibraryDocuments({
+  request,
+  base,
+  pdf,
+  onChanged,
+}: {
+  request: Api;
+  base: Base;
+  pdf: boolean | null;
+  onChanged: () => void;
+}) {
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState("");
+  const [tab, setTab] = useState<"documents" | "search">("documents");
+  const [filter, setFilter] = useState("");
+  const [status, setStatus] = useState("all");
+  const [upload, setUpload] = useState<{ replacement: Document | null } | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState<Document | null>(null);
+  const [detail, setDetail] = useState<string | null>(null);
+  const [pending, setPending] = useState("");
+  const [pollError, setPollError] = useState("");
+  const mounted = useRef(true);
+  const reads = useRef(0);
+  const busy = documents.some(
+    (doc) =>
+      doc.state === "queued" ||
+      doc.state === "processing" ||
+      doc.cleanup_pending,
+  );
+  const processing = documents.filter((doc) =>
+    ["queued", "processing"].includes(doc.state),
+  ).length;
+  const failed = documents.filter((doc) => doc.state === "failed").length;
+  const visible = documents.filter(
+    (doc) =>
+      `${doc.title} ${doc.filename}`
+        .toLowerCase()
+        .includes(filter.toLowerCase()) &&
+      (status === "all" ||
+        (!doc.deleted &&
+          (status === "processing"
+            ? ["queued", "processing"].includes(doc.state)
+            : doc.state === status))),
+  );
+  const selectedDoc = documents.find((doc) => doc.id === detail);
+  async function refresh() {
+    const sequence = ++reads.current;
+    try {
+      const values = await request<Document[]>(
+        `/knowledge/bases/${base.id}/documents`,
+      );
+      if (mounted.current && sequence === reads.current) setDocuments(values);
+    } catch (error) {
+      if (mounted.current && sequence === reads.current) throw error;
+    }
+  }
+  useEffect(() => {
+    mounted.current = true;
+    void refresh()
+      .catch((error) => {
+        if (mounted.current) setError(message(error));
+      })
+      .finally(() => {
+        if (mounted.current) setLoading(false);
+      });
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!busy) return;
+    let active = true;
+    // Poll serially so a slow read cannot overwrite a newer status response.
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        await refresh();
+        if (active) setPollError("");
+      } catch (error) {
+        if (active) setPollError(message(error));
+      } finally {
+        if (active) timer = setTimeout(poll, 1000);
+      }
+    };
+    timer = setTimeout(poll, 1000);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [busy]);
+  async function retry(doc: Document) {
+    setPending(doc.id);
+    setError("");
+    setFeedback("");
+    try {
+      const value = await request<Document>(
+        `/knowledge/documents/${doc.id}/retry`,
+        "POST",
+      );
+      if (mounted.current) {
+        reads.current++;
+        setDocuments((values) =>
+          values.map((item) => (item.id === value.id ? value : item)),
+        );
+        setFeedback(
+          "已安排重新处理，成功后切换到新版本；失败时继续使用原版本。",
+        );
+      }
+    } catch (error) {
+      if (mounted.current) setError(message(error));
+    } finally {
+      if (mounted.current) setPending("");
+    }
+  }
+  function changeTab(value: typeof tab) {
+    setTab(value);
+  }
+  return (
+    <section className="kb-library-content">
+      {base.description && (
+        <p className="kb-description" title={base.description}>
+          {base.description}
+        </p>
+      )}
+      <div className="kb-content-bar">
+        <div
+          className="kb-tabs"
+          role="tablist"
+          aria-label="知识库内容"
+          onKeyDown={(event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+              return;
+            event.preventDefault();
+            const value =
+              event.key === "Home"
+                ? "documents"
+                : event.key === "End"
+                  ? "search"
+                  : tab === "documents"
+                    ? "search"
+                    : "documents";
+            changeTab(value);
+            event.currentTarget
+              .querySelector<HTMLButtonElement>(`#kb-tab-${value}`)
+              ?.focus();
+          }}
+        >
+          <button
+            role="tab"
+            id="kb-tab-documents"
+            aria-selected={tab === "documents"}
+            aria-controls="kb-documents"
+            tabIndex={tab === "documents" ? 0 : -1}
+            onClick={() => changeTab("documents")}
+          >
+            文档管理 <span>{documents.length}</span>
+          </button>
+          <button
+            role="tab"
+            id="kb-tab-search"
+            aria-selected={tab === "search"}
+            aria-controls="kb-search"
+            tabIndex={tab === "search" ? 0 : -1}
+            onClick={() => changeTab("search")}
+          >
+            检索测试
+          </button>
+        </div>
+        <span className="kb-status-summary">
+          {processing
+            ? `${processing} 份处理中`
+            : failed
+              ? `${failed} 份处理失败`
+              : "本地索引"}
+        </span>
+      </div>
+      {error && (
+        <p className="kb-feedback error" role="alert">
+          {error}
+        </p>
+      )}
+      {feedback && (
+        <p className="kb-feedback success" role="status">
+          {feedback}
+        </p>
+      )}
+      {pollError && (
+        <p className="kb-feedback error" role="alert">
+          {pollError}
+        </p>
+      )}
+      <div
+        role="tabpanel"
+        id="kb-documents"
+        aria-labelledby="kb-tab-documents"
+        hidden={tab !== "documents"}
+      >
+        <div className="kb-document-toolbar">
+          <input
+            aria-label="搜索文档"
+            type="search"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder="搜索文档名称"
+          />
+          <select
+            aria-label="筛选文档状态"
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+          >
+            <option value="all">全部状态</option>
+            <option value="ready">可检索</option>
+            <option value="processing">处理中</option>
+            <option value="failed">处理失败</option>
+          </select>
+          <div className="kb-document-toolbar-actions">
+            <button
+              disabled={!!pending}
+              onClick={() => {
+                setPending("refresh");
+                setError("");
+                void refresh()
+                  .catch((error) => {
+                    if (mounted.current) setError(message(error));
+                  })
+                  .finally(() => {
+                    if (mounted.current) setPending("");
+                  });
+              }}
+            >
+              {pending === "refresh" ? "正在刷新…" : "刷新文档状态"}
+            </button>
+            <button
+              className="primary"
+              disabled={loading}
+              onClick={() => setUpload({ replacement: null })}
+            >
+              上传文档
+            </button>
+          </div>
+        </div>
+        {loading ? (
+          <p className="kb-loading" role="status">
+            正在读取文档…
+          </p>
+        ) : !documents.length ? (
+          <div className="kb-empty kb-documents-empty">
+            <span className="kb-empty-icon" aria-hidden="true">
+              ↑
+            </span>
+            <h3>还没有文档</h3>
+            <p>点击“上传文档”添加 TXT、Markdown 或文本 PDF。</p>
+          </div>
+        ) : (
+          <div
+            className="kb-document-table"
+            role="table"
+            aria-label="知识库文档"
+          >
+            <div className="kb-document-row kb-table-heading" role="row">
+              <span role="columnheader">文档</span>
+              <span role="columnheader">索引状态</span>
+              <span role="columnheader">检索版本</span>
+              <span role="columnheader" className="sr-only">
+                操作
+              </span>
+            </div>
+            {visible.map((doc) => (
+              <div className="kb-document-row" role="row" key={doc.id}>
+                <div role="cell" className="kb-document-name">
+                  <button onClick={() => setDetail(doc.id)} title={doc.title}>
+                    {doc.title}
+                  </button>
+                  <small>
+                    {size(doc.size)}
+                    {doc.state === "ready" ? ` · ${doc.chunks} 个片段` : ""}
+                  </small>
+                  {doc.error && (
+                    <p className="kb-row-error" title={doc.error}>
+                      {doc.error}
+                      {doc.active_version > 0 && !doc.deleted
+                        ? ` 仍使用已发布的 v${doc.active_version}。`
+                        : ""}
+                    </p>
+                  )}
+                </div>
+                <div role="cell">
+                  <span
+                    className={`knowledge-state ${doc.cleanup_pending ? "failed" : doc.state}`}
+                  >
+                    {doc.cleanup_pending
+                      ? "文件清理待重试"
+                      : (states[doc.state] ?? doc.state)}
+                  </span>
+                </div>
+                <div role="cell" className="kb-version">
+                  {doc.active_version > 0 && !doc.deleted
+                    ? `v${doc.active_version}`
+                    : "—"}
+                  {doc.version !== doc.active_version && (
+                    <small>最新 v{doc.version}</small>
+                  )}
+                </div>
+                <div role="cell">
+                  <details
+                    className="kb-actions"
+                    onBlur={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget))
+                        event.currentTarget.open = false;
+                    }}
+                  >
+                    <summary aria-label={`${doc.title}的更多操作`}>•••</summary>
+                    <div
+                      onClick={(event) => {
+                        const details = event.currentTarget.closest("details");
+                        if (details) details.open = false;
+                      }}
+                    >
+                      <button onClick={() => setDetail(doc.id)}>
+                        文档详情
+                      </button>
+                      {!doc.deleted && (
+                        <>
+                          <button
+                            disabled={
+                              !!pending ||
+                              ["queued", "processing"].includes(doc.state)
+                            }
+                            onClick={() => setUpload({ replacement: doc })}
+                          >
+                            替换文件
+                          </button>
+                          <button
+                            disabled={
+                              !!pending ||
+                              ["queued", "processing"].includes(doc.state)
+                            }
+                            onClick={() => void retry(doc)}
+                          >
+                            {doc.state === "failed" ? "重试处理" : "重新索引"}
+                          </button>
+                        </>
+                      )}
+                      <button
+                        className="kb-danger"
+                        disabled={!!pending}
+                        onClick={() => setDeleting(doc)}
+                      >
+                        {doc.cleanup_pending ? "重试文件清理" : "删除文档"}
+                      </button>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            ))}
+            {!visible.length && (
+              <p className="kb-filter-empty">
+                没有匹配的文档，请调整名称或状态筛选。
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+      <div
+        role="tabpanel"
+        id="kb-search"
+        aria-labelledby="kb-tab-search"
+        hidden={tab !== "search"}
+      >
+        <KnowledgeSearch
+          key={base.id}
+          request={request}
+          baseID={base.id}
+          revision={documents
+            .map((doc) => `${doc.id}:${doc.active_version}:${doc.deleted}`)
+            .join("|")}
+        />
+      </div>
+      {upload && (
+        <UploadDialog
+          request={request}
+          baseID={base.id}
+          replacement={upload.replacement}
+          pdf={pdf}
+          onClose={() => setUpload(null)}
+          onUploaded={(doc) => {
+            reads.current++;
+            setDocuments((values) => [
+              doc,
+              ...values.filter((value) => value.id !== doc.id),
+            ]);
+            setUpload(null);
+            setFeedback(
+              "文档已接收，处理完成后才进入检索。替换失败时继续使用原版本。",
+            );
+            onChanged();
+          }}
+        />
+      )}
+      {deleting && (
+        <DeleteDialog
+          title={deleting.cleanup_pending ? "重试文件清理？" : "删除文档？"}
+          description={`“${deleting.title}”将退出检索，已有来源链接保留删除标记。其他文档不受影响。`}
+          onClose={() => setDeleting(null)}
+          onDelete={async () => {
+            await request(`/knowledge/documents/${deleting.id}`, "DELETE");
+            reads.current++;
+            setDocuments((values) =>
+              values.filter((doc) => doc.id !== deleting.id),
+            );
+            setFeedback("文档已删除，不再参与新检索。已有来源链接显示已删除。");
+            onChanged();
+            void refresh().catch((error) => {
+              if (mounted.current) setError(message(error));
+            });
+          }}
+        />
+      )}
+      {selectedDoc && (
+        <KnowledgeDialog title="文档详情" onClose={() => setDetail(null)}>
+          <p className="kb-target-name">{selectedDoc.title}</p>
+          <dl className="kb-document-metadata">
+            <dt>原始文件</dt>
+            <dd>{selectedDoc.filename}</dd>
+            <dt>文件大小</dt>
+            <dd>{size(selectedDoc.size)}</dd>
+            <dt>最新版本</dt>
+            <dd>
+              v{selectedDoc.version} ·{" "}
+              {states[selectedDoc.state] ?? selectedDoc.state}
+            </dd>
+            <dt>当前检索版本</dt>
+            <dd>
+              {selectedDoc.deleted
+                ? "已退出检索"
+                : selectedDoc.active_version
+                  ? `v${selectedDoc.active_version}`
+                  : "尚未发布"}
+            </dd>
+            <dt>字符 / 片段</dt>
+            <dd>
+              {selectedDoc.characters.toLocaleString()} / {selectedDoc.chunks}
+            </dd>
+          </dl>
+          {selectedDoc.error && (
+            <p className="error">
+              {selectedDoc.error}
+              {selectedDoc.active_version > 0 && !selectedDoc.deleted
+                ? ` 仍使用已发布的 v${selectedDoc.active_version}。`
+                : ""}
+            </p>
+          )}
+          <footer>
+            {selectedDoc.active_version > 0 && !selectedDoc.deleted && (
+              <a
+                className="kb-source-link"
+                href={`/?source=${selectedDoc.id}.${selectedDoc.active_version}.0`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                查看检索原文 ↗
+              </a>
+            )}
+            <button data-dialog-cancel onClick={() => setDetail(null)}>
+              关闭
+            </button>
+          </footer>
+        </KnowledgeDialog>
+      )}
+    </section>
+  );
+}
+
+function KnowledgeSearch({
+  request,
+  baseID,
+  revision,
+}: {
+  request: Api;
+  baseID: string;
+  revision: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<KnowledgeHit[] | null>(null);
+  const [searched, setSearched] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const mounted = useRef(true);
+  const generation = useRef(0);
+  useEffect(() => {
+    generation.current++;
+    setResults(null);
+    setSearched("");
+    setPending(false);
+    setError("");
+  }, [revision]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  async function search(event: FormEvent) {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+    setResults(null);
+    const submitted = query;
+    const currentGeneration = ++generation.current;
+    try {
+      const result = await request<{ hits: KnowledgeHit[] }>(
+        "/knowledge/search",
+        "POST",
+        { query: submitted, knowledge_ids: [baseID], limit: 5 },
+      );
+      if (mounted.current && generation.current === currentGeneration) {
+        setResults(result.hits);
+        setSearched(submitted);
+      }
+    } catch (error) {
+      if (mounted.current && generation.current === currentGeneration)
+        setError(message(error));
+    } finally {
+      if (mounted.current && generation.current === currentGeneration)
+        setPending(false);
+    }
+  }
+  return (
+    <section className="kb-search-content">
+      <p className="kb-help">
+        使用文档中的关键词验证检索结果。直接查询本地索引，不调用模型。
+      </p>
+      <form onSubmit={search}>
+        <label>
+          <span className="sr-only">检索问题</span>
+          <input
+            required
+            maxLength={500}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="输入问题或资料中的关键词"
+          />
+        </label>
+        <button className="primary" disabled={pending || !query.trim()}>
+          {pending ? "正在检索…" : "检索当前知识库"}
+        </button>
+      </form>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {results === null && !error && !pending && (
+        <p className="kb-search-placeholder">
+          检索结果会在这里展示，可打开来源查看片段与原文。
+        </p>
+      )}
+      {results && (
+        <p className="kb-results-count">
+          “{searched}” ·{" "}
+          {results.length
+            ? `${results.length} 条来源`
+            : "没有找到依据。请检查文档是否处理完成，或使用资料中的关键词。"}
+        </p>
+      )}
+      {results && (
+        <ol className="knowledge-hits">
+          {results.map((hit) => (
+            <li key={hit.source_id}>
+              <a
+                href={hit.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {hit.title} · v{hit.version}
+                {hit.location?.page ? ` · 第 ${hit.location.page} 页` : ""} ↗
+              </a>
+              <p>{hit.text}</p>
+              {hit.location?.paragraph && (
+                <small>解析文本第 {hit.location.paragraph} 段</small>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+export function KnowledgeSource({
+  request,
+  sourceID,
+}: {
+  request: Api;
+  sourceID: string;
+}) {
+  const [source, setSource] = useState<Source | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    void request<Source>(
+      `/knowledge/sources/${encodeURIComponent(sourceID)}?offset=${offset}&limit=4000`,
+    )
+      .then((source) => {
+        if (active) {
+          setSource(source);
+          setError("");
+        }
+      })
+      .catch((error) => {
+        if (active) setError(message(error));
+      });
+    return () => {
+      active = false;
+    };
+  }, [sourceID, offset]);
+  return (
+    <main className="knowledge-source-page">
+      <a href="/">← 返回 SiAgent 工作台</a>
+      <p className="eyebrow">知识来源 · 原文版本可追溯</p>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {!source && !error && <p role="status">正在读取来源…</p>}
+      {source && (
+        <>
+          <h1>{source.title}</h1>
+          <p className="muted">
+            {source.deleted
+              ? "来源版本"
+              : source.historical
+                ? "历史版本"
+                : "检索版本"}{" "}
+            v{source.version}
+            {source.location?.page ? ` · 第 ${source.location.page} 页` : ""}
+          </p>
+          {source.deleted ? (
+            <p className="permission-notice">
+              来源已删除。历史引用标识保留，该内容不再参与检索。
+            </p>
+          ) : (
+            <>
+              <section className="knowledge-source-excerpt">
+                <h2>检索片段</h2>
+                <pre>{source.text}</pre>
+                <small>
+                  {source.location?.paragraph && (
+                    <>解析文本第 {source.location.paragraph} 段</>
+                  )}
+                  {source.location?.end !== undefined && (
+                    <>
+                      {" "}
+                      · 段内字符 {(source.location.start ?? 0) + 1}–
+                      {source.location.end}
+                    </>
+                  )}
+                </small>
+              </section>
+              <section>
+                <h2>解析原文</h2>
+                <p className="muted">
+                  第 {source.offset + 1}–
+                  {source.offset + Array.from(source.document_text).length}{" "}
+                  字符，共 {source.total_characters.toLocaleString()}{" "}
+                  字符。文档内容以文本展示。
+                </p>
+                <pre className="knowledge-original">{source.document_text}</pre>
+                <div className="form-actions">
+                  <button
+                    disabled={offset === 0}
+                    onClick={() => setOffset(Math.max(0, offset - 4000))}
+                  >
+                    上一段原文
+                  </button>
+                  <button
+                    disabled={source.next_offset === undefined}
+                    onClick={() => setOffset(source.next_offset ?? offset)}
+                  >
+                    下一段原文
+                  </button>
+                </div>
+              </section>
+            </>
+          )}
+        </>
+      )}
+    </main>
+  );
+}

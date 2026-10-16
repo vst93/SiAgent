@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/dist
+bin
+data
+*.log
+
+backups
+restored-data
+.env
+.env.*
+**/__pycache__

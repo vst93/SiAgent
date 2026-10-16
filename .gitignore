@@ -1,0 +1,37 @@
+/data/
+/bin/
+**/node_modules/
+runtime/dist/
+web/dist/*
+!web/dist/.gitkeep
+
+/backups/
+/restored-data/
+
+**/__pycache__/
+
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+!.env.template
+**/master.key
+*.key
+
+# Databases, logs and generated reports
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.log
+npm-debug.log*
+*.tsbuildinfo
+/coverage/
+coverage.out
+/artifacts/
+web/test/artifacts/
+
+# Local editor and OS files
+.DS_Store
+.idea/
+.vscode/

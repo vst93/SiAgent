@@ -1,0 +1,1417 @@
+import { createCipheriv, createHash, randomBytes } from "node:crypto";
+import { chromium } from "playwright";
+import { createServer } from "node:http";
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { once } from "node:events";
+import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
+const root = fileURLToPath(new URL("../../", import.meta.url));
+const artifacts =
+  process.env.SIAGENT_BROWSER_ARTIFACTS ??
+  join(tmpdir(), "siagent-browser-artifacts");
+await mkdir(artifacts, { recursive: true });
+const modelInputs = [];
+const modelRequests = [];
+const modelListRequests = [];
+let releaseHold;
+const held = new Promise((resolve) => {
+  releaseHold = resolve;
+});
+const model = createServer(async (req, res) => {
+  if (req.method === "GET" && req.url === "/v1/models") {
+    modelListRequests.push({ authorization: req.headers.authorization });
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        data: [
+          { id: "browser-fixture" },
+          { id: "another-fixture" },
+          { id: "browser-fixture" },
+        ],
+      }),
+    );
+    return;
+  }
+
+  let raw = "";
+  for await (const chunk of req) raw += chunk;
+  const body = JSON.parse(raw);
+  modelRequests.push({ body, authorization: req.headers.authorization });
+  if (!body.stream) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ choices: [{ message: { content: "OK" } }] }));
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "text/event-stream" });
+  const send = (delta, finish_reason = null) =>
+    res.write(
+      `data: ${JSON.stringify({ id: "browser", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`,
+    );
+  modelInputs.push(body.messages.at(-1).content);
+  if (body.messages.at(-1).content === "browser knowledge") {
+    send({ role: "assistant", content: "" });
+    send({
+      tool_calls: [
+        {
+          index: 0,
+          id: "browser-knowledge-call",
+          type: "function",
+          function: {
+            name: "knowledge_search",
+            arguments: JSON.stringify({ query: "发票开具流程" }),
+          },
+        },
+      ],
+    });
+    send({}, "tool_calls");
+    res.end("data: [DONE]\n\n");
+    return;
+  }
+  if (body.messages.at(-1).content === "browser MCP") {
+    send({ role: "assistant", content: "" });
+    send({
+      tool_calls: [
+        {
+          index: 0,
+          id: "browser-mcp-call",
+          type: "function",
+          function: {
+            name: body.tools.find((tool) =>
+              tool.function.name.startsWith("mcp_"),
+            ).function.name,
+            arguments: "{}",
+          },
+        },
+      ],
+    });
+    send({}, "tool_calls");
+    res.end("data: [DONE]\n\n");
+    return;
+  }
+  send({ role: "assistant", content: "" });
+  if (body.messages.at(-1).content === "browser markdown") {
+    send({
+      content:
+        '## Markdown 渲染示例\n\n这是 **重点** 与 `inline code`。\n\n- 第一项\n- 第二项\n\n> 引用内容\n\n| 模块 | 状态 | 说明 |\n| --- | --- | --- |\n| 知识库 | 就绪 | 可检索 |\n\n```javascript\nconst message = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";\nconsole.log(message);\n```\n\n[安全链接](https://example.com) [危险链接](javascript:alert(1))\n\n![远程图片](https://example.invalid/image.png)\n\n<img src=x onerror=window.markdownPwned=true>\n<script>window.markdownPwned=true</script>',
+    });
+    send({}, "stop");
+    res.end("data: [DONE]\n\n");
+    return;
+  }
+  if (body.messages.at(-1).content === "browser hold") {
+    send({ content: "正在处理…" });
+    await held;
+  }
+  send({ content: "收到：" + body.messages.at(-1).content });
+  send({}, "stop");
+  res.end("data: [DONE]\n\n");
+});
+model.listen(0, "127.0.0.1");
+await once(model, "listening");
+const directory = await mkdtemp(join(tmpdir(), "siagent-browser-"));
+const skillDirectory = await mkdtemp(join(tmpdir(), "siagent-browser-skill-"));
+await writeFile(
+  join(skillDirectory, "SKILL.md"),
+  "---\nname: browser-skill\ndescription: Browser fixture skill.\ncompatibility: Inspect the supplied requirements file.\n---\nUse explicit tools only. <img src=x onerror=window.pwned=true>\n",
+);
+await writeFile(
+  join(skillDirectory, "requirements.txt"),
+  "No dependencies installed automatically.\n",
+);
+await mkdir(join(skillDirectory, "references"));
+await writeFile(
+  join(skillDirectory, "references", "guide.md"),
+  "Nested reference from the uploaded skill.\n",
+);
+const portProbe = createServer();
+portProbe.listen(0, "127.0.0.1");
+await once(portProbe, "listening");
+const port = portProbe.address().port;
+await new Promise((resolve) => portProbe.close(resolve));
+const base = `http://127.0.0.1:${port}`;
+const child = spawn(
+  "./bin/siagent",
+  ["-data-dir", directory, "-listen", `127.0.0.1:${port}`],
+  {
+    cwd: root,
+    env: Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([key]) => !key.startsWith("SIAGENT_"),
+      ),
+    ),
+    stdio: ["ignore", "ignore", "pipe"],
+  },
+);
+let setupToken = "";
+child.stderr.on("data", (chunk) => {
+  const match = String(chunk).match(/令牌.*?: (\S+)/);
+  if (match) setupToken = match[1];
+});
+let browser;
+try {
+  for (let i = 0; i < 100; i++) {
+    try {
+      const response = await fetch(base + "/health/ready");
+      if (response.ok) break;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  browser = await chromium.launch({
+    executablePath: process.env.SIAGENT_CHROMIUM,
+    headless: true,
+  });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => {
+    errors.push(error.message);
+    console.error(error.stack);
+  });
+  page.on("console", (message) => {
+    if (
+      message.type() === "error" &&
+      message.text().includes("Content Security Policy")
+    )
+      errors.push(message.text());
+  });
+  const config = async (name) => {
+    await page
+      .getByRole("navigation", { name: "主模块" })
+      .getByRole("button", { name: "配置", exact: true })
+      .click();
+    await page
+      .getByRole("navigation", { name: "配置导航" })
+      .getByRole("link", { name, exact: true })
+      .click();
+    await page
+      .locator(".configuration-heading")
+      .getByRole("heading", { name, exact: true })
+      .waitFor();
+  };
+  const chat = async () => {
+    await page
+      .getByRole("navigation", { name: "主模块" })
+      .getByRole("button", { name: "Agent 对话", exact: true })
+      .click();
+    await page.getByLabel("发送给助手的消息").waitFor();
+  };
+  const agentTab = async (agent, tab) => {
+    await config("Agent");
+    await page
+      .locator(".agent-card")
+      .filter({ hasText: agent })
+      .locator(".agent-card-select")
+      .click();
+    await page
+      .getByRole("navigation", { name: "Agent 配置" })
+      .getByRole("button", { name: tab, exact: true })
+      .click();
+  };
+  await page.goto(base);
+  const icon = await page.locator('link[rel="icon"]').getAttribute("href");
+  assert.equal(icon, "/favicon.svg");
+  const favicon = await page.request.get(base + icon);
+  assert.equal(favicon.status(), 200);
+  assert((await favicon.text()).includes("<svg"));
+  await page.getByLabel("首次启动令牌").fill(setupToken);
+  await page.getByLabel("管理员密码").fill("browser-long-test-password");
+  await page.getByRole("button", { name: "设置密码并继续" }).click();
+  await page
+    .getByLabel("服务地址")
+    .fill(`http://127.0.0.1:${model.address().port}/v1`);
+  await page.getByLabel("API 密钥").fill("browser-key");
+  await page.getByRole("button", { name: "获取模型列表", exact: true }).click();
+  await page.getByText("已获取 2 个模型", { exact: true }).waitFor();
+  assert.equal(
+    await page.evaluate(
+      async () => (await (await fetch("/api/models")).json()).length,
+    ),
+    0,
+  );
+  await page
+    .getByLabel("模型名称", { exact: true })
+    .selectOption("browser-fixture");
+  await page.getByRole("button", { name: "手动填写", exact: true }).click();
+  await page.getByLabel("模型名称", { exact: true }).fill("custom-model-id");
+  await page.getByRole("button", { name: "从列表选择", exact: true }).click();
+  assert.equal(
+    await page.getByLabel("模型名称", { exact: true }).inputValue(),
+    "custom-model-id",
+  );
+  await page
+    .getByLabel("模型名称", { exact: true })
+    .selectOption("browser-fixture");
+  assert.equal(modelListRequests.at(-1).authorization, "Bearer browser-key");
+
+  await page.getByRole("button", { name: "保存并开始对话" }).click();
+  await page
+    .getByLabel("发送给助手的消息")
+    .fill("你好，请帮我整理今天的工作。");
+  await page.getByRole("button", { name: "发送", exact: false }).click();
+  await page
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "收到：你好" })
+    .waitFor();
+  await page.getByText("已完成", { exact: true }).waitFor();
+  await page.screenshot({
+    path: join(artifacts, "desktop.png"),
+    fullPage: true,
+  });
+  let remoteImageRequests = 0;
+  page.on("request", (request) => {
+    if (request.url().startsWith("https://example.invalid/"))
+      remoteImageRequests++;
+  });
+  await page.getByLabel("发送给助手的消息").fill("browser markdown");
+  await page.getByRole("button", { name: "发送", exact: false }).click();
+  const rendered = page.locator(".message.assistant .message-markdown").filter({
+    has: page.getByRole("heading", {
+      name: "Markdown 渲染示例",
+      exact: true,
+    }),
+  });
+  await rendered.locator("pre code.language-javascript").waitFor();
+  assert.equal(await rendered.locator("ul li").count(), 2);
+  assert.equal(await rendered.locator("table tbody tr").count(), 1);
+  assert.equal(await rendered.locator("strong").innerText(), "重点");
+  assert.equal(await rendered.locator("blockquote").innerText(), "引用内容");
+  assert.equal(
+    await rendered.locator("img,script,a[href^='javascript:']").count(),
+    0,
+  );
+  assert.equal(await page.evaluate(() => window.markdownPwned), undefined);
+  assert.equal(remoteImageRequests, 0);
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    assert(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    );
+    await page.screenshot({
+      path: join(artifacts, `markdown-${width}.png`),
+      fullPage: true,
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByLabel("发送给助手的消息").fill("保留跨模块草稿");
+  await config("模型连接");
+  const beforeDiscovery = await page.evaluate(
+    async () => await (await fetch("/api/models")).json(),
+  );
+  await page.getByRole("button", { name: "获取模型列表", exact: true }).click();
+  await page.getByText("已获取 2 个模型", { exact: true }).waitFor();
+  assert.equal(modelListRequests.at(-1).authorization, "Bearer browser-key");
+  assert.deepEqual(
+    await page.evaluate(async () => await (await fetch("/api/models")).json()),
+    beforeDiscovery,
+  );
+  await page.getByLabel("API 密钥", { exact: true }).fill("changed-editor-key");
+  assert.equal(
+    await page
+      .getByLabel("模型名称", { exact: true })
+      .evaluate((element) => element.tagName),
+    "INPUT",
+  );
+  await page.getByLabel("API 密钥", { exact: true }).fill("");
+  assert.equal(await page.getByLabel("角色指令").count(), 0);
+  await chat();
+  assert.equal(
+    await page.getByLabel("发送给助手的消息").inputValue(),
+    "保留跨模块草稿",
+  );
+  await page.getByLabel("发送给助手的消息").fill("");
+  await config("模型连接");
+  await page
+    .getByRole("button", { name: "设当前配置页为默认页面", exact: true })
+    .click();
+  await config("知识库");
+  await page.goto(base);
+  await page
+    .locator(".configuration-heading h1")
+    .filter({ hasText: "模型连接" })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "设当前配置页为默认页面", exact: true })
+      .getAttribute("aria-pressed"),
+    "true",
+  );
+  await page.goto(base + "#/settings/system");
+  await page
+    .locator(".configuration-heading h1")
+    .filter({ hasText: "运行与维护" })
+    .waitFor();
+  await config("Agent");
+  await config("知识库");
+  await page.goBack();
+  await page
+    .locator(".configuration-heading h1")
+    .filter({ hasText: /^Agent$/ })
+    .waitFor();
+  await chat();
+  await page
+    .getByRole("button", { name: "设 Agent 对话为默认页面", exact: true })
+    .click();
+  await config("模型连接");
+  await page.goto(base);
+  await page.getByLabel("发送给助手的消息").waitFor();
+  await config("模型连接");
+  const other = await page.context().newPage();
+  other.on("pageerror", (error) => errors.push(error.message));
+  await other.goto(base + "#/settings/knowledge");
+  await other
+    .getByRole("button", { name: "设当前配置页为默认页面", exact: true })
+    .click();
+  await page.getByText("默认：配置 · 知识库", { exact: true }).waitFor();
+  await other.goto(base);
+  await other
+    .locator(".configuration-heading h1")
+    .filter({ hasText: "知识库" })
+    .waitFor();
+  await other.evaluate(() =>
+    localStorage.setItem("siagent.default-page", "settings/invalid"),
+  );
+  await other.goto(base + "#/unknown-page");
+  await other.getByLabel("发送给助手的消息").waitFor();
+  await other.addInitScript(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === "siagent.default-page")
+        throw new DOMException("blocked", "SecurityError");
+      return original.call(this, key, value);
+    };
+  });
+  await other.goto(base + "#/settings/system");
+  await other.reload();
+  await other
+    .getByRole("button", { name: "设当前配置页为默认页面", exact: true })
+    .click();
+  await other
+    .getByRole("alert")
+    .filter({ hasText: "浏览器未允许保存默认页面" })
+    .waitFor();
+  await other
+    .locator(".configuration-heading h1")
+    .filter({ hasText: "运行与维护" })
+    .waitFor();
+  await other.close();
+  await page
+    .getByRole("button", { name: "设 Agent 对话为默认页面", exact: true })
+    .click();
+  await page.getByRole("button", { name: "测试模型连接", exact: true }).click();
+  await page.getByText("连接成功，模型已返回文本响应。").waitFor();
+  assert.equal(await page.getByLabel("API 密钥").inputValue(), "");
+  await config("运行与维护");
+  assert.equal(
+    await page.getByLabel("上下文保守上限（字节）", { exact: true }).count(),
+    0,
+  );
+  await page.getByLabel("单次运行时限（秒）").fill("60");
+  await page.getByRole("button", { name: "保存运行限制" }).click();
+  await page.getByText("限制已保存。", { exact: false }).waitFor();
+  assert.equal(
+    await page.evaluate(() =>
+      fetch("/api/limits")
+        .then((response) => response.json())
+        .then((data) => data.run_timeout_seconds),
+    ),
+    60,
+  );
+  await config("插件接入");
+  assert.equal(await page.getByLabel("Skill 在服务器上的绝对目录").count(), 0);
+  assert.equal(
+    await page
+      .getByRole("tab", { name: "Skills 技能文件", exact: true })
+      .getAttribute("aria-selected"),
+    "true",
+  );
+  await page.getByRole("button", { name: "上传 Skill", exact: false }).click();
+  await page.getByLabel("上传方式", { exact: true }).selectOption("folder");
+  await page
+    .getByLabel("选择技能文件夹", { exact: true })
+    .setInputFiles(skillDirectory);
+  await page.getByLabel("我已确认该技能来自可信来源").check();
+  await page.getByRole("button", { name: "上传并保存", exact: true }).click();
+  await page
+    .getByText("“browser-skill”已上传，可到 Agent 配置中挂载。", {
+      exact: true,
+    })
+    .waitFor();
+  assert.equal(
+    await page.evaluate(
+      async () =>
+        (await (await fetch("/api/agents/default/capabilities")).json()).skills
+          .length,
+    ),
+    0,
+  );
+  await page.getByRole("button", { name: "上传 Skill", exact: false }).click();
+  await page
+    .getByLabel("选择技能包", { exact: true })
+    .setInputFiles({
+      name: "SKILL.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from(
+        "---\nname: disposable-skill\ndescription: Archive flow fixture.\n---\nReference only.\n",
+      ),
+    });
+  await page.getByLabel("我已确认该技能来自可信来源").check();
+  await page.getByRole("button", { name: "上传并保存", exact: true }).click();
+  await page
+    .getByRole("heading", { name: "disposable-skill", exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "归档技能", exact: true }).click();
+  assert.equal(
+    await page.evaluate(() => document.activeElement.textContent),
+    "取消",
+  );
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("heading", { name: "disposable-skill", exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "归档技能", exact: true }).click();
+  await page.getByRole("button", { name: "确认归档", exact: true }).click();
+  await page
+    .getByRole("heading", { name: "browser-skill", exact: true })
+    .waitFor();
+  await page
+    .locator(".skill-file-preview pre")
+    .filter({ hasText: "browser-skill" })
+    .waitFor();
+  assert.equal(await page.locator(".skill-file-preview img").count(), 0);
+  await page.getByRole("button", { name: "guide.md", exact: true }).click();
+  await page
+    .locator(".skill-file-preview pre")
+    .filter({ hasText: "Nested reference" })
+    .waitFor();
+  await page
+    .getByRole("button", { name: "requirements.txt", exact: true })
+    .click();
+  await page
+    .locator(".skill-file-preview pre")
+    .filter({ hasText: "No dependencies" })
+    .waitFor();
+  await page.screenshot({
+    path: join(artifacts, "skills-desktop.png"),
+    fullPage: true,
+  });
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    );
+    await page.screenshot({
+      path: join(artifacts, `skills-${width}.png`),
+      fullPage: true,
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("tab", { name: "MCP 工具服务", exact: true }).click();
+  await page.getByText("添加 MCP 服务", { exact: true }).click();
+  await page.getByLabel("MCP 名称", { exact: true }).fill("Browser MCP");
+  await page.getByRole("tab", { name: "Skills 技能文件", exact: true }).click();
+  assert.equal(
+    await page.getByLabel("MCP 名称", { exact: true }).isVisible(),
+    false,
+  );
+  await page
+    .locator(".skill-file-preview pre")
+    .filter({ hasText: "No dependencies" })
+    .waitFor();
+  await page.getByRole("tab", { name: "MCP 工具服务", exact: true }).click();
+  assert.equal(
+    await page.getByLabel("MCP 名称", { exact: true }).inputValue(),
+    "Browser MCP",
+  );
+
+  await page.getByLabel("程序绝对路径", { exact: true }).fill(process.execPath);
+  await page
+    .getByLabel("参数（JSON 字符串数组）", { exact: true })
+    .fill(JSON.stringify([join(root, "runtime/test/mcp-fixture.mjs")]));
+  await page
+    .getByLabel("环境变量（JSON 对象，留空沿用已保存值）", { exact: true })
+    .fill(JSON.stringify({ TOKEN: "browser-mcp-secret" }));
+  await page
+    .getByLabel(
+      "我确认服务及代码可信，并允许连接测试启动本地进程或访问远程地址",
+    )
+    .check();
+  await page
+    .getByRole("button", { name: "保存 MCP 配置", exact: true })
+    .click();
+  await page.getByText("MCP 已保存。", { exact: false }).waitFor();
+  await page
+    .getByRole("button", { name: "测试连接与刷新工具", exact: true })
+    .click();
+  await page.getByText("inspect · 服务声明只读", { exact: true }).click();
+  await page.screenshot({
+    path: join(artifacts, "plugins-desktop.png"),
+    fullPage: true,
+  });
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <= innerWidth &&
+          document.querySelector(".configuration-content").scrollWidth <=
+            document.querySelector(".configuration-content").clientWidth,
+      ),
+    );
+  }
+  await page.screenshot({
+    path: join(artifacts, "plugins-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await agentTab("默认助手", "工具授权");
+  await page.getByLabel("browser-skill", { exact: true }).check();
+  await page.getByText("inspect · 服务声明只读", { exact: true }).click();
+  await page.getByLabel("授权默认助手使用 inspect", { exact: true }).check();
+  await page
+    .getByLabel("我已检查所选内容与权限，仅授予默认助手必要的能力")
+    .check();
+  await page
+    .getByRole("button", { name: "保存助手工具授权", exact: true })
+    .click();
+  await page
+    .getByText("助手授权已保存，新提交的任务将使用这些技能与工具。", {
+      exact: true,
+    })
+    .waitFor();
+  const toolConfig = await page.evaluate(() =>
+    fetch("/api/mcps").then((response) => response.json()),
+  );
+  assert(!JSON.stringify(toolConfig).includes("browser-mcp-secret"));
+  await page.screenshot({
+    path: join(artifacts, "tools-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await page.screenshot({
+    path: join(artifacts, "tools-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await chat();
+  await page.getByLabel("发送给助手的消息").fill("browser MCP");
+  await page.getByRole("button", { name: "发送", exact: false }).click();
+  await page
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "[redacted]" })
+    .waitFor();
+  await page.locator(".run-diagnostics summary").last().click();
+  await page.getByText("Browser MCP / inspect", { exact: true }).waitFor();
+  await page.getByText("查看调用参数与结果", { exact: true }).click();
+  await page
+    .locator(".resource-preview")
+    .filter({ hasText: "[redacted]" })
+    .last()
+    .waitFor();
+  assert(
+    !(await page.locator("body").innerText()).includes("browser-mcp-secret"),
+  );
+  await page.locator(".run-diagnostics > summary").last().click();
+  await config("知识库");
+  await page.getByRole("button", { name: "新建知识库", exact: false }).click();
+  await page.getByLabel("知识库名称", { exact: true }).fill("财务资料");
+  await page.getByRole("button", { name: "创建知识库", exact: true }).click();
+  await page.getByRole("button", { name: "上传文档", exact: true }).click();
+  await page.getByLabel("选择文档", { exact: true }).setInputFiles({
+    name: "发票手册.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from(
+      "# 发票开具流程\n\n发票开具流程：提供订单编号，七个工作日内完成。 <img src=x onerror=window.knowledgePwned=true>\n",
+    ),
+  });
+  await page
+    .getByRole("button", { name: "上传并建立索引", exact: true })
+    .click();
+  await page
+    .locator(".knowledge-state")
+    .filter({ hasText: /^可检索$/ })
+    .waitFor();
+  // Exercise isolated library state, filters, modal dismissal and deletion.
+  const libraryPicker = page.getByLabel("选择知识库", { exact: true });
+  const financeLibrary = await libraryPicker.inputValue();
+  // A delayed pre-upload list must not discard the newly accepted document.
+  let releaseOldList, oldListRequested;
+  const oldListHeld = new Promise((resolve) => {
+    releaseOldList = resolve;
+  });
+  const oldListStarted = new Promise((resolve) => {
+    oldListRequested = resolve;
+  });
+  const oldListURL = `**/api/knowledge/bases/${financeLibrary}/documents`;
+  let holdListOnce = true;
+  await page.route(oldListURL, async (route) => {
+    if (!holdListOnce) {
+      await route.continue();
+      return;
+    }
+    holdListOnce = false;
+    const response = await route.fetch();
+    oldListRequested();
+    await oldListHeld;
+    await route.fulfill({ response });
+  });
+  await page.getByRole("button", { name: "刷新文档状态", exact: true }).click();
+  await oldListStarted;
+  await page.getByRole("button", { name: "上传文档", exact: true }).click();
+  await page.getByLabel("选择文档", { exact: true }).setInputFiles({
+    name: "并发校验.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("独立索引校验资料。"),
+  });
+  await page
+    .getByRole("button", { name: "上传并建立索引", exact: true })
+    .click();
+  await page
+    .locator(".kb-document-name > button")
+    .filter({ hasText: "并发校验.md" })
+    .waitFor();
+  releaseOldList();
+  await page
+    .getByRole("button", { name: "刷新文档状态", exact: true })
+    .waitFor();
+  assert.equal(await page.locator(".kb-document-name").count(), 2);
+  await page.unroute(oldListURL);
+  await page
+    .locator(".kb-document-row")
+    .filter({ hasText: "并发校验.md" })
+    .locator(".kb-actions > summary")
+    .click();
+  await page.getByRole("button", { name: "删除文档", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "确认删除", exact: true })
+    .click();
+  await page
+    .locator(".kb-document-name > button")
+    .filter({ hasText: "并发校验.md" })
+    .waitFor({ state: "hidden" });
+
+  await page.getByRole("button", { name: "新建知识库", exact: false }).click();
+  await page.getByLabel("知识库名称", { exact: true }).fill("独立测试资料");
+  await page.getByRole("button", { name: "创建知识库", exact: true }).click();
+  await page
+    .getByRole("heading", { name: "还没有文档", exact: true })
+    .waitFor();
+  const isolatedLibrary = await libraryPicker.inputValue();
+  let releaseDocuments, documentsRequested;
+  const delayedDocuments = new Promise((resolve) => {
+    releaseDocuments = resolve;
+  });
+  const documentsStarted = new Promise((resolve) => {
+    documentsRequested = resolve;
+  });
+  const documentsURL = `**/api/knowledge/bases/${financeLibrary}/documents`;
+  await page.route(documentsURL, async (route) => {
+    documentsRequested();
+    await delayedDocuments;
+    await route.continue();
+  });
+  await libraryPicker.selectOption(financeLibrary);
+  await documentsStarted;
+  await libraryPicker.selectOption(isolatedLibrary);
+  await page
+    .getByRole("heading", { name: "还没有文档", exact: true })
+    .waitFor();
+  const lateDocuments = page.waitForResponse((response) =>
+    response.url().endsWith(`/knowledge/bases/${financeLibrary}/documents`),
+  );
+  releaseDocuments();
+  await lateDocuments;
+  await page.unroute(documentsURL);
+  assert.equal(await page.locator(".kb-document-name").count(), 0);
+  await libraryPicker.selectOption(financeLibrary);
+  await page.locator(".knowledge-state.ready").waitFor();
+  await page.getByLabel("搜索文档", { exact: true }).fill("不存在的文件");
+  await page
+    .getByText("没有匹配的文档，请调整名称或状态筛选。", { exact: true })
+    .waitFor();
+  await page.getByLabel("搜索文档", { exact: true }).fill("");
+  await page.getByLabel("筛选文档状态", { exact: true }).selectOption("failed");
+  assert.equal(await page.locator(".kb-document-name").count(), 0);
+  await page.getByLabel("筛选文档状态", { exact: true }).selectOption("all");
+  await page.locator(".kb-document-name > button").first().click();
+  await page
+    .getByRole("dialog", { name: "文档详情", exact: true })
+    .getByText("原始文件", { exact: true })
+    .waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "上传文档", exact: true }).click();
+  const uploadDialog = page.getByRole("dialog", {
+    name: "上传文档",
+    exact: true,
+  });
+  await uploadDialog.waitFor();
+  assert(
+    await uploadDialog
+      .getByRole("button", { name: "上传并建立索引", exact: true })
+      .isDisabled(),
+  );
+  await page.mouse.click(1, 1);
+  await uploadDialog.waitFor({ state: "hidden" });
+  await libraryPicker.selectOption(isolatedLibrary);
+  await page.locator(".kb-library-actions > summary").click();
+  await page.getByRole("button", { name: "删除知识库", exact: true }).click();
+  assert.equal(
+    await page.evaluate(() => document.activeElement.textContent),
+    "取消",
+  );
+  await page.keyboard.press("Escape");
+  assert.equal(await libraryPicker.inputValue(), isolatedLibrary);
+  await page.locator(".kb-library-actions > summary").click();
+  await page.getByRole("button", { name: "删除知识库", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "确认删除", exact: true })
+    .click();
+  await page.locator(".knowledge-state.ready").waitFor();
+  assert.equal(await libraryPicker.inputValue(), financeLibrary);
+  await page.screenshot({
+    path: join(artifacts, "knowledge-documents-desktop.png"),
+    fullPage: true,
+  });
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert(
+      await page.evaluate(() => {
+        const group = document.querySelector(".kb-library-controls");
+        const manage = group.querySelector("summary").getBoundingClientRect();
+        const create = group
+          .querySelector(":scope > button")
+          .getBoundingClientRect();
+        return (
+          Math.abs(manage.top - create.top) < 0.5 &&
+          Math.abs(manage.bottom - create.bottom) < 0.5 &&
+          create.left - manage.right > 0 &&
+          create.left - manage.right <= 10
+        );
+      }),
+      `Knowledge toolbar visible buttons are misaligned at ${width}px`,
+    );
+    await page.locator(".kb-library-toolbar").screenshot({
+      path: join(artifacts, `knowledge-toolbar-${width}.png`),
+    });
+    assert(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    );
+    await page.screenshot({
+      path: join(artifacts, `knowledge-documents-${width}.png`),
+      fullPage: true,
+    });
+    await page.getByRole("button", { name: "上传文档", exact: true }).click();
+    assert(
+      await page.evaluate(() => {
+        const b = document.querySelector(".kb-dialog").getBoundingClientRect();
+        return b.left >= 0 && b.right <= innerWidth;
+      }),
+    );
+    await page.screenshot({
+      path: join(artifacts, `knowledge-upload-${width}.png`),
+      fullPage: true,
+    });
+    await page.keyboard.press("Escape");
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  assert.equal(
+    await page
+      .getByRole("button", { name: "保存知识库关联", exact: true })
+      .count(),
+    0,
+  );
+  await agentTab("默认助手", "知识库关联");
+  await page.getByRole("checkbox", { name: "财务资料", exact: true }).check();
+  await page
+    .getByRole("checkbox", {
+      name: "我确认检索片段可发送给当前模型服务",
+      exact: true,
+    })
+    .check();
+  await page
+    .getByRole("button", { name: "保存知识库关联", exact: true })
+    .click();
+  await page
+    .getByText("知识库关联已保存，新提交的任务将使用这些知识库。", {
+      exact: true,
+    })
+    .waitFor();
+  await config("知识库");
+  await page.getByRole("tab", { name: "检索测试", exact: true }).click();
+  await page.getByLabel("检索问题", { exact: true }).fill("发票开具流程");
+  await page
+    .getByRole("button", { name: "检索当前知识库", exact: true })
+    .click();
+  await page.locator(".knowledge-hits li").first().waitFor();
+  const sourceHref = await page
+    .locator(".knowledge-hits a")
+    .first()
+    .getAttribute("href");
+  const sourcePopup = page.waitForEvent("popup");
+  await page.locator(".knowledge-hits a").first().click();
+  const sourcePage = await sourcePopup;
+  await sourcePage
+    .locator(".knowledge-original")
+    .filter({ hasText: "七个工作日" })
+    .waitFor();
+  assert.equal(await sourcePage.locator(".knowledge-original img").count(), 0);
+  assert.equal(
+    await sourcePage.evaluate(() => window.knowledgePwned),
+    undefined,
+  );
+  await sourcePage.close();
+  await page.screenshot({
+    path: join(artifacts, "knowledge-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert(
+    await page.evaluate(() => {
+      const pane = document.querySelector(".knowledge-workspace");
+      return (
+        document.documentElement.scrollWidth <= innerWidth &&
+        pane.scrollWidth <= pane.clientWidth
+      );
+    }),
+  );
+  await page.screenshot({
+    path: join(artifacts, "knowledge-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await chat();
+  await page.getByLabel("发送给助手的消息").fill("browser knowledge");
+  await page.getByRole("button", { name: "发送", exact: false }).click();
+  await page
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "七个工作日" })
+    .waitFor();
+  await page.locator(".answer-sources a").first().waitFor();
+  await config("知识库");
+  await page.getByRole("tab", { name: "文档管理", exact: false }).click();
+  await page
+    .locator(".kb-document-row:not(.kb-table-heading) .kb-actions > summary")
+    .first()
+    .click();
+  await page.getByRole("button", { name: "替换文件", exact: true }).click();
+  await page.getByLabel("选择文档", { exact: true }).setInputFiles({
+    name: "bad.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from([255, 254]),
+  });
+  await page.getByRole("button", { name: "上传替换版本", exact: true }).click();
+  await page
+    .locator(".knowledge-state")
+    .filter({ hasText: /^处理失败$/ })
+    .waitFor();
+  await page.getByText("仍使用已发布的 v1。", { exact: false }).waitFor();
+  await page.getByRole("tab", { name: "检索测试", exact: true }).click();
+  await page.getByLabel("检索问题", { exact: true }).fill("七个工作日");
+  await page
+    .getByRole("button", { name: "检索当前知识库", exact: true })
+    .click();
+  await page
+    .locator(".knowledge-hits li")
+    .filter({ hasText: "七个工作日" })
+    .first()
+    .waitFor();
+  await page.getByRole("tab", { name: "文档管理", exact: false }).click();
+  await page
+    .locator(".kb-document-row:not(.kb-table-heading) .kb-actions > summary")
+    .first()
+    .click();
+  await page.getByRole("button", { name: "替换文件", exact: true }).click();
+  await page.getByLabel("选择文档", { exact: true }).setInputFiles({
+    name: "updated.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("发票开具流程：新规定为十个工作日内完成。"),
+  });
+  await page.getByRole("button", { name: "上传替换版本", exact: true }).click();
+  await page
+    .locator(".knowledge-state")
+    .filter({ hasText: /^可检索$/ })
+    .waitFor();
+  await page.getByRole("tab", { name: "检索测试", exact: true }).click();
+  await page.getByLabel("检索问题", { exact: true }).fill("十个工作日");
+  await page
+    .getByRole("button", { name: "检索当前知识库", exact: true })
+    .click();
+  await page
+    .locator(".knowledge-hits li")
+    .filter({ hasText: "十个工作日" })
+    .first()
+    .waitFor();
+  const historical = await page.context().newPage();
+  await historical.goto(base + sourceHref);
+  await historical.getByText("历史版本 v1", { exact: false }).waitFor();
+  await historical
+    .locator(".knowledge-original")
+    .filter({ hasText: "七个工作日" })
+    .waitFor();
+  await historical.close();
+  await page.getByRole("tab", { name: "文档管理", exact: false }).click();
+  await page
+    .locator(".kb-document-row:not(.kb-table-heading) .kb-actions > summary")
+    .first()
+    .click();
+  await page.getByRole("button", { name: "删除文档", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "删除文档？" })
+    .getByRole("button", { name: "确认删除", exact: true })
+    .click();
+  await page
+    .getByText("文档已删除，不再参与新检索。已有来源链接显示已删除。", {
+      exact: true,
+    })
+    .waitFor();
+  await page.getByRole("tab", { name: "检索测试", exact: true }).click();
+  await page.getByLabel("检索问题", { exact: true }).fill("发票开具流程");
+  await page
+    .getByRole("button", { name: "检索当前知识库", exact: true })
+    .click();
+  await page.getByText("没有找到依据。", { exact: false }).waitFor();
+  const deletedSource = await page.context().newPage();
+  await deletedSource.goto(base + sourceHref);
+  await deletedSource.getByText("来源已删除。", { exact: false }).waitFor();
+  await deletedSource.close();
+  await chat();
+  await page.reload();
+  await page
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "收到：你好" })
+    .waitFor();
+  await page
+    .getByLabel("发送给助手的消息")
+    .fill("<img src=x onerror=window.pwned=true>");
+  await page.getByRole("button", { name: "发送", exact: false }).click();
+  await page
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "<img" })
+    .last()
+    .waitFor();
+  assert.equal(await page.evaluate(() => window.pwned), undefined);
+  assert.equal(await page.locator(".message-text img").count(), 0);
+  await page.locator(".run-diagnostics summary").first().click();
+  await page.getByText("资源已释放", { exact: true }).waitFor();
+  assert((await page.locator(".event-list li").count()) > 0);
+  await page.locator(".run-diagnostics summary").first().click();
+  await page.getByLabel("发送给助手的消息").fill("browser hold");
+  await page.getByRole("button", { name: "发送", exact: false }).click();
+  await page
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "正在处理…" })
+    .waitFor();
+  await page.getByLabel("发送给助手的消息").fill("queued from browser");
+  await page.getByRole("button", { name: "发送", exact: false }).click();
+  await page.getByText("排队中", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "取消排队", exact: true }).click();
+  await page.getByText("已取消", { exact: true }).waitFor();
+  await config("模型连接");
+  releaseHold();
+  await chat();
+  await page
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "收到：browser hold" })
+    .waitFor();
+  assert(!modelInputs.includes("queued from browser"));
+  assert.equal(
+    modelInputs.filter((value) => value === "browser hold").length,
+    1,
+  );
+  await config("渠道接入");
+  const channelKey = Buffer.alloc(32, 7);
+  const channelAES = channelKey.toString("base64").replace(/=$/, "");
+  await page.getByLabel("企业 CorpID", { exact: true }).fill("wx-browser");
+  await page.getByLabel("应用 AgentID", { exact: true }).fill("7");
+  await page
+    .getByLabel("应用 Secret", { exact: true })
+    .fill("browser-channel-secret");
+  await page.getByLabel("回调 Token", { exact: true }).fill("browserToken");
+  await page.getByLabel("EncodingAESKey", { exact: true }).fill(channelAES);
+  await page.getByRole("button", { name: "保存企微配置", exact: true }).click();
+  await page.getByText("渠道配置已保存。", { exact: false }).waitFor();
+  assert.equal(
+    await page.getByLabel("应用 Secret", { exact: true }).inputValue(),
+    "",
+  );
+  assert.equal(
+    await page.getByLabel("回调 Token", { exact: true }).inputValue(),
+    "",
+  );
+  assert.equal(
+    await page.getByLabel("EncodingAESKey", { exact: true }).inputValue(),
+    "",
+  );
+  const callbackURL = await page
+    .getByLabel("回调 URL", { exact: true })
+    .inputValue();
+  const echo = Buffer.from("browser-callback-echo");
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(echo.length);
+  let frame = Buffer.concat([
+    randomBytes(16),
+    length,
+    echo,
+    Buffer.from("wx-browser"),
+  ]);
+  const padding = 32 - (frame.length % 32);
+  frame = Buffer.concat([frame, Buffer.alloc(padding, padding)]);
+  const cipher = createCipheriv(
+    "aes-256-cbc",
+    channelKey,
+    channelKey.subarray(0, 16),
+  );
+  cipher.setAutoPadding(false);
+  const encrypted = Buffer.concat([
+    cipher.update(frame),
+    cipher.final(),
+  ]).toString("base64");
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const nonce = "browser-nonce";
+  const signature = createHash("sha1")
+    .update(["browserToken", timestamp, nonce, encrypted].sort().join(""))
+    .digest("hex");
+  const callbackResult = await page.evaluate(
+    async ({ callbackURL, timestamp, nonce, signature, encrypted }) => {
+      const params = new URLSearchParams({
+        timestamp,
+        nonce,
+        msg_signature: signature,
+        echostr: encrypted,
+      });
+      const response = await fetch(callbackURL + "?" + params, {
+        credentials: "omit",
+      });
+      return { status: response.status, text: await response.text() };
+    },
+    { callbackURL, timestamp, nonce, signature, encrypted },
+  );
+  assert.deepEqual(callbackResult, {
+    status: 200,
+    text: "browser-callback-echo",
+  });
+  await page.getByRole("button", { name: "刷新渠道状态", exact: true }).click();
+  await page.getByText("已收到 URL 验证请求。", { exact: false }).waitFor();
+  const safeChannels = await page.evaluate(() =>
+    fetch("/api/wecom/channels").then((response) => response.text()),
+  );
+  assert(
+    !safeChannels.includes("browser-channel-secret") &&
+      !safeChannels.includes("browserToken") &&
+      !safeChannels.includes(channelAES),
+  );
+  await page.screenshot({
+    path: join(artifacts, "wecom-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert(
+    await page.evaluate(() => {
+      const pane = document.querySelector(".wecom-workspace");
+      return (
+        document.documentElement.scrollWidth <= innerWidth &&
+        pane.scrollWidth <= pane.clientWidth
+      );
+    }),
+  );
+  await page.screenshot({
+    path: join(artifacts, "wecom-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await config("模型连接");
+  await page.getByRole("button", { name: "新增模型连接", exact: true }).click();
+  const modelForm = page.locator(".agents-model-editor");
+  await modelForm.locator(".model-advanced > summary").click();
+  await modelForm
+    .getByLabel("接口协议", { exact: true })
+    .selectOption("anthropic-messages");
+  assert.equal(
+    await modelForm.getByLabel("服务地址", { exact: true }).inputValue(),
+    "https://api.anthropic.com",
+  );
+  assert.equal(await modelForm.getByLabel("Top P", { exact: true }).count(), 0);
+  await modelForm.getByLabel("模型支持推理", { exact: true }).check();
+  await modelForm.getByLabel("推理强度", { exact: true }).selectOption("high");
+  assert(
+    await modelForm.getByLabel("Temperature", { exact: true }).isDisabled(),
+  );
+  await modelForm.getByLabel("模型支持推理", { exact: true }).uncheck();
+  await modelForm
+    .getByLabel("接口协议", { exact: true })
+    .selectOption("openai-responses");
+  assert.equal(
+    await modelForm.getByLabel("输出长度字段", { exact: true }).count(),
+    0,
+  );
+  await modelForm
+    .getByLabel("接口协议", { exact: true })
+    .selectOption("openai-completions");
+
+  await modelForm
+    .getByLabel("服务地址", { exact: true })
+    .fill(`http://127.0.0.1:${model.address().port}/v1`);
+  await modelForm.getByLabel("模型名称", { exact: true }).fill("finance-model");
+  await modelForm
+    .getByLabel("API 密钥", { exact: true })
+    .fill("finance-model-secret");
+  await modelForm.getByLabel("连接名称", { exact: true }).fill("财务生产连接");
+  await modelForm.getByLabel("上下文窗口", { exact: true }).fill("65536");
+  await modelForm.getByLabel("最大输出长度", { exact: true }).fill("2048");
+  await modelForm.getByLabel("Temperature", { exact: true }).fill("0.25");
+  await modelForm.getByLabel("Top P", { exact: true }).fill("0.8");
+  await modelForm.getByText("协议兼容设置", { exact: true }).click();
+  await modelForm
+    .getByLabel("输出长度字段", { exact: true })
+    .selectOption("max_tokens");
+  await modelForm
+    .getByRole("button", { name: "保存模型连接", exact: true })
+    .click();
+  await page
+    .getByText("模型连接已保存，密钥不会回显。", { exact: true })
+    .waitFor();
+  assert.equal(
+    await modelForm.getByLabel("API 密钥", { exact: true }).inputValue(),
+    "",
+  );
+  await modelForm
+    .getByRole("button", { name: "测试模型连接", exact: true })
+    .click();
+  await page
+    .getByText("连接成功，模型已返回文本响应。", { exact: true })
+    .waitFor();
+  await page
+    .locator(".configuration-content")
+    .evaluate((element) => (element.scrollTop = 0));
+  await page.screenshot({
+    path: join(artifacts, "models-desktop.png"),
+    fullPage: true,
+  });
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <= innerWidth &&
+          document.querySelector(".configuration-content").scrollWidth <=
+            document.querySelector(".configuration-content").clientWidth,
+      ),
+    );
+  }
+  await page
+    .locator(".configuration-content")
+    .evaluate((element) => (element.scrollTop = 0));
+  await page.screenshot({
+    path: join(artifacts, "models-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await config("Agent");
+  await page.getByRole("button", { name: "新建助手", exact: true }).click();
+  await page.getByLabel("助手名称", { exact: true }).fill("财务助手");
+  await page.getByLabel("使用模型", { exact: true }).selectOption("2");
+  await page
+    .getByLabel("角色指令", { exact: true })
+    .fill("你是财务助手，使用财务范围的资料。");
+  await page.getByRole("button", { name: "创建助手", exact: true }).click();
+  await page
+    .getByText("助手已保存，新任务使用新配置；已有任务保持提交时的配置。", {
+      exact: true,
+    })
+    .waitFor();
+  await page.screenshot({
+    path: join(artifacts, "agents-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert(
+    await page.evaluate(() => {
+      const pane = document.querySelector(".agents-workspace");
+      return (
+        document.documentElement.scrollWidth <= innerWidth &&
+        pane.scrollWidth <= pane.clientWidth
+      );
+    }),
+  );
+  await page.screenshot({
+    path: join(artifacts, "agents-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page
+    .locator(".agent-card")
+    .filter({ hasText: "财务助手" })
+    .getByRole("button", { name: "进入对话", exact: true })
+    .click();
+  assert.equal(await page.locator(".conversation-list button").count(), 0);
+  await page.getByLabel("发送给助手的消息").fill("finance isolated question");
+  await page.getByRole("button", { name: "发送", exact: false }).click();
+  await page
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "收到：finance isolated question" })
+    .waitFor();
+  const financeRequest = modelRequests.find(
+    (call) => call.body.messages.at(-1).content === "finance isolated question",
+  );
+  assert.equal(financeRequest.body.model, "finance-model");
+  assert.equal(financeRequest.body.max_tokens, 2048);
+  assert.equal(financeRequest.body.temperature, 0.25);
+  assert.equal(financeRequest.body.top_p, 0.8);
+
+  assert.equal(financeRequest.authorization, "Bearer finance-model-secret");
+  assert(!financeRequest.body.tools?.length);
+  assert(
+    !JSON.stringify(financeRequest.body.messages).includes("browser hold"),
+  );
+  await agentTab("财务助手", "知识库关联");
+  await page.getByText("财务助手可检索的知识库", { exact: true }).waitFor();
+  assert.equal(
+    await page
+      .getByRole("checkbox", { name: "财务资料", exact: true })
+      .isChecked(),
+    false,
+  );
+  await chat();
+  await page.reload();
+  await page
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "收到：finance isolated question" })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByRole("combobox", { name: "选择助手", exact: true })
+      .locator("option:checked")
+      .textContent(),
+    "财务助手",
+  );
+  await config("Agent");
+  await page
+    .locator(".agent-card")
+    .filter({ hasText: "财务助手" })
+    .locator(".agent-card-select")
+    .click();
+  await page
+    .getByRole("checkbox", { name: "允许接收新任务", exact: true })
+    .uncheck();
+  await page.getByRole("button", { name: "保存助手", exact: true }).click();
+  await page
+    .getByText("助手已保存，新任务使用新配置；已有任务保持提交时的配置。", {
+      exact: true,
+    })
+    .waitFor();
+  await page.locator(".agent-archive summary").click();
+  await page.getByRole("button", { name: "确认归档助手", exact: true }).click();
+  await page.getByText("助手已归档，历史仍可查看。", { exact: true }).waitFor();
+  await page
+    .locator(".agent-card")
+    .filter({ hasText: "财务助手" })
+    .getByRole("button", { name: "查看历史", exact: true })
+    .click();
+  await page
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "收到：finance isolated question" })
+    .waitFor();
+  assert(
+    await page.getByRole("button", { name: "发送", exact: false }).isDisabled(),
+  );
+  await page
+    .getByRole("combobox", { name: "选择助手", exact: true })
+    .selectOption("default");
+  await page
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "收到：你好" })
+    .waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: join(artifacts, "mobile.png"),
+    fullPage: true,
+  });
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await page.getByRole("button", { name: "删除对话", exact: true }).click();
+  await page.getByRole("dialog", { name: "删除此对话？" }).waitFor();
+  assert(
+    await page
+      .getByRole("button", { name: "确认删除会话", exact: true })
+      .isDisabled(),
+  );
+  const modalBounds = await page.getByRole("dialog").boundingBox();
+  await page.mouse.click(modalBounds.x + 5, modalBounds.y + 5);
+  assert(await page.getByRole("dialog").isVisible());
+  await page.screenshot({
+    path: join(artifacts, "delete-dialog-mobile.png"),
+    fullPage: true,
+  });
+  await page.keyboard.press("Escape");
+  assert.equal(await page.getByRole("dialog").count(), 0);
+  await page.getByRole("button", { name: "删除对话", exact: true }).click();
+  await page.mouse.click(4, 4);
+  assert.equal(await page.getByRole("dialog").count(), 0);
+  await page.getByRole("button", { name: "删除对话", exact: true }).click();
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  assert.equal(await page.getByRole("dialog").count(), 0);
+  await page.getByRole("button", { name: "删除对话", exact: true }).click();
+  await page
+    .getByLabel("我已核对历史，确认永久删除此会话", { exact: true })
+    .check();
+  await page.getByRole("button", { name: "确认删除会话", exact: true }).click();
+  await page
+    .getByText("会话已移出列表，清理请求已保存。", { exact: false })
+    .waitFor();
+  const storage = await page.evaluate(() =>
+    fetch("/api/storage").then((response) => response.json()),
+  );
+  assert(
+    storage.disk_total_bytes > 0 && storage.data_bytes > 0 && storage.files > 0,
+  );
+  await page.evaluate(async () => {
+    const state = await fetch("/api/auth/status").then((response) =>
+      response.json(),
+    );
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "X-CSRF-Token": state.csrf },
+    });
+  });
+  await page.getByRole("button", { name: "新对话", exact: true }).click();
+  await page.getByRole("heading", { name: "欢迎回来" }).waitFor();
+  await page.getByLabel("管理员密码").fill("browser-long-test-password");
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await page.getByRole("navigation", { name: "主模块" }).waitFor();
+  await page.getByRole("button", { name: "退出登录", exact: true }).click();
+  await page.getByRole("heading", { name: "欢迎回来" }).waitFor();
+  assert.deepEqual(errors, []);
+  console.log(
+    "Browser passed: safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, WeCom configuration/masked secrets/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, no JS errors.",
+  );
+} finally {
+  releaseHold();
+  await browser?.close();
+  const exited = once(child, "close");
+  child.kill("SIGTERM");
+  await exited;
+  model.closeAllConnections();
+  await new Promise((resolve) => model.close(resolve));
+  await rm(directory, { recursive: true, force: true });
+  await rm(skillDirectory, { recursive: true, force: true });
+}

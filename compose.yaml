@@ -1,0 +1,20 @@
+services:
+  siagent:
+    build: .
+    image: siagent:dev
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - siagent-data:/data
+    environment:
+      SIAGENT_PUBLIC_URL: ${SIAGENT_PUBLIC_URL:-}
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    stop_grace_period: 15s
+volumes:
+  siagent-data:

@@ -1,0 +1,168 @@
+# 部署、停机备份与恢复
+
+平台入口为一个 Go 进程，负责私有 Node/Pi Durable 子进程及其生命周期。一个实例只使用一个数据目录。当前 schema 为 8；正式容器构建和真实企业集成尚未验收，发布状态见 [release-checklist.md](release-checklist.md)。
+
+## 本地构建与启动
+
+支持 Linux/macOS 开发，需 Go 1.26+、Node 24、npm；处理 PDF 另需 Poppler 的 `pdfinfo` 和 `pdftotext`。Windows 使用 Linux 容器或 WSL，本版没有 Windows 二进制验证。
+
+```sh
+make install
+make build
+./bin/siagent -data-dir ./data -listen 127.0.0.1:8080
+```
+
+首次访问 `http://127.0.0.1:8080`，使用终端打印的一次性初始化令牌设置管理员密码。先配置模型并测试普通对话，再按需配置工具、知识库和企微。没有 MCP、知识库、企微凭据也可以使用基础对话。
+
+数据目录默认 `./data`，可通过 `SIAGENT_DATA_DIR` 或 `-data-dir` 指定。不要单独运行 Runtime 操作同一数据目录；Go 入口持有目录排他锁。模型/MCP/企微秘密通过登录后的管理界面保存，不必放进环境变量或 Compose 文件。
+
+## 单容器与公开访问
+
+仓库提供 Dockerfile 和 `compose.yaml`：
+
+```sh
+docker compose build
+docker compose up -d
+docker compose logs -f siagent
+```
+
+默认只向宿主机 `127.0.0.1:8080` 发布端口，数据在 Compose 命名卷。容器以 `node` 用户运行，包含 Node Runtime、嵌入前端的 Go 程序和 Poppler；不需要外部数据库。停止宽限时间为 15 秒，停机等待 Go 及 Runtime 收尾。
+
+这些容器配置已纳入 CI 构建/HEALTHCHECK/非 root/0700 权限/Poppler/跨容器重建及跨数据卷备份恢复检查，但本机无 Docker，**本地未实际构建或运行容器，新增 CI 也尚无云端运行结果**。
+
+公网使用 HTTPS 反向代理，并在 Compose 环境中设置浏览器实际源地址：
+
+```sh
+SIAGENT_PUBLIC_URL=https://agent.example.com docker compose up -d
+```
+
+源地址不能包含子路径，HTTPS 会启用 Secure Cookie。不要把代理请求头当作这一配置的替代；修改地址后重新登录。代理同时转发网页、`/api/`、`/health/` 和 `/callbacks/`。
+
+Nginx 对应 TLS server 内的示例配置：
+
+```nginx
+client_max_body_size 21m;
+location ^~ /callbacks/ {
+    access_log off;
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_buffering off;
+}
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_buffering off;
+    proxy_read_timeout 1800s;
+}
+```
+
+证书和 TLS server 配置由部署环境提供。SSE 依赖关闭缓冲和持续连接。文档文件上限为 20 MiB，代理需允许 multipart 的额外大小。企微回调路径不加管理员登录或 CSRF 层，其自身验签解密；企业还需配置应用可见范围和可信 IP/域名，见 [wecom.md](wecom.md)。
+
+`/health/live` 表示 Go 存活，`/health/ready` 要求平台和 Runtime 就绪。异常重复退出应检查服务退出码、普通日志和认证诊断；不要持续无上限重放失败任务。日志不应被配置为记录请求正文、Cookie、模型密钥或回调密文/明文。
+
+## 本地停机备份
+
+先停止整个服务并等待退出，例如终端 Ctrl-C，或停止管理 Go 入口的服务管理器。确认 Go 管理的 Runtime/MCP 子进程已经退出。**运行中不得复制 SQLite 或直接打包数据目录。**
+
+从项目根目录执行，归档置于数据目录之外：
+
+```sh
+mkdir -p backups
+chmod 700 backups
+umask 077
+tar -C ./data -czf "$PWD/backups/siagent.tar.gz" .
+shasum -a 256 backups/siagent.tar.gz
+shasum -a 256 bin/siagent runtime/package-lock.json web/package-lock.json
+```
+
+记录归档校验和、应用二进制/源码或镜像版本、Runtime 依赖版本及部署配置。保留完整数据目录，包括 `platform.sqlite` 及 WAL/SHM（存在时）、`master.key`、全部 Runtime 数据库、知识库原件、Skill 副本、文件和工作目录。不能只备份平台数据库。
+
+归档包含管理员数据、业务消息和主密钥，须使用受限存储或额外加密；AES-GCM 密钥加密不能保护被完整读取的备份。
+
+## 本地恢复到另一个目录
+
+使用自己生成、校验完整性的可信归档。原实例保持停机；先安装同版本的 Go 程序、Runtime 和依赖。**目标目录必须不存在或为空，不向已有实例目录叠加解包。**
+
+```sh
+(
+  set -eu
+  mkdir -m 700 restored-data
+  tar -C ./restored-data -xzf ./backups/siagent.tar.gz
+  chmod 600 ./restored-data/master.key
+  exec ./bin/siagent -data-dir ./restored-data -listen 127.0.0.1:8080
+)
+```
+
+管理员账户随备份恢复，应使用原密码登录。不要重新初始化、删除主密钥或只替换数据库。更换机器时重新安装外部 MCP 命令及其依赖，检查配置中的命令绝对路径；这些系统依赖不属于平台数据目录。源目录和恢复目录不必相同，平台的 Skill/知识库/工作目录按新根目录定位。
+
+验收至少包括：原密码登录；模型连接测试成功；历史和来源可读取；知识库检索与原文件存在；Skills/MCP 关联保留；继续原会话时使用原模型上下文；中断任务仍有明确状态；企微配置及历史保留。相同企业应用不能同时启动原实例和恢复副本进行收发，验证副本需先隔离外部收发。恢复公网实例时重新确认域名、可信 IP 和回调路由。
+
+`python3 tests/e2e.py` 已实际停止完整 Go/Node 服务、归档所有文件、逐文件 SHA-256 比较、解包到新目录，再启动同一二进制。已验证新登录、模型/MCP 密钥、加密企微回调密钥、Skill 文件、工作目录、原生知识索引/原件/历史墓碑、助手归档状态和真实 Runtime 原上下文继续对话；恢复启动不会自动重放旧模型任务。
+
+## Compose 命名卷备份和恢复
+
+以下命令保留相同服务挂载规则，并通过替代 entrypoint 避免启动 Go/Runtime。**命令是待 Docker 环境执行的部署方案，本机没有容器验收证据。**
+
+停机并备份：
+
+```sh
+docker compose stop
+mkdir -p backups
+chmod 700 backups
+docker compose run --rm --no-deps --user root --entrypoint sh \
+  -v "$PWD/backups:/backups" siagent \
+  -c 'umask 077; tar -C /data -czf /backups/siagent.tar.gz .'
+shasum -a 256 backups/siagent.tar.gz
+```
+
+恢复到新的 Compose 项目及新卷，保持原项目停机：
+
+```sh
+docker compose -p siagent-restored run --rm --no-deps --user root --entrypoint sh \
+  -v "$PWD/backups:/backups:ro" siagent \
+  -c 'set -eu; test -z "$(ls -A /data)"; tar -C /data -xzf /backups/siagent.tar.gz; chown -R node:node /data; chmod 700 /data; chmod 600 /data/master.key'
+SIAGENT_PUBLIC_URL=https://agent.example.com docker compose -p siagent-restored up -d
+```
+
+不要删除原卷来测试恢复，不同时运行两份同一业务实例。备份文件已移出命名卷，应另行保存。原系统使用不同镜像版本时先准备对应同版本镜像，再执行恢复。
+
+## 升级与回退
+
+1. 停止完整服务，按上述步骤备份数据，并保留可运行的旧二进制/依赖或镜像版本。
+2. 在隔离副本中用目标版本验证迁移和业务读取；涉及外部收发时使用独立测试应用或断开网络。
+3. 确认后升级正式实例。平台 schema 1–7 会迁移至 8；更高版本数据库拒绝打开，主密钥缺失或密文不能解密时拒绝启动。
+4. 升级失败时停止新版本，保留故障目录供诊断，切回旧版本并恢复**升级前完整备份**至空目录。不要用旧程序直接打开升级后的数据，也不要只回退 SQLite 单文件。
+
+异常退出后的未完成任务会标为中断；结果不明的 MCP 调用和企微发送不自动重放。平台只对确定性的本地知识处理进行安全恢复，不承诺透明恢复外部副作用。
+
+
+## 运行容器业务验收
+
+在可用 Docker 环境执行：
+
+```sh
+make test-container
+# 已构建相同镜像时，也可单独执行：
+python3 tests/container.py --image siagent:check
+```
+
+脚本使用随机名称的内部网络、无外部供应商依赖的模型协议服务和两份临时命名卷，检查实际 HEALTHCHECK、非 root 用户、数据根目录 0700 和 Poppler。随后经管理 API 完成初始化、密钥配置、真实 Runtime 对话、知识上传/检索；销毁并重建原容器验证持久化，再停机完整归档并恢复至新卷，比较所有文件 SHA-256，验证登录、模型密钥、知识原件/索引/绑定和原会话上下文续聊。所有测试容器、网络、卷和临时归档在退出时清理；不使用现有业务卷。
+
+当前无 Docker 时，可在 `make build` 后运行 `python3 tests/container.py --local`，使用真实本地 Go/Node 验证同一业务流程。该模式已通过，但不验证 Docker 命令、镜像内容、容器权限或网络，不能代替容器验收。
+
+镜像将新数据根目录创建为 0700；已有宿主机绑定目录的所有者和权限仍由部署者设置。`.dockerignore` 排除默认备份、恢复目录和 `.env` 文件，避免这些文件进入构建上下文。自定义数据目录和归档也应放在构建目录之外或加入排除规则。
+
+
+## 会话清理、磁盘提示与日志
+
+点击会话标题栏的删除图标打开“删除此对话？”确认弹窗。先核对已产生内容和工具操作，再勾选确认；任务排队/执行/取消中、资源未释放或仍有待发送回复时返回拒绝。需要时先取消任务或等待结束，再提交删除。请求持久化后旧会话隐藏，后台经 Runtime 确认删除模型上下文后清理平台历史；服务重启继续清理，失败会安全重试，不自动重跑业务任务。
+
+企微保留最小去重墓碑，删除正文与当前成员会话映射后，新消息开启新会话。清理不删除模型/助手/知识文档，不撤销外部操作，不清理旧备份，也不保证 SQLite 空闲页安全擦除或即时缩小。待清理数量可在“配置 → 运行与维护”点击“刷新状态”查看；持续未完成时检查 Runtime 就绪、数据目录挂载和文件权限。
+
+同一诊断入口显示数据用量、文件数、所在磁盘可用量和低空间提示。统计不跟随目录内符号链接，超出时间/条目限制时标为部分结果；不会自动删业务数据。
+
+默认 Compose 使用 json-file 日志驱动，每份最大 10m，最多 3 份。裸进程只输出到标准错误，应由宿主的服务管理器配置保留与轮转；不在数据目录另建无界日志文件。反向代理的回调路径示例关闭访问日志，避免 URL 验证的 echostr 密文落入请求 URL 日志。
+
+`DELETE /api/conversations/{id}` 要求登录、CSRF 及 `{"confirm":true}`，接受后返回 202；`GET /api/storage` 同样要求登录。schema 7 保存清理请求；升级前备份完整目录，回退仍须使用升级前备份。

@@ -1,0 +1,36 @@
+name: checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  local-and-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            runtime/package-lock.json
+            web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - run: make install
+      - run: npm --prefix web exec -- playwright install --with-deps chromium
+      - run: make build
+      - run: make test
+      - run: python3 tests/e2e.py
+      - run: npm --prefix web run test:browser
+      - run: go vet ./...
+      - name: Build container
+        run: docker build -t siagent:check .
+      - name: Container business data, backup and restore
+        run: python3 tests/container.py --image siagent:check

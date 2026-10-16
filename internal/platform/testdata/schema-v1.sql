@@ -1,0 +1,10 @@
+CREATE TABLE admin(id INTEGER PRIMARY KEY CHECK(id=1),password_hash BLOB NOT NULL);
+CREATE TABLE sessions(token_hash TEXT PRIMARY KEY,csrf TEXT NOT NULL,expires INTEGER NOT NULL);
+CREATE TABLE models(id INTEGER PRIMARY KEY CHECK(id=1),base_url TEXT NOT NULL,name TEXT NOT NULL,api_key TEXT NOT NULL,version INTEGER NOT NULL);
+CREATE TABLE agents(id TEXT PRIMARY KEY,name TEXT NOT NULL,instructions TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE conversations(id TEXT PRIMARY KEY,title TEXT NOT NULL,created INTEGER NOT NULL);
+CREATE TABLE runs(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id),status TEXT NOT NULL,config TEXT NOT NULL,error TEXT NOT NULL DEFAULT '',last_seq INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL);
+CREATE UNIQUE INDEX one_active_run_per_conversation ON runs(conversation_id) WHERE status IN ('running','cancelling');
+CREATE TABLE messages(id INTEGER PRIMARY KEY AUTOINCREMENT,conversation_id TEXT NOT NULL REFERENCES conversations(id),run_id TEXT NOT NULL REFERENCES runs(id),role TEXT NOT NULL,content TEXT NOT NULL,created INTEGER NOT NULL);
+CREATE INDEX messages_conversation ON messages(conversation_id,id);
+PRAGMA user_version=1;
