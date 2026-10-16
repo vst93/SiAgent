@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS node-build
+FROM node:24.22.0-bookworm-slim AS node-build
 WORKDIR /build
 COPY runtime/package*.json runtime/
 COPY web/package*.json web/
@@ -17,7 +17,7 @@ COPY web/embed.go web/embed.go
 COPY --from=node-build /build/web/dist web/dist
 RUN CGO_ENABLED=0 go build -trimpath -o /siagent ./cmd/siagent
 
-FROM node:24-bookworm-slim
+FROM node:24.22.0-bookworm-slim
 ENV NODE_ENV=production SIAGENT_DATA_DIR=/data SIAGENT_LISTEN=0.0.0.0:8080
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*

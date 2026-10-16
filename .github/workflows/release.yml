@@ -1,0 +1,126 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag, for example v0.1.0'
+        required: true
+        type: string
+      draft:
+        description: 'Keep the release as a draft'
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installers:
+    uses: ./.github/workflows/installers.yml
+    with:
+      ref: ${{ inputs.tag || github.ref }}
+
+  build:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: linux-amd64
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+          - runner: macos-15-intel
+            target: darwin-amd64
+          - runner: macos-15
+            target: darwin-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+      - name: Validate release tag
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          git show-ref --verify "refs/tags/$RELEASE_TAG"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            runtime/package-lock.json
+            web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: make install
+      - run: npm --prefix runtime test
+      - run: go test ./...
+      - run: go vet ./...
+      - run: make package
+      - name: Verify standalone release without system Node
+        run: python3 tests/package.py artifacts/siagent-${{ matrix.target }}.tar.xz
+      - name: Install and start the actual release
+        run: python3 tests/install.py artifacts/siagent-${{ matrix.target }}.tar.xz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: siagent-${{ matrix.target }}
+          path: artifacts/siagent-${{ matrix.target }}.tar.xz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [build, installers]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      KEEP_DRAFT: ${{ github.event_name == 'workflow_dispatch' && inputs.draft }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: siagent-*
+          path: release-assets
+          merge-multiple: true
+      - name: Generate checksums and publish complete release
+        shell: bash
+        run: |
+          cp scripts/install.sh scripts/install.ps1 release-assets/
+          cd release-assets
+          test "$(find . -maxdepth 1 -name '*.tar.xz' | wc -l)" -eq 4
+          sha256sum ./*.tar.xz install.sh install.ps1 > SHA256SUMS
+          extra=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            extra+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" ./*.tar.xz install.sh install.ps1 SHA256SUMS \
+            --verify-tag --generate-notes --title "$RELEASE_TAG" --draft "${extra[@]}"
+          if [[ "$KEEP_DRAFT" != 'true' ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false
+          fi

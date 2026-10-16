@@ -1,3 +1,4 @@
+import { Icon } from "./icons";
 import { FormEvent, useEffect, useState } from "react";
 import type { Agent } from "./agents";
 import { KnowledgeDialog as SettingsDialog } from "./knowledge-dialog";
@@ -172,7 +173,7 @@ function ChannelEditor({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  官方配置说明 ↗
+                  官方配置说明 <Icon name="arrow-up-right" size={14} />
                 </a>
               </>
             )}
@@ -436,7 +437,7 @@ export function ChannelsWorkspace({
           disabled={pending || loading || !providers.length}
           onClick={create}
         >
-          ＋ 新增渠道
+          <Icon name="plus" size={16} /> 新增渠道
         </button>
       </header>
       {error && (
@@ -523,7 +524,7 @@ export function ChannelsWorkspace({
             </header>
             <div className="channel-route">
               <span>{provider?.name ?? "未安装适配器"}</span>
-              <span aria-hidden="true">→</span>
+              <Icon name="arrow-right" size={16} />
               <strong>
                 {agents.find((agent) => agent.id === current.agent_id)?.name ??
                   "未绑定 Agent"}
@@ -592,7 +593,7 @@ export function ChannelsWorkspace({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  配置说明 ↗
+                  配置说明 <Icon name="arrow-up-right" size={14} />
                 </a>
               )}
             </p>

@@ -1,3 +1,4 @@
+import { Icon } from "./icons";
 import { CapabilitySettings } from "./capabilities";
 import { KnowledgeBindings } from "./knowledge-bindings";
 import { FormEvent, useState } from "react";
@@ -268,7 +269,14 @@ export function AgentWorkspace({
               editor.id &&
               editor.id !== "default" && (
                 <details className="agent-archive">
-                  <summary>归档助手</summary>
+                  <summary>
+                    <Icon
+                      name="caret-right"
+                      size={14}
+                      className="disclosure-icon"
+                    />
+                    归档助手
+                  </summary>
                   <p>
                     须先保存停用状态并解除渠道绑定。归档保留会话和任务历史，无法恢复或继续提交新消息。
                   </p>

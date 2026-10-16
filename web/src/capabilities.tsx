@@ -1,3 +1,4 @@
+import { Icon } from "./icons";
 import { FormEvent, useEffect, useState } from "react";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
@@ -217,7 +218,14 @@ export function CapabilitySettings({
                   </label>
                   <p>{skill.description}</p>
                   <details>
-                    <summary>查看技能内容、资源和依赖</summary>
+                    <summary>
+                      <Icon
+                        name="caret-right"
+                        size={14}
+                        className="disclosure-icon"
+                      />
+                      查看技能内容、资源和依赖
+                    </summary>
                     <p className="muted">
                       {skill.compatibility ||
                         "未声明运行环境依赖。请自行检查脚本和依赖清单。"}{" "}
@@ -314,6 +322,11 @@ export function CapabilitySettings({
               {mcp.tools.map((tool) => (
                 <details className="tool-permission" key={tool.name}>
                   <summary>
+                    <Icon
+                      name="caret-right"
+                      size={14}
+                      className="disclosure-icon"
+                    />
                     {tool.name} ·{" "}
                     {tool.read_only ? "服务声明只读" : "可能写入或删除"}
                   </summary>
@@ -343,7 +356,14 @@ export function CapabilitySettings({
           ))}
           {catalog && (
             <details open={!!form.id}>
-              <summary>{form.id ? "编辑 MCP 配置" : "添加 MCP 服务"}</summary>
+              <summary>
+                <Icon
+                  name="caret-right"
+                  size={14}
+                  className="disclosure-icon"
+                />
+                {form.id ? "编辑 MCP 配置" : "添加 MCP 服务"}
+              </summary>
               <form onSubmit={saveMCP} className="mcp-form">
                 <label>
                   MCP 名称
@@ -597,7 +617,10 @@ export function ToolCallDetails({
   }, [open, runID, callID]);
   return (
     <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>查看调用参数与结果</summary>
+      <summary>
+        <Icon name="caret-right" size={14} className="disclosure-icon" />
+        查看调用参数与结果
+      </summary>
       <small>
         业务数据仅在此展开；已知凭据已脱敏，内容最多保留 32
         KB。中断或取消后请核对外部系统。

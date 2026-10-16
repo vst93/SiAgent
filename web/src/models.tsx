@@ -1,3 +1,4 @@
+import { Icon } from "./icons";
 import { FormEvent, useState, useEffect, useRef } from "react";
 import type { Model, ModelOptions } from "./agents";
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
@@ -168,7 +169,7 @@ export function ModelsWorkspace({
             aria-label="新增模型连接"
             title="新增模型连接"
           >
-            ＋ 新增
+            <Icon name="plus" size={16} /> 新增
           </button>
         </div>
         {models.length > 3 && (
@@ -191,7 +192,7 @@ export function ModelsWorkspace({
               onClick={() => edit(model)}
             >
               <span className="model-provider-icon" aria-hidden="true">
-                {model.options.api === "anthropic-messages" ? "A" : "O"}
+                <Icon name="models" size={18} />
               </span>
               <span className="model-connection-copy">
                 <strong>{model.options.display_name || model.name}</strong>
@@ -480,6 +481,11 @@ export function ModelsWorkspace({
             </section>
             <details className="model-advanced">
               <summary>
+                <Icon
+                  name="caret-right"
+                  size={14}
+                  className="disclosure-icon"
+                />
                 高级配置 <span>推理、采样与协议兼容</span>
               </summary>
               <div className="model-advanced-content">
@@ -576,7 +582,14 @@ export function ModelsWorkspace({
                 </section>
                 {o.api === "openai-completions" && (
                   <details className="model-compat">
-                    <summary>协议兼容设置</summary>
+                    <summary>
+                      <Icon
+                        name="caret-right"
+                        size={14}
+                        className="disclosure-icon"
+                      />
+                      协议兼容设置
+                    </summary>
                     <p>仅在服务商明确要求时覆盖 SDK 的自动识别。</p>
                     <label>
                       输出长度字段
@@ -638,7 +651,14 @@ export function ModelsWorkspace({
           </fieldset>
           {editor.id > 1 && !editor.archived && (
             <details className="agent-archive">
-              <summary>归档模型连接</summary>
+              <summary>
+                <Icon
+                  name="caret-right"
+                  size={14}
+                  className="disclosure-icon"
+                />
+                归档模型连接
+              </summary>
               <p>先解除所有未归档 Agent 的关联。归档保留历史和已提交任务。</p>
               <button
                 type="button"

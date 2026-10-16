@@ -1,3 +1,4 @@
+import { Icon } from "./icons";
 import { ReactNode, useEffect, useId, useRef } from "react";
 
 export function KnowledgeDialog({
@@ -53,7 +54,7 @@ export function KnowledgeDialog({
           disabled={pending}
           onClick={onClose}
         >
-          ×
+          <Icon name="close" />
         </button>
       </header>
       {children}

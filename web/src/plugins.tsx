@@ -1,3 +1,4 @@
+import { Icon } from "./icons";
 import {
   FormEvent,
   InputHTMLAttributes,
@@ -219,7 +220,10 @@ function SkillUpload({
             references、scripts 等子目录。
           </p>
           <details className="skill-upload-guide">
-            <summary>格式示例与上传限制</summary>
+            <summary>
+              <Icon name="caret-right" size={14} className="disclosure-icon" />
+              格式示例与上传限制
+            </summary>
             <pre>
               {
                 "---\nname: order-guide\ndescription: 订单处理指引。\n---\n先核对订单号，再使用已授权的工具。"
@@ -319,12 +323,19 @@ function SkillTree({
                 aria-pressed={selected === child.path}
                 onClick={() => onSelect(child.path)}
               >
-                <span aria-hidden="true">▤</span>
+                <Icon name="file" size={16} />
                 {child.name}
               </button>
             ) : (
               <details open>
-                <summary>{child.name}</summary>
+                <summary>
+                  <Icon
+                    name="caret-right"
+                    size={14}
+                    className="disclosure-icon"
+                  />
+                  <Icon name="folder" size={16} /> {child.name}
+                </summary>
                 <SkillTree
                   node={child}
                   selected={selected}
@@ -383,7 +394,10 @@ function SkillDetail({
       </header>
       <p className="skill-description">{skill.description}</p>
       <details className="skill-compatibility">
-        <summary>运行要求与依赖</summary>
+        <summary>
+          <Icon name="caret-right" size={14} className="disclosure-icon" />
+          运行要求与依赖
+        </summary>
         <p>
           {skill.compatibility ||
             "未声明运行环境依赖，可在文件列表中检查脚本和依赖清单。"}
@@ -480,7 +494,7 @@ function SkillCatalog({ request }: { request: Api }) {
           disabled={loading}
           onClick={() => setUpload(true)}
         >
-          ＋ 上传 Skill
+          <Icon name="plus" size={16} /> 上传 Skill
         </button>
       </header>
       {feedback && (
@@ -542,7 +556,7 @@ function SkillCatalog({ request }: { request: Api }) {
       ) : (
         !error && (
           <div className="plugin-empty">
-            <span aria-hidden="true">▤</span>
+            <Icon name="plugins" size={28} />
             <h3>上传第一个 Skill</h3>
             <p>
               选择 ZIP 技能包、SKILL.md

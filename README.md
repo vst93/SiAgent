@@ -6,7 +6,66 @@
 
 可按需上传 Skills 技能包或本机文件夹、连接 stdio / Streamable HTTP MCP，并逐项授权给指定助手。知识库支持独立管理、文档处理、中英文全文检索和可打开的回答来源，不依赖 MCP。渠道采用可插拔适配器，内置基于官方 SDK 的企微智能机器人长连接（BotID/Secret）与兼容自建应用；通用消息底座统一管理会话、去重、任务和投递，并通过本地协议链路验证；真实企业收发、外部模型及第三方 MCP 兼容性仍待验收。实现进度见 [docs/progress.md](docs/progress.md)；企微配置及扩展见 [渠道说明](docs/channels.md)。
 
-## 本地启动
+## 一键安装
+
+**发布包自带 Node.js 和 Runtime 生产依赖，使用端无需安装 Node、npm 或 Go。** 安装脚本自动识别平台和 CPU 架构，下载 GitHub Release 并校验 SHA-256。以下下载地址需先发布至少一个包含安装脚本的正式版才可使用；`latest` 选择最近的正式版。
+
+### Linux / macOS
+
+支持 amd64、arm64，默认安装到用户目录，无需 sudo：
+
+```sh
+curl -fsSL https://github.com/vst93/SiAgent/releases/latest/download/install.sh | sh
+```
+
+需要 curl、tar，以及 sha256sum 或 shasum；Linux 另需 xz，Debian/Ubuntu 可执行 `sudo apt-get install curl xz-utils`。Linux 使用 glibc，建议 Ubuntu 22.04 / Debian 12 或更新版本，不支持 Alpine/musl。macOS 建议 15 或更新版本；当前发布包未签名或公证，受系统 Gatekeeper 策略约束。
+
+指定版本安装：
+
+```sh
+curl -fsSL https://github.com/vst93/SiAgent/releases/latest/download/install.sh -o install-siagent.sh
+sh install-siagent.sh --version v0.1.0
+```
+
+### Windows
+
+**Windows 当前通过 WSL 运行 Linux 发布包，尚无原生 Windows 二进制。** 已初始化 Ubuntu WSL 的用户，在 PowerShell 中执行：
+
+```powershell
+Invoke-RestMethod https://github.com/vst93/SiAgent/releases/latest/download/install.ps1 | Invoke-Expression
+```
+
+首次使用 WSL 时，先在管理员 PowerShell 中执行：
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+按提示重启并打开 Ubuntu，完成 Linux 用户创建，再执行安装脚本。Windows 安装脚本会配置 `siagent.cmd` 命令；运行参数中的文件路径使用 Linux 路径。
+
+### 启动、数据与升级
+
+安装完成后打开新终端运行：
+
+```sh
+siagent
+```
+
+打开 <http://127.0.0.1:8080>，从启动日志复制首次令牌并设置管理员密码。安装只配置程序和命令入口，需手动启动；默认仅监听本机，不注册开机启动服务。
+
+| 内容 | Linux / macOS 默认位置 | Windows（WSL）默认位置 |
+| --- | --- | --- |
+| 启动命令 | `~/.local/bin/siagent` | `%LOCALAPPDATA%\SiAgent\bin\siagent.cmd` |
+| 程序及版本 | `~/.local/share/siagent/versions/` | WSL 内 `~/.local/share/siagent/versions/` |
+| 持久数据 | `~/.local/share/siagent/data/` | WSL 内 `~/.local/share/siagent/data/` |
+
+Linux/macOS 设置 `XDG_DATA_HOME` 时，程序与数据根目录改为 `$XDG_DATA_HOME/siagent`。通过 `siagent -data-dir /path/to/data` 可指定其他数据目录。
+
+升级前停止完整服务并备份数据，然后重新执行安装脚本，最后手动启动。脚本保留旧版本和独立数据目录；数据库迁移后的回退需恢复升级前完整备份。PDF 处理另需 Poppler，外部 MCP 命令和 Skill 脚本需要各自环境；Windows 下这些依赖安装在 WSL 内。
+
+自定义安装目录、指定 Windows 发行版与版本、WSL 引导参数等见 [完整安装说明](docs/installation.md)。
+
+## 源码开发启动
 
 需要 Go 1.26+、Node.js 24 LTS、npm。PDF 文档还需要 Poppler（macOS：`brew install poppler`；Debian/Ubuntu：`apt-get install poppler-utils`），TXT/Markdown 不需要。Go 平台 SQLite 使用 modernc.org/sqlite，密码使用 x/crypto 的 bcrypt；锁定的当前依赖要求 Go 1.26。以下命令在项目根目录执行。
 
@@ -31,6 +90,10 @@ make run
 
 ## 部署
 
+**独立发布包自带固定版本 Node.js 和 Runtime 生产依赖，目标服务器无需安装 Node、npm 或 Go。** 下载 GitHub Release 对应 Linux/macOS、amd64/arm64 的压缩包，完整解压后直接运行包内的 `siagent`。Go 自动按自身位置查找私有 Node 与 Runtime，可从任意工作目录启动；默认数据目录为发布包内的 `data/`，建议通过 `SIAGENT_DATA_DIR` 指定独立持久目录。
+
+本地生成发布包：在与目标相同的操作系统及 CPU 架构上执行 `make install && make package`，产物位于 `artifacts/`。`make build` 仍用于源码开发，不能仅复制 `bin/siagent` 部署。PDF 处理另需 Poppler。推送 `v0.1.0` 这类版本标签后，GitHub release workflow 会构建、验证并发布四个平台的 `.tar.xz` 压缩包、两份安装脚本及统一的 SHA-256 校验文件；手动触发默认生成草稿。详见 [独立发布包、发版流程与缺依赖排查](docs/server-package.md)。
+
 提供多阶段 [Dockerfile](Dockerfile) 和 [compose.yaml](compose.yaml)：一个容器运行 Go 与其监管的 Node Runtime，一个持久卷保存全部数据，以非 root 用户运行。Compose 开启 init 以回收异常退出的子进程；直接 docker run 时应使用 `--init`。
 
 ```sh
@@ -44,12 +107,12 @@ docker compose logs siagent
 
 | 配置 | 默认值 | 作用 |
 | --- | --- | --- |
-| `SIAGENT_DATA_DIR` / `-data-dir` | `data` | 唯一持久化目录 |
+| `SIAGENT_DATA_DIR` / `-data-dir` | 安装脚本：`~/.local/share/siagent/data`（可由 XDG 调整）；手动解压：`<安装目录>/data`；源码：`data` | 唯一持久化目录 |
 | `SIAGENT_LISTEN` / `-listen` | `127.0.0.1:8080` | Go HTTP 监听地址 |
 | `SIAGENT_PUBLIC_URL` / `-public-url` | 空 | 浏览器源地址；HTTPS 时启用 Secure Cookie |
-| `-runtime` | `runtime/dist/index.js` | Runtime 入口 |
-| `-node` | `node` | Node.js 可执行文件 |
-| `SIAGENT_CHANNEL_WORKER` / `-channel-worker` | `runtime/dist/channel-wecom.js` | 独立的内置渠道传输入口 |
+| `-runtime` | `runtime/dist/index.js` | Runtime 入口；发布包按安装目录定位 |
+| `SIAGENT_NODE` / `-node` | 源码：`node`；发布包：`<安装目录>/libexec/node` | Node.js 可执行文件 |
+| `SIAGENT_CHANNEL_WORKER` / `-channel-worker` | `runtime/dist/channel-wecom.js` | 内置渠道入口；发布包按安装目录定位 |
 
 健康检查：`/health/live` 表示 Go 存活，`/health/ready` 表示 Runtime 就绪，均不检查外部模型。模型可用性在设置中单独测试。Runtime 异常退出最多退避重启 3 次，耗尽后整个平台退出；运行结果不明时标记中断，不自动重试。
 
@@ -92,7 +155,7 @@ make test-e2e     # 先构建，再运行完整 Go + Node + 本地模型协议�
 
 可选浏览器验收：先 `make build`，再执行 `npm --prefix web exec -- playwright install chromium` 和 `npm --prefix web run test:browser`。测试自动启动临时实例，覆盖首次使用、双工作区切换与草稿保留、具体栏目默认页/深链接/前进后退、连接测试、刷新历史、安全文本显示、移动布局、运行中继续排队、取消排队、限制设置、技能导入和资源预览、MCP 连接与授权、调用详情及密钥脱敏；还覆盖知识库工作台、原生检索、来源安全显示、失败/成功文档更新和历史/删除引用。可通过 `SIAGENT_CHROMIUM` 指定已有 Chromium 可执行文件；截图默认保存到系统临时目录下的 `siagent-browser-artifacts`。
 
-开发 Web 时先启动 Go，然后另开终端执行 `npm --prefix web run dev`。Vite 代理 `/api`、`/health` 和 `/callbacks` 到 Go；开发时不配置 `SIAGENT_PUBLIC_URL`，浏览器源地址随 Vite 请求校验。生产构建静态资源由 Go 嵌入提供，不依赖外部字体或 CDN。
+开发 Web 时先启动 Go，然后另开终端执行 `npm --prefix web run dev`。Vite 代理 `/api`、`/health` 和 `/callbacks` 到 Go；开发时不配置 `SIAGENT_PUBLIC_URL`，浏览器源地址随 Vite 请求校验。生产构建静态资源由 Go 嵌入提供，不依赖外部字体或 CDN。前端系统图标统一使用 Phosphor Icons，后续新增图标通过公共组件引用；布局、尺寸与可访问性约定见 [界面与图标规范](docs/ui-guidelines.md)。
 
 保留阶段一的命令行探针：停止其他服务实例后，通过环境变量 `SIAGENT_MODEL_BASE_URL`、`SIAGENT_MODEL`、`SIAGENT_MODEL_API_KEY` 临时传入模型连接信息，运行 `./bin/siagent -probe '你好'`。使用 `-probe-tool` 可显式启用无副作用的 `add` 和 `wait` 验证工具。探针输出包含对话及工具详情，仅用于本地诊断。
 

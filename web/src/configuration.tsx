@@ -1,3 +1,4 @@
+import { Icon } from "./icons";
 import { useEffect, useRef } from "react";
 import { AgentWorkspace, type Agent, type Model } from "./agents";
 import { ModelsWorkspace } from "./models";
@@ -41,9 +42,8 @@ export function Configuration({
     <section className="configuration-workspace" aria-label="配置工作区">
       <aside className="configuration-sidebar">
         <div className="configuration-intro">
-          <p className="eyebrow">工作区配置</p>
-          <h2>让 Agent 为你工作</h2>
-          <p>连接模型与资源，再通过对话或渠道使用。</p>
+          <h2>工作区配置</h2>
+          <p>管理模型、资源与服务。</p>
         </div>
         <nav ref={navRef} aria-label="配置导航">
           {configSections.map((item, index) => (
@@ -59,19 +59,18 @@ export function Configuration({
                 className={`configuration-link ${section === item.id ? "selected" : ""}`}
                 aria-current={section === item.id ? "page" : undefined}
               >
-                <span aria-hidden="true">{item.icon}</span>
+                <Icon name={item.icon} size={18} />
                 {item.title}
               </a>
             </div>
           ))}
         </nav>
         <p className="configuration-tip">
-          常用哪个页面，就点顶部的 ☆ 将它设为默认打开。
+          点击顶部星标，将常用页面设为默认打开。
         </p>
       </aside>
       <main className="configuration-main">
         <header className="configuration-heading">
-          <p className="eyebrow">配置 / {current.title}</p>
           <h1>{current.title}</h1>
           <p>{current.description}</p>
         </header>

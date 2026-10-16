@@ -1,3 +1,4 @@
+import { Icon } from "./icons";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { KnowledgeDialog } from "./knowledge-dialog";
 
@@ -276,7 +277,10 @@ function UploadDialog({
           </p>
         )}
         <details className="kb-limits">
-          <summary>查看处理限制</summary>
+          <summary>
+            <Icon name="caret-right" size={14} className="disclosure-icon" />
+            查看处理限制
+          </summary>
           <p>
             提取最多 100 万字符、5000 个片段；PDF 最多 1000
             页。文档在本地提取与建立索引，不会在上传时发送给模型。
@@ -388,7 +392,14 @@ export function KnowledgeWorkspace({ request }: { request: Api }) {
                       event.currentTarget.open = false;
                   }}
                 >
-                  <summary>管理知识库</summary>
+                  <summary>
+                    <Icon
+                      name="caret-right"
+                      size={14}
+                      className="disclosure-icon"
+                    />
+                    管理知识库
+                  </summary>
                   <div>
                     <button
                       onClick={(event) => {
@@ -415,7 +426,7 @@ export function KnowledgeWorkspace({ request }: { request: Api }) {
                 onClick={() => setEditor({ base: null })}
                 disabled={!!error && !bases.length}
               >
-                ＋ 新建知识库
+                <Icon name="plus" size={16} /> 新建知识库
               </button>
             </div>
           </div>
@@ -455,9 +466,7 @@ export function KnowledgeWorkspace({ request }: { request: Api }) {
           ) : (
             !error && (
               <div className="kb-empty">
-                <span className="kb-empty-icon" aria-hidden="true">
-                  ▤
-                </span>
+                <Icon name="knowledge" size={28} className="kb-empty-icon" />
                 <h2>还没有知识库</h2>
                 <p>点击上方“新建知识库”，整理一组文档后即可测试检索。</p>
               </div>
@@ -759,9 +768,7 @@ function LibraryDocuments({
           </p>
         ) : !documents.length ? (
           <div className="kb-empty kb-documents-empty">
-            <span className="kb-empty-icon" aria-hidden="true">
-              ↑
-            </span>
+            <Icon name="upload" size={28} className="kb-empty-icon" />
             <h3>还没有文档</h3>
             <p>点击“上传文档”添加 TXT、Markdown 或文本 PDF。</p>
           </div>
@@ -823,7 +830,9 @@ function LibraryDocuments({
                         event.currentTarget.open = false;
                     }}
                   >
-                    <summary aria-label={`${doc.title}的更多操作`}>•••</summary>
+                    <summary aria-label={`${doc.title}的更多操作`}>
+                      <Icon name="more" />
+                    </summary>
                     <div
                       onClick={(event) => {
                         const details = event.currentTarget.closest("details");
@@ -972,7 +981,7 @@ function LibraryDocuments({
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                查看检索原文 ↗
+                查看检索原文 <Icon name="arrow-up-right" size={14} />
               </a>
             )}
             <button data-dialog-cancel onClick={() => setDetail(null)}>
@@ -1087,7 +1096,8 @@ function KnowledgeSearch({
                 rel="noopener noreferrer"
               >
                 {hit.title} · v{hit.version}
-                {hit.location?.page ? ` · 第 ${hit.location.page} 页` : ""} ↗
+                {hit.location?.page ? ` · 第 ${hit.location.page} 页` : ""}{" "}
+                <Icon name="arrow-up-right" size={14} />
               </a>
               <p>{hit.text}</p>
               {hit.location?.paragraph && (
@@ -1130,7 +1140,9 @@ export function KnowledgeSource({
   }, [sourceID, offset]);
   return (
     <main className="knowledge-source-page">
-      <a href="/">← 返回 SiAgent 工作台</a>
+      <a href="/">
+        <Icon name="arrow-left" size={16} /> 返回 SiAgent 工作台
+      </a>
       <p className="eyebrow">知识来源 · 原文版本可追溯</p>
       {error && (
         <p className="error" role="alert">

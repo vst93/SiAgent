@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { Icon } from "./icons";
 import { ToolCallDetails } from "./capabilities";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
@@ -84,17 +85,7 @@ export function ConversationMaintenance({
         title="删除此对话"
         onClick={() => setOpen(true)}
       >
-        <svg
-          width="17"
-          height="17"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          aria-hidden="true"
-        >
-          <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7" />
-        </svg>
+        <Icon name="trash" />
       </button>
       {open && (
         <dialog
@@ -120,7 +111,7 @@ export function ConversationMaintenance({
         >
           <div className="confirmation-heading">
             <span className="delete-symbol" aria-hidden="true">
-              !
+              <Icon name="warning" size={20} />
             </span>
             <h2 id="delete-conversation-title">删除此对话？</h2>
           </div>
@@ -370,7 +361,10 @@ export function RunDiagnostics({
       className="run-diagnostics"
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>运行详情</summary>
+      <summary>
+        <Icon name="caret-right" size={14} className="disclosure-icon" />
+        运行详情
+      </summary>
       {open && (
         <div>
           {error && (

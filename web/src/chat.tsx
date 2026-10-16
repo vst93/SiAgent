@@ -1,3 +1,4 @@
+import { Icon } from "./icons";
 import { MessageMarkdown } from "./message-markdown";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type { Agent, Model } from "./agents";
@@ -90,6 +91,7 @@ export function ChatWorkspace({
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const nearBottom = useRef(true);
   const currentRun = snapshot?.runs.find(active);
   const waitingCount =
@@ -102,6 +104,13 @@ export function ChatWorkspace({
     agent?.archived === true ||
     (Boolean(selected) && !snapshot);
   useEffect(() => {
+    const element = inputRef.current;
+    if (element) {
+      element.style.height = "auto";
+      element.style.height = `${Math.min(element.scrollHeight, 160)}px`;
+    }
+  }, [input, loading, model?.id]);
+  useEffect(() => {
     nearBottom.current = true;
   }, [selected]);
   useEffect(() => {
@@ -112,7 +121,6 @@ export function ChatWorkspace({
     <section className="chat-workspace" aria-label="Agent 对话工作区">
       <header className="chat-header">
         <div className="chat-heading">
-          <p className="eyebrow">AGENT 对话</p>
           <h1>{snapshot?.conversation.title ?? "开始一段对话"}</h1>
         </div>
         <div className="chat-header-actions">
@@ -146,7 +154,8 @@ export function ChatWorkspace({
               !model || loading || pending || !agent?.enabled || agent.archived
             }
           >
-            <span aria-hidden="true">＋</span>新对话
+            <Icon name="plus" size={16} />
+            新对话
           </button>
           {snapshot && (
             <ConversationMaintenance
@@ -162,7 +171,8 @@ export function ChatWorkspace({
             aria-controls="chat-history"
             onClick={() => setHistoryOpen(!historyOpen)}
           >
-            对话记录
+            <Icon name="history" size={16} />
+            <span>对话记录</span>
           </button>
         </div>
       </header>
@@ -188,9 +198,7 @@ export function ChatWorkspace({
                 setHistoryOpen(false);
               }}
             >
-              <span className="chat-glyph" aria-hidden="true">
-                ◌
-              </span>
+              <Icon name="chat" size={16} className="chat-glyph" />
               <span>{item.title}</span>
               {item.channel_id && <small className="channel-tag">渠道</small>}
             </button>
@@ -334,7 +342,7 @@ export function ChatWorkspace({
                                         : source.location?.paragraph
                                           ? ` · 第 ${source.location.paragraph} 段`
                                           : ""}{" "}
-                                      ↗
+                                      <Icon name="arrow-up-right" size={14} />
                                     </a>
                                   ))}
                               </nav>
@@ -393,7 +401,8 @@ export function ChatWorkspace({
                 </label>
                 <textarea
                   id="message-input"
-                  rows={3}
+                  ref={inputRef}
+                  rows={2}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder={
@@ -441,7 +450,7 @@ export function ChatWorkspace({
                       className="primary send-button"
                       disabled={blocked || !input.trim()}
                     >
-                      发送 <span aria-hidden="true">↑</span>
+                      发送 <Icon name="arrow-up" size={16} />
                     </button>
                   </div>
                 </div>

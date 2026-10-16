@@ -16,6 +16,12 @@ make build
 
 数据目录默认 `./data`，可通过 `SIAGENT_DATA_DIR` 或 `-data-dir` 指定。不要单独运行 Runtime 操作同一数据目录；Go 入口持有目录排他锁。模型/MCP/企微秘密通过登录后的管理界面保存，不必放进环境变量或 Compose 文件。
 
+## 迁移到普通服务器
+
+`make build` 用于源码开发，不会将 Node.js 和 Runtime 的 npm 依赖打进 Go 二进制。跨服务器部署请下载 GitHub Release，或使用 `make package` 生成完整发布包，其中包含 Go 程序、私有 Node、Runtime JS 和 npm 生产依赖。目标机无需安装 Node、Go 或 npm，完整解压后直接启动包内的 `siagent`。Go 按自身位置定位运行文件，默认数据目录为安装目录的 `data/`；建议通过 `SIAGENT_DATA_DIR` 指定独立持久目录。
+
+支持 Linux/macOS 的 amd64、arm64，构建与目标需使用相同操作系统和 CPU 架构。Linux 使用 glibc，不支持直接在 Alpine/musl 上运行；macOS 包暂未签名或公证。PDF 处理仍需 Poppler，外部 MCP 命令需要各自环境。GitHub 发版工作流在版本标签推送后完成四平台构建、迁移启动验证和附件发布；完整步骤及故障排查见 [server-package.md](server-package.md)。
+
 ## 单容器与公开访问
 
 仓库提供 Dockerfile 和 `compose.yaml`：

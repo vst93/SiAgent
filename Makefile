@@ -1,4 +1,4 @@
-.PHONY: install build test test-e2e test-container run
+.PHONY: install build package test test-e2e test-container run
 install:
 	npm --prefix runtime ci
 	npm --prefix web ci
@@ -6,6 +6,8 @@ build:
 	npm --prefix runtime run build
 	npm --prefix web run build
 	go build -o bin/siagent ./cmd/siagent
+package: build
+	sh scripts/package.sh
 test:
 	npm --prefix runtime test
 	go test -race ./...

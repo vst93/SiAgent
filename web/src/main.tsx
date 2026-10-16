@@ -1,3 +1,4 @@
+import { Icon } from "./icons";
 import { type Agent, type Model } from "./agents";
 import { KnowledgeSource } from "./knowledge";
 import {
@@ -153,7 +154,7 @@ function AuthScreen({
               : auth.initialized
                 ? "登录"
                 : "设置密码并继续"}
-            <span aria-hidden="true">→</span>
+            <Icon name="arrow-right" />
           </button>
         </form>
       </div>
@@ -416,8 +417,13 @@ function App() {
           >
             默认：{pageName(navigation.defaultPage)}
           </span>
-          <button className="logout" onClick={() => void logout()}>
-            退出登录
+          <button
+            className="logout"
+            aria-label="退出登录"
+            onClick={() => void logout()}
+          >
+            <Icon name="logout" size={16} />
+            <span>退出登录</span>
           </button>
         </div>
       </header>
@@ -434,7 +440,7 @@ function App() {
             aria-label="关闭提示"
             onClick={() => setError("")}
           >
-            ×
+            <Icon name="close" />
           </button>
         </p>
       )}

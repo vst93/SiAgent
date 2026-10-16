@@ -27,16 +27,26 @@ func main() {
 }
 func run() error {
 	syscall.Umask(0o077)
-	dataDir := flag.String("data-dir", env("SIAGENT_DATA_DIR", "data"), "persistent data directory")
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	installed := locateInstallation(executable)
+	dataDir := flag.String("data-dir", env("SIAGENT_DATA_DIR", installed.DataDir), "persistent data directory")
 	listen := flag.String("listen", env("SIAGENT_LISTEN", "127.0.0.1:8080"), "HTTP address")
 	publicURL := flag.String("public-url", env("SIAGENT_PUBLIC_URL", ""), "public HTTP(S) origin; HTTPS enables Secure cookies")
-	script := flag.String("runtime", "runtime/dist/index.js", "runtime adapter entrypoint")
-	node := flag.String("node", "node", "Node.js executable")
-	channelWorker := flag.String("channel-worker", env("SIAGENT_CHANNEL_WORKER", "runtime/dist/channel-wecom.js"), "built-in channel transport entrypoint")
+	script := flag.String("runtime", installed.Runtime, "runtime adapter entrypoint")
+	node := flag.String("node", env("SIAGENT_NODE", installed.Node), "Node.js executable")
+	channelWorker := flag.String("channel-worker", env("SIAGENT_CHANNEL_WORKER", installed.ChannelWorker), "built-in channel transport entrypoint")
 	probe := flag.String("probe", "", "run a model prompt through the private protocol, then exit")
 	conversation := flag.String("conversation", "probe", "probe conversation identifier")
 	tool := flag.Bool("probe-tool", false, "explicitly enable the harmless add tool for a probe")
 	flag.Parse()
+	if installed.Bundled {
+		if err := checkBundledRuntime(*node, *script); err != nil {
+			return err
+		}
+	}
 	directory, err := filepath.Abs(*dataDir)
 	if err != nil {
 		return err

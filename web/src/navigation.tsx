@@ -1,3 +1,4 @@
+import { Icon } from "./icons";
 import { useEffect, useState } from "react";
 
 export const configSections = [
@@ -5,37 +6,37 @@ export const configSections = [
     id: "models",
     title: "模型连接",
     description: "连接模型服务，管理密钥并测试可用性。",
-    icon: "◈",
+    icon: "models",
   },
   {
     id: "agents",
     title: "Agent",
     description: "定义助手角色，为每个 Agent 选择模型与授权能力。",
-    icon: "◎",
+    icon: "agent",
   },
   {
     id: "knowledge",
     title: "知识库",
     description: "整理文档、维护索引，测试检索与查看来源。",
-    icon: "▤",
+    icon: "knowledge",
   },
   {
     id: "tools",
     title: "插件接入",
     description: "上传和管理 Skills，配置 MCP 服务，再到 Agent 中挂载和授权。",
-    icon: "⊞",
+    icon: "plugins",
   },
   {
     id: "channels",
     title: "渠道接入",
     description: "选择聊天渠道适配器，连接消息平台并绑定 Agent。",
-    icon: "⇄",
+    icon: "channels",
   },
   {
     id: "system",
     title: "运行与维护",
     description: "调整执行限制，检查服务状态和磁盘用量。",
-    icon: "⚙",
+    icon: "settings",
   },
 ] as const;
 export type ConfigSection = (typeof configSections)[number]["id"];
@@ -120,6 +121,7 @@ export function ModuleSwitch({
           aria-current={page === "chat" ? "page" : undefined}
           onClick={() => navigate("chat")}
         >
+          <Icon name="chat" size={16} />
           Agent 对话
         </button>
         <button
@@ -129,7 +131,7 @@ export function ModuleSwitch({
           title="默认打开 Agent 对话"
           onClick={() => pin("chat")}
         >
-          {defaultPage === "chat" ? "★" : "☆"}
+          <Icon name="star" size={16} filled={defaultPage === "chat"} />
         </button>
       </div>
       <div className={`module-option ${page !== "chat" ? "active" : ""}`}>
@@ -138,6 +140,7 @@ export function ModuleSwitch({
           aria-current={page !== "chat" ? "page" : undefined}
           onClick={() => navigate(configTarget)}
         >
+          <Icon name="settings" size={16} />
           配置
         </button>
         <button
@@ -147,7 +150,7 @@ export function ModuleSwitch({
           title={`默认打开${pageName(configTarget)}`}
           onClick={() => pin(configTarget)}
         >
-          {defaultPage === configTarget ? "★" : "☆"}
+          <Icon name="star" size={16} filled={defaultPage === configTarget} />
         </button>
       </div>
     </nav>

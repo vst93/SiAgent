@@ -14,7 +14,7 @@ jobs:
           cache: true
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: |
             runtime/package-lock.json
@@ -26,6 +26,11 @@ jobs:
       - run: make install
       - run: npm --prefix web exec -- playwright install --with-deps chromium
       - run: make build
+      - name: Package and verify relocated server deployment
+        run: |
+          sh scripts/package.sh
+          python3 tests/package.py artifacts/siagent-linux-amd64.tar.xz
+          python3 tests/install.py artifacts/siagent-linux-amd64.tar.xz
       - run: make test
       - run: python3 tests/e2e.py
       - run: npm --prefix web run test:browser
