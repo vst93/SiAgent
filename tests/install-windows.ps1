@@ -8,6 +8,7 @@ if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
 $root = Join-Path ([IO.Path]::GetTempPath()) ('siagent-test-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path (Join-Path $root 'System32') -Force | Out-Null
 $originalRoot = $env:SystemRoot
+$fixtureWSL = Join-Path $root 'System32/wsl.exe'
 $originalLocal = $env:LOCALAPPDATA
 $originalLog = $env:SIAGENT_WSL_TEST_LOG
 try {
@@ -37,7 +38,12 @@ public class FakeWSL {
         if ($compiled.Errors.HasErrors) { throw ($compiled.Errors | Out-String) }
     }
     finally { $compiler.Dispose() }
-    $env:SystemRoot = $root
+    # Redirect only the WSL lookup; changing SystemRoot breaks Windows crypto DLL loading.
+    function Join-Path {
+        param([string]$Path, [string]$ChildPath)
+        if ($Path -eq $originalRoot -and $ChildPath -eq 'System32\wsl.exe') { return $fixtureWSL }
+        Microsoft.PowerShell.Management\Join-Path -Path $Path -ChildPath $ChildPath
+    }
     $env:LOCALAPPDATA = Join-Path $root 'local app data'
     $env:SIAGENT_WSL_TEST_LOG = Join-Path $root 'wsl.log'
     $script:badChecksum = $false
@@ -69,7 +75,6 @@ public class FakeWSL {
     Write-Host 'Windows installer passed: PS 5.1 syntax, SHA-256, WSL arguments, LF stdin, command shim and bootstrap path'
 }
 finally {
-    $env:SystemRoot = $originalRoot
     $env:LOCALAPPDATA = $originalLocal
     $env:SIAGENT_WSL_TEST_LOG = $originalLog
     Remove-Item -LiteralPath $root -Recurse -Force

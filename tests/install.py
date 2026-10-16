@@ -42,7 +42,7 @@ def main():
     arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine()]
     target = f"{system}-{arch}"
     with tempfile.TemporaryDirectory(prefix="siagent install '") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         web = root / "web"
         write_release(web, "v1.0.0", target)
         write_release(web, "v1.1.0", target)

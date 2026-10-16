@@ -80,7 +80,9 @@ class Deployment:
             self.processes['model'] = subprocess.Popen(['node', str(FIXTURE)], env={**os.environ, 'HOST': '127.0.0.1', 'PORT': str(fixture_port)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             self.docker('image', 'inspect', self.image, stdout=subprocess.DEVNULL)
-            self.docker('network', 'create', '--internal', self.network, stdout=subprocess.DEVNULL)
+            # Docker 29 does not publish ports for internal-only networks. The fixture
+            # uses its own bridge; only the application API is published on loopback.
+            self.docker('network', 'create', self.network, stdout=subprocess.DEVNULL)
             self.network_created = True
             self.containers.append(self.fixture_name)
             self.docker('run', '-d', '--pull', 'never', '--init', '--name', self.fixture_name, '--network', self.network, '-e', 'HOST=0.0.0.0', '--entrypoint', 'node', self.image, '--input-type=module', '-e', FIXTURE.read_text(), stdout=subprocess.DEVNULL)
