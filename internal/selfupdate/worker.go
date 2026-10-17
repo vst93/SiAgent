@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -152,8 +153,8 @@ func waitReady(command *exec.Cmd, listen, boot, version string) error {
 	}
 }
 
-// RunWorker is a short-lived independent process. It waits for the old server
-// and its storage lock to close, backs up offline, then verifies a unique boot.
+// RunWorker waits for the old server to close storage and release its exclusive
+// data lock, backs up offline, then verifies a unique application boot.
 func RunWorker(path string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -174,23 +175,26 @@ func RunWorker(path string) error {
 	if p.Parent <= 0 {
 		return fmt.Errorf("invalid parent process")
 	}
-	deadline := time.Now().Add(45 * time.Second)
-	for syscall.Kill(p.Parent, 0) == nil {
-		if time.Now().After(deadline) {
-			saveResult(p.Root, "failed", "旧服务未能退出，更新已停止。", "")
-			return fmt.Errorf("old process did not exit")
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
 	lock, err := os.OpenFile(filepath.Join(p.Data, "siagent.lock"), os.O_RDWR, 0600)
 	if err != nil {
 		saveResult(p.Root, "failed", "无法取得停机数据锁，请检查 update.log 并手动恢复服务。", "")
 		return err
 	}
 	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		saveResult(p.Root, "failed", "数据目录仍在使用，更新已停止。", "")
-		return err
+	// A fully stopped process can remain a zombie until its launcher reaps it.
+	// kill(pid, 0) still succeeds then. The app releases this lock only after all
+	// workers and the database close, so it is the cross-platform shutdown barrier.
+	deadline := time.Now().Add(45 * time.Second)
+	for {
+		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if (err != syscall.EWOULDBLOCK && err != syscall.EAGAIN) || time.Now().After(deadline) {
+			saveResult(p.Root, "failed", "旧服务或其他实例未释放数据锁，更新已停止，请检查 update.log。", "")
+			return fmt.Errorf("waiting for exclusive data lock: %w", err)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 	releaseLock := func() { syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) }
 	backup := filepath.Join(p.Root, "backups", "update-"+time.Now().UTC().Format("20060102T150405")+"-"+p.Version)
@@ -204,7 +208,7 @@ func RunWorker(path string) error {
 		return err
 	}
 	destination := filepath.Join(p.Root, "versions", filepath.Base(p.Target))
-	err = os.Rename(p.Target, destination)
+	err = installVersion(p.Target, destination)
 	if err == nil {
 		err = activate(p.Root, destination)
 	}
@@ -259,5 +263,26 @@ func RunWorker(path string) error {
 	}
 	saveResult(p.Root, "rolled_back", "新版本启动失败，已恢复旧版本与完整数据备份。原因："+err.Error(), backup)
 	os.RemoveAll(p.Work)
+	return nil
+}
+
+// A failed boot can leave the verified version in versions/. Reuse only the
+// identical archive on retry; never overwrite another version directory.
+func installVersion(target, destination string) error {
+	if info, err := os.Lstat(destination); os.IsNotExist(err) {
+		return os.Rename(target, destination)
+	} else if err != nil {
+		return err
+	} else if !info.IsDir() {
+		return fmt.Errorf("目标版本必须是普通目录")
+	}
+	staged, err := os.ReadFile(filepath.Join(target, ".archive-sha256"))
+	if err != nil {
+		return err
+	}
+	existing, err := os.ReadFile(filepath.Join(destination, ".archive-sha256"))
+	if err != nil || len(strings.TrimSpace(string(staged))) != 64 || string(staged) != string(existing) {
+		return fmt.Errorf("目标版本目录已存在且校验不一致，请检查 versions 目录")
+	}
 	return nil
 }

@@ -181,4 +181,4 @@ make test-e2e     # 先构建，再运行完整 Go + Node + 本地模型协议�
 
 完整功能对照与未验收项见 [首版功能对照](docs/feature-status.md)。
 
-资料：[模型配置](docs/models.md) · [工作区使用](docs/workspaces.md) · [多模型与助手](docs/agents.md) · [原生知识库](docs/knowledge.md) · [知识库设计](docs/knowledge-design.md) · [Skills 与 MCP](docs/tools.md) · [Runtime 验证](docs/runtime-validation.md) · [通信协议](docs/runtime-protocol.md) · [部署与恢复](docs/deployment.md) · [发布检查](docs/release-checklist.md) · [企微接入指南](docs/wecom.md) · [企业微信验证](docs/wecom-validation.md) · [开发进度](docs/progress.md)。
+资料：[模型配置](docs/models.md) · [工作区使用](docs/workspaces.md) · [多模型与助手](docs/agents.md) · [原生知识库](docs/knowledge.md) · [知识库设计](docs/knowledge-design.md) · [Skills 与 MCP](docs/tools.md) · [Runtime 验证](docs/runtime-validation.md) · [通信协议](docs/runtime-protocol.md) · [自动更新与命令行](docs/application-updates.md) · [部署与恢复](docs/deployment.md) · [发布检查](docs/release-checklist.md) · [企微接入指南](docs/wecom.md) · [企业微信验证](docs/wecom-validation.md) · [开发进度](docs/progress.md)。

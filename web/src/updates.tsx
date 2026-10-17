@@ -4,6 +4,7 @@ type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 type UpdateStatus = {
   mode: "installer" | "docker" | "managed" | "source";
   supported: boolean;
+  automatic: boolean;
   current: string;
   latest: string;
   available: boolean;
@@ -15,7 +16,8 @@ const phases: Record<string, string> = {
   idle: "就绪",
   checking: "检查中",
   downloading: "下载校验中",
-  ready: "准备完成",
+  ready: "校验完成",
+  waiting: "等待现有任务结束",
   restarting: "正在重启",
   completed: "更新完成",
   rolled_back: "已恢复旧版本",
@@ -25,7 +27,6 @@ export function ApplicationUpdates({ request }: { request: Api }) {
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
   const restarting = useRef(false);
   const [reconnecting, setReconnecting] = useState(false);
   const requestRef = useRef(request);
@@ -38,6 +39,8 @@ export function ApplicationUpdates({ request }: { request: Api }) {
         if (disposed) return;
         setStatus(next);
         setReconnecting(false);
+        setError("");
+        if (next.automatic || next.phase === "restarting") restarting.current = true;
         if (
           restarting.current &&
           ["completed", "rolled_back"].includes(next.phase)
@@ -45,6 +48,7 @@ export function ApplicationUpdates({ request }: { request: Api }) {
           restarting.current = false;
           window.location.reload();
         }
+        if (["failed", "idle"].includes(next.phase)) restarting.current = false;
       } catch (error) {
         if (disposed) return;
         if (restarting.current) setReconnecting(true);
@@ -64,12 +68,11 @@ export function ApplicationUpdates({ request }: { request: Api }) {
   async function action(path: string, body?: unknown) {
     setPending(true);
     setError("");
-    if (path === "apply") restarting.current = true;
+    if (path === "start") restarting.current = true;
     try {
       setStatus(await request<UpdateStatus>(`/updates/${path}`, "POST", body));
-      setConfirmed(false);
     } catch (error) {
-      if (path === "apply") restarting.current = false;
+      if (path === "start") restarting.current = false;
       setError(
         error instanceof Error ? error.message : "更新操作未完成，请重试。",
       );
@@ -85,7 +88,7 @@ export function ApplicationUpdates({ request }: { request: Api }) {
       </section>
     );
   const busy =
-    pending || ["checking", "downloading", "restarting"].includes(status.phase);
+    pending || ["checking", "downloading", "waiting", "restarting"].includes(status.phase) || status.automatic;
   return (
     <section className="application-updates" aria-label="应用更新">
       <h2>应用更新</h2>
@@ -111,12 +114,19 @@ export function ApplicationUpdates({ request }: { request: Api }) {
           ? "更新正在重启服务，暂时断开连接。正在自动重连，请勿手动启动另一实例；成功后页面会自动刷新。"
           : status.message}
       </p>
-      {!status.supported && status.mode !== "installer" && (
+      {busy && <progress aria-label="更新进度" />}
+      {!status.supported && (
         <p className="muted">
-          检查新版本不会修改当前部署。
           {status.mode === "docker"
-            ? "使用原 Compose 文件和数据卷更新；若使用本地构建镜像，请先拉取源码再重新构建。"
-            : "独立安装包需通过官方安装脚本安装后，才能使用应用内下载及重启。"}
+            ? "此部署请手动更新镜像并重建容器，保留原数据卷。"
+            : status.mode === "managed"
+              ? "请通过原服务管理器停止服务、更新程序并重新启动。"
+              : "源码部署请拉取代码并重新构建；独立安装包请使用官方安装脚本升级。"}
+        </p>
+      )}
+      {status.supported && (
+        <p className="muted">
+          发起更新后会自动下载校验、等待现有任务结束、备份数据并重启，关闭页面也会继续。新版本启动失败时自动恢复旧版本和数据。
         </p>
       )}
       <div className="form-actions">
@@ -127,16 +137,17 @@ export function ApplicationUpdates({ request }: { request: Api }) {
         >
           检查新版本
         </button>
-        {status.supported && status.available && status.phase !== "ready" && (
+        {status.supported && (status.available || status.phase === "ready") && (
           <button
             type="button"
+            className="primary"
             disabled={busy}
-            onClick={() => void action("prepare")}
+            onClick={() => void action("start", { confirm: true })}
           >
-            下载并校验更新
+            更新并自动重启
           </button>
         )}
-        {status.supported && status.phase === "ready" && (
+        {status.supported && ["ready", "waiting"].includes(status.phase) && (
           <button
             type="button"
             disabled={pending}
@@ -146,29 +157,6 @@ export function ApplicationUpdates({ request }: { request: Api }) {
           </button>
         )}
       </div>
-      {status.supported && status.phase === "ready" && (
-        <div className="update-confirmation">
-          <p>
-            请先等待当前任务和渠道投递结束。确认后系统会短暂停机，备份完整数据，再切换程序并重启；若新版本启动失败，将恢复旧程序和数据备份。
-          </p>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={confirmed}
-              onChange={(event) => setConfirmed(event.target.checked)}
-            />
-            我确认现在停机备份并更新，期间请勿手动启动另一实例
-          </label>
-          <button
-            type="button"
-            className="primary"
-            disabled={!confirmed || pending}
-            onClick={() => void action("apply", { confirm: true })}
-          >
-            安装更新并重启
-          </button>
-        </div>
-      )}
       {status.backup && (
         <p className="muted">
           最近更新备份：<code>{status.backup}</code>
@@ -180,11 +168,7 @@ export function ApplicationUpdates({ request }: { request: Api }) {
           {error}
         </p>
       )}
-      <small>
-        先尝试 GitHub
-        官方地址并重试；失败或超时后依次尝试配置的镜像，仍会校验发布包的
-        SHA-256。
-      </small>
+      <small>命令行可使用 <code>siagent update</code> 更新，或 <code>siagent help</code> 查看帮助。</small>
     </section>
   );
 }

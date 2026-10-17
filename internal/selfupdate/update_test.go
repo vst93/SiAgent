@@ -143,7 +143,7 @@ func TestWorkerSuccessfulBootAndMigrationRollback(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			plan := Plan{Root: root, Work: work, Data: data, Old: old, Target: target, Version: "v1.0.1", Listen: address, Parent: 99999999}
+			plan := Plan{Root: root, Work: work, Data: data, Old: old, Target: target, Version: "v1.0.1", Listen: address, Parent: os.Getpid()}
 			raw, _ := json.Marshal(plan)
 			path := filepath.Join(work, "plan.json")
 			os.WriteFile(path, raw, 0600)
@@ -234,27 +234,27 @@ func TestManagerChecksStagesCancelsAndRecoversPreparedUpdate(t *testing.T) {
 	}))
 	defer server.Close()
 	manager := &Manager{root: root, releaseBase: server.URL, client: server.Client(), config: Config{Version: "v1.0.0"}, status: Status{Current: "v1.0.0", Supported: true, Phase: "idle"}}
-	if err := manager.check(context.Background()); err != nil {
+	if err := manager.BeginUpdate(); err != nil {
 		t.Fatal(err)
 	}
-	if status := manager.Status(); !status.Available || status.Latest != "v1.0.1" {
-		t.Fatal(status)
+	if err := manager.BeginUpdate(); err == nil {
+		t.Fatal("duplicate automatic update accepted")
 	}
-	if err := manager.Prepare(); err != nil {
-		t.Fatal(err)
+	if err := manager.BeginCheck(); err == nil {
+		t.Fatal("check overlapped automatic update")
 	}
 	deadline := time.Now().Add(10 * time.Second)
-	for manager.Status().Phase == "downloading" && time.Now().Before(deadline) {
+	for (manager.Status().Phase == "checking" || manager.Status().Phase == "downloading") && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if status := manager.Status(); status.Phase != "ready" {
+	if status := manager.Status(); status.Phase != "ready" || !status.Automatic || status.Latest != "v1.0.1" {
 		t.Fatal(status)
 	}
 	// Recover after a server restart, with an owner PID that no longer exists.
 	lockOwner(root, 99999999)
 	recovered := &Manager{root: root, config: Config{Version: "v1.0.0"}}
 	recovered.recoverPrepared()
-	if recovered.Status().Phase != "ready" || recovered.work != manager.work {
+	if recovered.Status().Phase != "ready" || !recovered.Status().Automatic || recovered.work != manager.work {
 		t.Fatal("prepared update not recovered", recovered.Status())
 	}
 	old := filepath.Join(root, "versions", "old")
@@ -266,6 +266,14 @@ func TestManagerChecksStagesCancelsAndRecoversPreparedUpdate(t *testing.T) {
 	}
 	if recovered.Status().Phase != "ready" {
 		t.Fatal("failed helper changed active phase")
+	}
+	recovered.WaitForIdle()
+	if recovered.Status().Phase != "waiting" {
+		t.Fatal("automatic update did not wait for idle")
+	}
+	recovered.Fail(fmt.Errorf("worker failed"))
+	if recovered.Status().Phase != "ready" || recovered.Status().Automatic {
+		t.Fatal("failed helper kept retrying automatically")
 	}
 	if err := recovered.Cancel(); err != nil {
 		t.Fatal(err)

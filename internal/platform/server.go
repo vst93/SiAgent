@@ -30,6 +30,7 @@ type Server struct {
 	updateStop         func()
 	updateGate         sync.RWMutex
 	updating           atomic.Bool
+	updateDraining     atomic.Bool
 	maintenanceWork    sync.Mutex
 	channelConfigMu    sync.Mutex
 	channelProviders   *channels.Registry
@@ -104,6 +105,7 @@ func (s *Server) SetupToken() string { return s.token }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /api/updates", s.authorize(http.HandlerFunc(s.updateStatus)))
+	mux.Handle("POST /api/updates/start", s.authorize(http.HandlerFunc(s.startUpdate)))
 	mux.Handle("POST /api/updates/check", s.authorize(http.HandlerFunc(s.checkUpdate)))
 	mux.Handle("POST /api/updates/prepare", s.authorize(http.HandlerFunc(s.prepareUpdate)))
 	mux.Handle("POST /api/updates/cancel", s.authorize(http.HandlerFunc(s.cancelUpdate)))

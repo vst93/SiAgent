@@ -12,10 +12,11 @@ import (
 type preparedState struct {
 	Work, Version string
 	Ready         bool
+	Automatic     bool
 }
 
-func writePrepared(root, work, version string, ready bool) error {
-	raw, _ := json.Marshal(preparedState{work, version, ready})
+func writePrepared(root, work, version string, ready, automatic bool) error {
+	raw, _ := json.Marshal(preparedState{Work: work, Version: version, Ready: ready, Automatic: automatic})
 	return os.WriteFile(filepath.Join(root, ".update-prepared.json"), raw, 0600)
 }
 func lockOwner(root string, pid int) error {
@@ -47,6 +48,12 @@ func (m *Manager) recoverPrepared() {
 	if json.Unmarshal(raw, &saved) != nil || filepath.Dir(saved.Work) != m.root || !strings.HasPrefix(filepath.Base(saved.Work), ".update-") || !versionPattern.MatchString(saved.Version) {
 		return
 	}
+	if !newer(saved.Version, m.config.Version) {
+		os.RemoveAll(saved.Work)
+		os.Remove(filepath.Join(m.root, ".update-prepared.json"))
+		unlock(m.root)
+		return
+	}
 	if saved.Ready {
 		os.Mkdir(filepath.Join(m.root, ".install-lock"), 0700)
 		os.WriteFile(filepath.Join(m.root, ".install-lock", ".application-update"), nil, 0600)
@@ -54,6 +61,7 @@ func (m *Manager) recoverPrepared() {
 		m.status.Latest = saved.Version
 		m.status.Available = newer(saved.Version, m.config.Version)
 		m.status.Phase = "ready"
+		m.status.Automatic = saved.Automatic
 		m.status.Message = "已恢复上次准备好的更新；可继续安装或取消。"
 		os.Mkdir(filepath.Join(m.root, ".update-lock"), 0700)
 		lockOwner(m.root, os.Getpid())
@@ -62,4 +70,25 @@ func (m *Manager) recoverPrepared() {
 	os.RemoveAll(saved.Work)
 	os.Remove(filepath.Join(m.root, ".update-prepared.json"))
 	unlock(m.root)
+}
+
+// Resolve existing ancestors too: update can be the first command after install,
+// before a data directory has been created, while containment checks stay valid.
+func resolveDataPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err == nil {
+		return resolved, nil
+	}
+	if !os.IsNotExist(err) || filepath.Dir(absolute) == absolute {
+		return "", err
+	}
+	parent, err := resolveDataPath(filepath.Dir(absolute))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(parent, filepath.Base(absolute)), nil
 }

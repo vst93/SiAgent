@@ -416,7 +416,7 @@ try {
   assert(["source", "docker"].includes(updateState.mode));
   assert.equal(
     await page
-      .getByRole("button", { name: "安装更新并重启", exact: true })
+      .getByRole("button", { name: "更新并自动重启", exact: true })
       .count(),
     0,
   );
@@ -443,25 +443,28 @@ try {
     latest: "v0.0.2",
     available: true,
     phase: updatePhase,
-    message:
-      updatePhase === "ready"
-        ? "下载与校验已完成。"
-        : "正在停机、备份和重启，请等待自动重新连接。",
+    automatic: updatePhase !== "ready",
+    message: {
+      ready: "下载与校验已完成。",
+      downloading: "正在下载并校验发布包。",
+      waiting: "正在等待现有任务结束，完成后自动重启。",
+      restarting: "正在停机、备份和重启，请等待自动重新连接。",
+    }[updatePhase],
   });
   await page.route("**/api/updates", (route) =>
     route.fulfill({ json: updateFixture() }),
   );
-  await page.route("**/api/updates/apply", async (route) => {
+  await page.route("**/api/updates/start", async (route) => {
     assert.equal(route.request().postDataJSON().confirm, true);
-    updatePhase = "restarting";
+    updatePhase = "downloading";
     await route.fulfill({ status: 202, json: updateFixture() });
   });
   const installUpdate = page.getByRole("button", {
-    name: "安装更新并重启",
+    name: "更新并自动重启",
     exact: true,
   });
   await installUpdate.waitFor();
-  assert.equal(await installUpdate.isDisabled(), true);
+  assert.equal(await installUpdate.isEnabled(), true);
   await page.screenshot({
     path: join(artifacts, "updates-ready-desktop.png"),
     fullPage: true,
@@ -476,11 +479,14 @@ try {
     path: join(artifacts, "updates-ready-mobile.png"),
     fullPage: true,
   });
-  await page
-    .getByRole("checkbox", { name: "我确认现在停机备份并更新", exact: false })
-    .check();
-  assert.equal(await installUpdate.isEnabled(), true);
   await installUpdate.click();
+  await page.getByRole("status").filter({ hasText: "正在下载并校验发布包" }).waitFor();
+  assert.equal(await page.getByRole("progressbar", { name: "更新进度" }).count(), 1);
+  assert.equal(await installUpdate.isDisabled(), true);
+  updatePhase = "waiting";
+  await page.getByRole("status").filter({ hasText: "正在等待现有任务结束" }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "取消本次更新", exact: true }).isEnabled(), true);
+  updatePhase = "restarting";
   await page
     .getByRole("status")
     .filter({ hasText: "正在停机、备份和重启" })
@@ -492,7 +498,7 @@ try {
     true,
   );
   await page.unroute("**/api/updates");
-  await page.unroute("**/api/updates/apply");
+  await page.unroute("**/api/updates/start");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await config("模型连接");
   await config("运行与维护");

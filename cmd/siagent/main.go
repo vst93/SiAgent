@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -30,28 +29,16 @@ func main() {
 		}
 		return
 	}
-	if err := run(); err != nil {
+	if err := runCLI(os.Args[1:]); err != nil {
 		slog.Error("siagent stopped", "error", err)
 		os.Exit(1)
 	}
 }
-func run() error {
+func runServer(options commandOptions, executable string, installed installation) error {
 	syscall.Umask(0o077)
-	executable, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	installed := locateInstallation(executable)
-	dataDir := flag.String("data-dir", env("SIAGENT_DATA_DIR", installed.DataDir), "persistent data directory")
-	listen := flag.String("listen", env("SIAGENT_LISTEN", "127.0.0.1:8080"), "HTTP address")
-	publicURL := flag.String("public-url", env("SIAGENT_PUBLIC_URL", ""), "public HTTP(S) origin; HTTPS enables Secure cookies")
-	script := flag.String("runtime", installed.Runtime, "runtime adapter entrypoint")
-	node := flag.String("node", env("SIAGENT_NODE", installed.Node), "Node.js executable")
-	channelWorker := flag.String("channel-worker", env("SIAGENT_CHANNEL_WORKER", installed.ChannelWorker), "built-in channel transport entrypoint")
-	probe := flag.String("probe", "", "run a model prompt through the private protocol, then exit")
-	conversation := flag.String("conversation", "probe", "probe conversation identifier")
-	tool := flag.Bool("probe-tool", false, "explicitly enable the harmless add tool for a probe")
-	flag.Parse()
+	dataDir, listen, publicURL := &options.DataDir, &options.Listen, &options.PublicURL
+	script, node, channelWorker := &options.Runtime, &options.Node, &options.ChannelWorker
+	probe, conversation, tool := &options.Probe, &options.Conversation, &options.ProbeTool
 	if installed.Bundled {
 		if err := checkBundledRuntime(*node, *script); err != nil {
 			return err
@@ -128,7 +115,16 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	api.ConfigureUpdates(selfupdate.New(selfupdate.Config{Executable: executable, Data: directory, Listen: *listen, Version: buildVersion, Args: os.Args[1:]}), stop)
+	manager := selfupdate.New(selfupdate.Config{Context: ctx, Executable: executable, Data: directory, Listen: *listen, Version: buildVersion, Args: options.ServerArgs})
+	api.ConfigureUpdates(manager, stop)
+	closeControl, err := selfupdate.ListenControl(ctx, directory, manager)
+	if err != nil {
+		slog.Warn("本地 update 命令不可用，请使用运行与维护页面", "error", err)
+	} else {
+		defer closeControl()
+	}
+	updatesDone := make(chan error, 1)
+	go func() { updatesDone <- api.RunUpdates(ctx) }()
 	if err := api.ConfigureChannelAdapters(*node, *channelWorker); err != nil {
 		return err
 	}
@@ -225,6 +221,7 @@ func run() error {
 	if runtimeDone != nil {
 		<-runtimeDone
 	}
+	<-updatesDone
 	<-eventsDone
 	if err := <-schedulerDone; result == nil && err != nil {
 		result = err

@@ -99,89 +99,103 @@ def main():
         proxy = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Releases)
         threading.Thread(target=proxy.serve_forever, daemon=True).start()
         env = {key: value for key, value in os.environ.items()
-               if not key.startswith('SIAGENT_') and key.lower() not in ('http_proxy', 'https_proxy', 'all_proxy', 'no_proxy')}
+               if not key.startswith('SIAGENT_') and key.lower() not in ('http_proxy', 'https_proxy', 'all_proxy', 'no_proxy', 'invocation_id', 'notify_socket', 'supervisor_enabled', 'container')}
         env.update(HOME=str(root), HTTPS_PROXY=f'http://127.0.0.1:{proxy.server_port}',
                    SSL_CERT_FILE=str(certificate), CURL_CA_BUNDLE=str(certificate),
                    SIAGENT_GITHUB_MIRRORS='')
-        prefix = root / 'installation'
-        subprocess.run(['sh', str(ROOT / 'scripts/install.sh'), '--version', 'v0.0.1', '--prefix', str(prefix),
-                        '--bin-dir', str(root / 'bin'), '--no-modify-path'], env=env, check=True,
-                       stdout=subprocess.DEVNULL)
-        with socket.socket() as reserved:
-            reserved.bind(('127.0.0.1', 0))
-            port = reserved.getsockname()[1]
-        base = f'http://127.0.0.1:{port}'
-        client = urllib.request.build_opener(urllib.request.ProxyHandler({}),
-                                            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-        csrf = ''
+        modes = sys.argv[2:] or ['web', 'cli', 'offline']
+        assert all(mode in ('web', 'cli', 'offline') for mode in modes), modes
+        for mode in modes:
+            prefix = root / mode / 'installation'
+            subprocess.run(['sh', str(ROOT / 'scripts/install.sh'), '--version', 'v0.0.1', '--prefix', str(prefix),
+                            '--bin-dir', str(root / mode / 'bin'), '--no-modify-path'], env=env, check=True,
+                           stdout=subprocess.DEVNULL)
+            with socket.socket() as reserved:
+                reserved.bind(('127.0.0.1', 0))
+                port = reserved.getsockname()[1]
+            base = f'http://127.0.0.1:{port}'
+            client = urllib.request.build_opener(urllib.request.ProxyHandler({}),
+                                                urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+            csrf = ''
 
-        def request(path, body=None, method=None):
-            raw = json.dumps(body).encode() if body is not None else None
-            req = urllib.request.Request(base + path, data=raw, method=method,
-                                         headers={'Content-Type': 'application/json', 'X-CSRF-Token': csrf})
-            with client.open(req, timeout=5) as response:
-                return json.load(response)
+            def request(path, body=None, method=None):
+                raw = json.dumps(body).encode() if body is not None else None
+                req = urllib.request.Request(base + path, data=raw, method=method,
+                                             headers={'Content-Type': 'application/json', 'X-CSRF-Token': csrf})
+                with client.open(req, timeout=5) as response:
+                    return json.load(response)
 
-        def processes():
-            output = subprocess.check_output(['ps', '-axo', 'pid=,args='], text=True)
-            return [int(line.split(None, 1)[0]) for line in output.splitlines()
-                    if str(prefix / 'versions') + '/' in line and '/siagent -listen ' in line]
+            def processes():
+                output = subprocess.check_output(['ps', '-axo', 'pid=,args='], text=True)
+                return [int(line.split(None, 1)[0]) for line in output.splitlines()
+                        if str(prefix / 'versions') + '/' in line and '/siagent ' in line]
 
-        process = None
-        try:
-            with (root / 'application.log').open('w') as log:
-                process = subprocess.Popen([str(prefix / 'siagent'), '-listen', f'127.0.0.1:{port}'],
-                                           cwd=root, env=env, stdout=log, stderr=log)
-            assert wait(lambda: request('/health/ready'))['version'] == 'v0.0.1'
-            token = re.search(r'首次启动令牌.*: (\S+)', (root / 'application.log').read_text())[1]
-            csrf = request('/api/auth/setup', {'password': 'real-update-password', 'token': token})['csrf']
-            model = request('/api/model', {'base_url': 'http://127.0.0.1:1/v1', 'name': 'retained model',
-                                           'api_key': 'retained-private-key'}, 'PUT')
-            conversation = request('/api/conversations', {})
-            marker = prefix / 'data' / 'update-retained.txt'
-            marker.write_text('retained complete data')
-            master = (prefix / 'data' / 'master.key').read_bytes()
-            assert request('/api/updates')['supported'] is True
-            request('/api/updates/check', {})
-            latest = wait(lambda: (value if (value := request('/api/updates'))['phase'] != 'checking' else None))
-            assert latest['available'] is True and latest['latest'] == 'v0.0.2', latest
-            request('/api/updates/prepare', {})
-            prepared = wait(lambda: (value if (value := request('/api/updates'))['phase'] != 'downloading' else None))
-            assert prepared['phase'] == 'ready', prepared
-            assert request('/health/ready')['version'] == 'v0.0.1', 'download replaced live server'
-            request('/api/updates/apply', {'confirm': True})
-            assert process.wait(timeout=30) == 0, 'old service did not shut down cleanly'
-            status = wait(lambda: (value if (value := request('/api/updates'))['phase'] in ('completed', 'failed', 'rolled_back') else None))
-            assert status['phase'] == 'completed', status
-            assert request('/health/ready')['version'] == 'v0.0.2'
-            assert marker.read_text() == 'retained complete data'
-            assert (prefix / 'data' / 'master.key').read_bytes() == master
-            assert request('/api/model')['name'] == model['name']
-            assert request('/api/model')['has_key'] is True
-            assert any(item['id'] == conversation['id'] for item in request('/api/conversations'))
-            backup = Path(status['backup'])
-            assert (backup / 'update-retained.txt').read_text() == marker.read_text()
-            assert (backup / 'master.key').read_bytes() == master
-            assert 'v0.0.2-' in str((prefix / 'current').resolve())
-            assert any(path.endswith('/v0.0.2/SHA256SUMS') for path in accessed)
-            print('Application update passed: local TLS release fixture with production GitHub URLs, official-first source selection, SHA-256, bundled runtime, staged live download, graceful old-process exit, offline backup, new version readiness, persisted login/model key/conversation/data and automatic restart.')
-        except BaseException:
-            for path in [root / 'application.log', prefix / 'update.log']:
-                if path.exists():
-                    print(path.read_text(), file=sys.stderr)
-            raise
-        finally:
-            if process is not None and process.poll() is None:
-                process.terminate()
-                process.wait(timeout=20)
-            for pid in processes():
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-            wait(lambda: not processes(), timeout=20)
-            proxy.shutdown()
-            proxy.server_close()
+            process = None
+            try:
+                with (root / 'application.log').open('w') as log:
+                    process = subprocess.Popen([str(prefix / 'siagent'), '-listen', f'127.0.0.1:{port}'],
+                                               cwd=root, env=env, stdout=log, stderr=log)
+                assert wait(lambda: request('/health/ready'))['version'] == 'v0.0.1'
+                token = re.search(r'首次启动令牌.*: (\S+)', (root / 'application.log').read_text())[1]
+                csrf = request('/api/auth/setup', {'password': 'real-update-password', 'token': token})['csrf']
+                model = request('/api/model', {'base_url': 'http://127.0.0.1:1/v1', 'name': 'retained model',
+                                               'api_key': 'retained-private-key'}, 'PUT')
+                conversation = request('/api/conversations', {})
+                marker = prefix / 'data' / 'update-retained.txt'
+                marker.write_text('retained complete data')
+                master = (prefix / 'data' / 'master.key').read_bytes()
+                assert request('/api/updates')['supported'] is True
+                if mode == 'web':
+                    request('/api/updates/check', {})
+                    latest = wait(lambda: (value if (value := request('/api/updates'))['phase'] != 'checking' else None))
+                    assert latest['available'] is True and latest['latest'] == 'v0.0.2', latest
+                    request('/api/updates/start', {'confirm': True})
+                    # No further browser requests: the server must finish on its own.
+                    assert process.wait(timeout=90) == 0, 'automatic update did not stop old service'
+                elif mode == 'cli':
+                    result = subprocess.run([str(prefix / 'siagent'), 'update'], env=env, cwd=root,
+                                            capture_output=True, text=True, timeout=120)
+                    assert result.returncode == 0, result.stdout + result.stderr
+                    assert 'completed' in result.stdout, result.stdout
+                    assert process.wait(timeout=30) == 0
+                else:
+                    process.terminate()
+                    assert process.wait(timeout=30) == 0
+                    result = subprocess.run([str(prefix / 'siagent'), 'update', '-listen', f'127.0.0.1:{port}'],
+                                            env=env, cwd=root, capture_output=True, text=True, timeout=120)
+                    assert result.returncode == 0, result.stdout + result.stderr
+                status = wait(lambda: (value if (value := request('/api/updates'))['phase'] in ('completed', 'failed', 'rolled_back') else None))
+                assert status['phase'] == 'completed', status
+                assert request('/health/ready')['version'] == 'v0.0.2'
+                assert marker.read_text() == 'retained complete data'
+                assert (prefix / 'data' / 'master.key').read_bytes() == master
+                assert request('/api/model')['name'] == model['name']
+                assert request('/api/model')['has_key'] is True
+                assert any(item['id'] == conversation['id'] for item in request('/api/conversations'))
+                backup = Path(status['backup'])
+                assert (backup / 'update-retained.txt').read_text() == marker.read_text()
+                assert (backup / 'master.key').read_bytes() == master
+                assert 'v0.0.2-' in str((prefix / 'current').resolve())
+                assert any(path.endswith('/v0.0.2/SHA256SUMS') for path in accessed)
+                print(f'Application update ({mode}) passed: local TLS release fixture with production GitHub URLs, official-first source selection, SHA-256, bundled runtime, staged live download, graceful old-process exit, offline backup, new version readiness, persisted login/model key/conversation/data and automatic restart.')
+            except BaseException:
+                for path in [root / 'application.log', prefix / 'update.log']:
+                    if path.exists():
+                        print(path.read_text(), file=sys.stderr)
+                raise
+            finally:
+                if process is not None and process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=20)
+                for pid in processes():
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                wait(lambda: not processes(), timeout=20)
+        proxy.shutdown()
+        proxy.server_close()
+
 
 
 if __name__ == '__main__':

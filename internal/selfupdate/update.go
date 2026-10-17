@@ -24,6 +24,7 @@ var versionPattern = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|
 type Status struct {
 	Mode      string `json:"mode"`
 	Supported bool   `json:"supported"`
+	Automatic bool   `json:"automatic"`
 	Current   string `json:"current"`
 	Latest    string `json:"latest"`
 	Available bool   `json:"available"`
@@ -32,6 +33,7 @@ type Status struct {
 	Backup    string `json:"backup,omitempty"`
 }
 type Config struct {
+	Context                           context.Context
 	Executable, Data, Listen, Version string
 	Args                              []string
 }
@@ -48,7 +50,7 @@ type Manager struct {
 
 func New(config Config) *Manager {
 	m := &Manager{config: config, client: &http.Client{}, releaseBase: ReleaseBase, repository: "vst93/SiAgent", status: Status{Current: config.Version, Mode: "source", Phase: "idle", Message: "源码部署请拉取代码、重新构建并重启。"}}
-	if _, err := os.Stat("/.dockerenv"); err == nil || os.Getenv("SIAGENT_DEPLOYMENT") == "docker" {
+	if containerEnvironment() {
 		m.status.Mode = "docker"
 		m.status.Message = "Docker 请拉取新镜像并重建容器，保留原数据卷。Compose：docker compose pull && docker compose up -d；本地构建：docker compose up -d --build。容器内更新会在重建时丢失，因此不提供一键替换。"
 		return m
@@ -58,7 +60,7 @@ func New(config Config) *Manager {
 		m.status.Message = "此实例由外部服务管理器托管。请先停止服务，更新安装包，再由原服务管理器启动；应用内不另起进程。"
 		return m
 	}
-	data, err := filepath.EvalSymlinks(config.Data)
+	data, err := resolveDataPath(config.Data)
 	if err != nil {
 		return m
 	}
@@ -80,8 +82,9 @@ func New(config Config) *Manager {
 	if err != nil || current != versionDir {
 		return m
 	}
-	if config.Data == root || strings.HasPrefix(root, config.Data+string(os.PathSeparator)) || strings.HasPrefix(config.Data, versionDir+string(os.PathSeparator)) {
-		m.status.Message = "数据目录位于版本目录内，请先迁移到独立数据目录再更新。"
+	versions, backups := filepath.Join(root, "versions"), filepath.Join(root, "backups")
+	if config.Data == root || strings.HasPrefix(root, config.Data+string(os.PathSeparator)) || config.Data == versions || strings.HasPrefix(config.Data, versions+string(os.PathSeparator)) || config.Data == backups || strings.HasPrefix(config.Data, backups+string(os.PathSeparator)) {
+		m.status.Message = "数据目录不能位于版本或备份目录内，也不能包含安装目录。请迁移到独立数据目录。"
 		return m
 	}
 	if _, port, err := net.SplitHostPort(config.Listen); err != nil || port == "0" {
@@ -127,14 +130,15 @@ func (m *Manager) Status() Status {
 }
 func (m *Manager) BeginCheck() error {
 	m.mu.Lock()
-	if m.status.Phase == "downloading" || m.status.Phase == "restarting" || m.status.Phase == "checking" || m.status.Phase == "ready" {
+	if m.status.Automatic || m.status.Phase == "downloading" || m.status.Phase == "restarting" || m.status.Phase == "checking" || m.status.Phase == "ready" || m.status.Phase == "waiting" {
 		m.mu.Unlock()
 		return fmt.Errorf("更新操作正在进行")
 	}
 	m.status.Phase = "checking"
+	m.status.Message = "正在检查新版本。"
 	m.mu.Unlock()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(m.context(), 2*time.Minute)
 		defer cancel()
 		m.check(ctx)
 	}()
@@ -165,7 +169,15 @@ func (m *Manager) check(ctx context.Context) error {
 	m.status.Latest = latest
 	m.status.Available = newer(latest, m.config.Version)
 	m.status.Phase = "idle"
-	m.status.Message = "版本检查完成。"
+	if m.status.Available {
+		m.status.Message = "发现新版本，可更新并自动重启。"
+	} else {
+		m.status.Automatic = false
+		m.status.Message = "当前已是最新版本。"
+	}
+	if !m.status.Supported {
+		m.status.Message += " 当前部署请使用原安装或部署方式手动更新。"
+	}
 	return nil
 }
 func newer(latest, current string) bool {
@@ -186,6 +198,7 @@ func (m *Manager) failed(err error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.status.Phase = "failed"
+	m.status.Automatic = false
 	m.status.Message = err.Error()
 	return err
 }
@@ -198,7 +211,7 @@ func (m *Manager) Prepare() error {
 	if !m.status.Available || m.status.Latest == "" {
 		return fmt.Errorf("请先检查可用的新版本")
 	}
-	if m.status.Phase == "checking" || m.status.Phase == "downloading" || m.status.Phase == "ready" || m.status.Phase == "restarting" {
+	if m.status.Phase == "checking" || m.status.Phase == "downloading" || m.status.Phase == "ready" || m.status.Phase == "waiting" || m.status.Phase == "restarting" {
 		return fmt.Errorf("更新已在进行或准备完成")
 	}
 	if err := os.Mkdir(filepath.Join(m.root, ".update-lock"), 0700); err != nil {
@@ -218,10 +231,11 @@ func (m *Manager) Prepare() error {
 		return err
 	}
 	latest := m.status.Latest
+	automatic := m.status.Automatic
 	m.status.Phase = "downloading"
 	m.status.Message = "正在准备更新。"
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		ctx, cancel := context.WithTimeout(m.context(), 15*time.Minute)
 		defer cancel()
 		work, err := os.MkdirTemp(m.root, ".update-")
 		if err != nil {
@@ -229,7 +243,7 @@ func (m *Manager) Prepare() error {
 			m.failed(err)
 			return
 		}
-		if err := writePrepared(m.root, work, latest, false); err != nil {
+		if err := writePrepared(m.root, work, latest, false, automatic); err != nil {
 			os.RemoveAll(work)
 			unlock(m.root)
 			m.failed(err)
@@ -250,8 +264,11 @@ func (m *Manager) Prepare() error {
 		}
 		m.message("正在下载并校验发布包，完成前应用继续运行。")
 		command := exec.CommandContext(ctx, "sh", installer, "--version", latest, "--prefix", filepath.Join(work, "stage"), "--bin-dir", filepath.Join(work, "bin"), "--no-modify-path")
+		command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		command.Cancel = func() error { return syscall.Kill(-command.Process.Pid, syscall.SIGKILL) }
+		command.WaitDelay = time.Second
 		command.Env = append(os.Environ(), "SIAGENT_RELEASE_BASE_URL="+m.releaseBase)
-		writer := &downloadProgress{manager: m}
+		writer := &downloadProgress{}
 		command.Stdout = writer
 		command.Stderr = writer
 		err = command.Run()
@@ -260,7 +277,7 @@ func (m *Manager) Prepare() error {
 			m.failed(fmt.Errorf("下载或校验失败：%s", bounded(output, 3000)))
 			return
 		}
-		if err := writePrepared(m.root, work, latest, true); err != nil {
+		if err := writePrepared(m.root, work, latest, true, m.Status().Automatic); err != nil {
 			m.failed(err)
 			return
 		}
@@ -268,7 +285,7 @@ func (m *Manager) Prepare() error {
 		m.mu.Lock()
 		m.work = work
 		m.status.Phase = "ready"
-		m.status.Message = "发布包校验通过。应用更新将短暂停机，自动备份数据并重新启动。"
+		m.status.Message = "发布包校验通过，等待备份并自动重启。"
 		m.mu.Unlock()
 	}()
 	return nil
@@ -283,8 +300,8 @@ func bounded(s string, n int) string {
 func (m *Manager) Cancel() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.status.Phase != "ready" {
-		return fmt.Errorf("仅可取消已准备好的更新")
+	if m.status.Phase != "ready" && m.status.Phase != "waiting" {
+		return fmt.Errorf("仅可取消已准备好或等待空闲的更新")
 	}
 	if err := os.RemoveAll(m.work); err != nil {
 		return err
@@ -293,13 +310,14 @@ func (m *Manager) Cancel() error {
 	os.Remove(filepath.Join(m.root, ".update-prepared.json"))
 	m.work = ""
 	m.status.Phase = "idle"
+	m.status.Automatic = false
 	m.status.Message = "已取消准备的更新。"
 	return nil
 }
 func (m *Manager) StartWorker() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.status.Phase != "ready" {
+	if m.status.Phase != "ready" && m.status.Phase != "waiting" {
 		return fmt.Errorf("更新包尚未准备完成")
 	}
 	target := filepath.Join(m.work, "stage", "versions", m.status.Latest+"-"+runtime.GOOS+"-"+runtime.GOARCH)
@@ -348,16 +366,99 @@ func (m *Manager) StartWorker() error {
 	return nil
 }
 
-type downloadProgress struct {
-	manager *Manager
-	tail    string
-}
+type downloadProgress struct{ tail string }
 
 func (w *downloadProgress) Write(value []byte) (int, error) {
 	w.tail = bounded(w.tail+string(value), 3000)
-	text := strings.TrimSpace(string(value))
-	if text != "" {
-		w.manager.message(bounded(text, 600))
-	}
 	return len(value), nil
+}
+
+// BeginUpdate records the user's intent once. Download completion is consumed by
+// the host's update loop, independently of browser polling or connectivity.
+func (m *Manager) BeginUpdate() error {
+	m.mu.Lock()
+	if !m.status.Supported {
+		message := m.status.Message
+		m.mu.Unlock()
+		return fmt.Errorf("%s", message)
+	}
+	if m.status.Automatic {
+		m.mu.Unlock()
+		return fmt.Errorf("更新已在进行")
+	}
+	switch m.status.Phase {
+	case "ready":
+		if m.status.Automatic {
+			m.mu.Unlock()
+			return fmt.Errorf("更新已在进行")
+		}
+		if err := writePrepared(m.root, m.work, m.status.Latest, true, true); err != nil {
+			m.mu.Unlock()
+			return err
+		}
+		m.status.Automatic = true
+		m.mu.Unlock()
+		return nil
+	case "checking", "downloading", "waiting", "restarting":
+		m.mu.Unlock()
+		return fmt.Errorf("更新已在进行")
+	}
+	m.status.Automatic = true
+	m.status.Phase = "checking"
+	m.status.Message = "正在检查新版本，发现更新后将自动下载并重启。"
+	m.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(m.context(), 2*time.Minute)
+		defer cancel()
+		if err := m.check(ctx); err != nil {
+			return
+		}
+		if !m.Status().Available {
+			return
+		}
+		if err := m.Prepare(); err != nil {
+			m.failed(err)
+		}
+	}()
+	return nil
+}
+
+func (m *Manager) WaitForIdle() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.status.Automatic && (m.status.Phase == "ready" || m.status.Phase == "waiting") {
+		m.status.Phase = "waiting"
+		m.status.Message = "正在等待现有任务、渠道投递和后台处理结束；已暂停接收新任务，完成后自动备份并重启。"
+	}
+}
+
+func containerEnvironment() bool {
+	for _, marker := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if _, err := os.Stat(marker); err == nil {
+			return true
+		}
+	}
+	return os.Getenv("SIAGENT_DEPLOYMENT") == "docker" || os.Getenv("container") != ""
+}
+
+// Fail stops an automatic apply attempt while retaining diagnostics and staged files.
+func (m *Manager) Fail(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.status.Automatic = false
+	if m.work != "" {
+		m.status.Phase = "ready"
+		m.status.Message = "自动重启未能开始，可重试或取消更新：" + err.Error()
+		writePrepared(m.root, m.work, m.status.Latest, true, false)
+	} else {
+		m.status.Phase = "failed"
+		m.status.Message = err.Error()
+	}
+}
+
+func (m *Manager) context() context.Context {
+	if m.config.Context != nil {
+		return m.config.Context
+	}
+	return context.Background()
 }
