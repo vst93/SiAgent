@@ -88,6 +88,7 @@ func New(store *Store, runtime Runtime, ready func() bool, publicURL string) (*S
 	if err != nil {
 		return nil, err
 	}
+	core.SetReranker(&modelReranker{store: store})
 	s.knowledge = core
 	s.knowledgePending = make(map[string]context.CancelFunc)
 	if err := s.interruptAll("服务已重启，未完成任务不会自动重试；请核对已有内容后重新发起。", true); err != nil {

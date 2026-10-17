@@ -4337,3 +4337,14 @@ details[open] > summary > .disclosure-icon {
     padding: 12px;
   }
 }
+.kb-rerank-toggle {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.kb-trace-rerank {
+  margin: 10px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--teal-strong);
+}

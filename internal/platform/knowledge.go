@@ -338,6 +338,9 @@ func (s *Server) knowledgeRequest(event agentruntime.Event) error {
 			if input.Limit == 0 {
 				input.Limit = 3
 			}
+			// Model reranking is a management diagnostic; Agent runs keep the
+			// deterministic fused order and never pay an extra model call.
+			input.Rerank = false
 			var search knowledge.SearchResult
 			search, err = s.knowledge.Search(ctx, scope, input)
 			result = search

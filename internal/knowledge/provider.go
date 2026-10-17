@@ -28,6 +28,7 @@ type Location struct {
 type SearchRequest struct {
 	Compact      bool     `json:"-"` // Management preview only; Agent retrieval retains its context budget.
 	Trace        bool     `json:"trace,omitempty"`
+	Rerank       bool     `json:"rerank,omitempty"`
 	Query        string   `json:"query"`
 	KnowledgeIDs []string `json:"knowledge_ids,omitempty"`
 	Limit        int      `json:"limit,omitempty"`
@@ -68,6 +69,12 @@ type Source struct {
 // admission checks; providers must also constrain every read/query to this scope.
 // An MCP adapter can implement these two operations for a particular service;
 // it need not implement local document upload, parsing or index lifecycle.
+// Reranker optionally reorders the top candidates with a model. Core treats it
+// as best-effort: any error or timeout keeps the fused order.
+type Reranker interface {
+	Rerank(context.Context, string, []Hit) ([]string, error)
+}
+
 type Provider interface {
 	Search(context.Context, Scope, SearchRequest) (SearchResult, error)
 	Read(context.Context, Scope, ReadRequest) (Source, error)

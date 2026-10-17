@@ -51,7 +51,7 @@ func TestStructureBoostRewardsExactPhraseAndHeading(t *testing.T) {
 	otherScore := 0.01
 	other.Score = &otherScore
 	hits := []Hit{other, heading, text}
-	structureBoost("住宿标准", hits, map[string]string{"heading": "差旅 / 住宿标准"})
+	structureBoost("住宿标准", hits, map[string]string{"heading": "差旅 / 住宿标准"}, map[string]string{}, QueryUnspecified)
 	if hits[0].SourceID != "text" {
 		t.Fatalf("exact phrase should rank first: %+v", hits)
 	}

@@ -998,6 +998,11 @@ try {
     (await page.locator(".kb-trace-hits li").count()) > 0,
     "trace should list selected chunks",
   );
+  assert.equal(
+    await page.getByLabel(/使用模型重排/).count(),
+    1,
+    "rerank toggle should be available",
+  );
   await page.getByRole("tab", { name: "评测", exact: true }).click();
   await page.getByLabel("评测问题", { exact: true }).fill("发票开具流程");
   await page.locator(".kb-eval-docs .checkbox-label").first().click();

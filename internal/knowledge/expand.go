@@ -140,7 +140,7 @@ func fuseResults(lists [][]Hit) []Hit {
 
 // structureBoost re-ranks fused candidates using signals the BM25 index cannot
 // express: exact phrase, clause numbers and section headings.
-func structureBoost(query string, hits []Hit, sections map[string]string) {
+func structureBoost(query string, hits []Hit, sections map[string]string, blockTypes map[string]string, queryType string) {
 	phrase := strings.ToLower(strings.TrimSpace(query))
 	for index := range hits {
 		if hits[index].Score == nil {
@@ -162,6 +162,7 @@ func structureBoost(query string, hits []Hit, sections map[string]string) {
 				}
 			}
 		}
+		score *= typeBoost(queryType, blockTypes[hits[index].SourceID])
 		hits[index].Score = &score
 	}
 	sort.SliceStable(hits, func(i, j int) bool {

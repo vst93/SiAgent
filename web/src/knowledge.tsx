@@ -49,6 +49,7 @@ export type TraceHit = {
 };
 export type RetrievalTrace = {
   query: string;
+  query_type: string;
   terms: string[];
   match_mode: string;
   knowledge_ids: string[];
@@ -57,6 +58,12 @@ export type RetrievalTrace = {
   selected: TraceHit[];
   total_candidates: number;
   duration_ns: number;
+  rerank?: {
+    mode: string;
+    before: string[];
+    after: string[];
+    fallback?: string;
+  };
 };
 type EvalQuestion = {
   id: string;
@@ -1085,8 +1092,8 @@ function TracePanel({ trace }: { trace: RetrievalTrace }) {
     <details className="kb-trace">
       <summary>
         <Icon name="caret-right" size={14} className="disclosure-icon" />
-        检索过程 · {trace.match_mode} · {trace.total_candidates} 个片段 ·{" "}
-        {ms(trace.duration_ns)}
+        检索过程 · {trace.query_type} · {trace.match_mode} ·{" "}
+        {trace.total_candidates} 个片段 · {ms(trace.duration_ns)}
       </summary>
       <div className="kb-trace-body">
         <dl className="kb-trace-meta">
@@ -1123,8 +1130,16 @@ function TracePanel({ trace }: { trace: RetrievalTrace }) {
             ))}
           </ol>
         )}
+        {trace.rerank && (
+          <p className="kb-trace-rerank">
+            重排：{trace.rerank.mode}
+            {trace.rerank.fallback
+              ? ` · 已回退（${trace.rerank.fallback}）`
+              : ` · 调整 ${changedRanks(trace.rerank.before, trace.rerank.after)} 个位置`}
+          </p>
+        )}
         <p className="kb-help">
-          分数为 SQLite BM25，越小越相关；这里只用于排查，不改变回答。
+          候选分数为 SQLite BM25（越小越相关）；入选片段显示融合后分数（越大越相关）。
         </p>
       </div>
     </details>
@@ -1395,6 +1410,8 @@ function KnowledgeEval({
 }
 
 const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
+const changedRanks = (before: string[], after: string[]) =>
+  after.filter((id, index) => before[index] !== id).length;
 
 function KnowledgeSearch({
   request,
@@ -1409,6 +1426,7 @@ function KnowledgeSearch({
   const [results, setResults] = useState<KnowledgeHit[] | null>(null);
   const [trace, setTrace] = useState<RetrievalTrace | null>(null);
   const [searched, setSearched] = useState("");
+  const [rerank, setRerank] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const mounted = useRef(true);
@@ -1444,6 +1462,7 @@ function KnowledgeSearch({
         knowledge_ids: [baseID],
         limit: 5,
         trace: true,
+        rerank,
       });
       if (mounted.current && generation.current === currentGeneration) {
         setResults(result.hits);
@@ -1478,6 +1497,14 @@ function KnowledgeSearch({
           {pending ? "正在检索…" : "检索当前知识库"}
         </button>
       </form>
+      <label className="checkbox-label kb-rerank-toggle">
+        <input
+          type="checkbox"
+          checked={rerank}
+          onChange={(event) => setRerank(event.target.checked)}
+        />
+        使用模型重排 Top 20（额外一次模型调用，失败自动回退）
+      </label>
       {error && (
         <p className="error" role="alert">
           {error}

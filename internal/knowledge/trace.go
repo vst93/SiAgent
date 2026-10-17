@@ -10,12 +10,14 @@ import "time"
 // scores, never full document text.
 type Trace struct {
 	Query       string        `json:"query"`
+	QueryType   string        `json:"query_type"`
 	Terms       []string      `json:"terms"`
 	MatchMode   string        `json:"match_mode"`
 	KnowledgeID []string      `json:"knowledge_ids"`
 	Stages      []TraceStage  `json:"stages"`
 	Candidates  []TraceHit    `json:"candidates"`
 	Selected    []TraceHit    `json:"selected"`
+	Rerank      *RerankTrace  `json:"rerank,omitempty"`
 	Total       int           `json:"total_candidates"`
 	Duration    time.Duration `json:"duration_ns"`
 }
@@ -26,6 +28,15 @@ type TraceStage struct {
 	Detail   string        `json:"detail,omitempty"`
 	Hits     int           `json:"hits"`
 	Duration time.Duration `json:"duration_ns"`
+}
+
+// RerankTrace records the optional LLM rerank so an administrator can see what
+// changed and whether the model call fell back.
+type RerankTrace struct {
+	Mode     string   `json:"mode"`
+	Before   []string `json:"before"`
+	After    []string `json:"after"`
+	Fallback string   `json:"fallback,omitempty"`
 }
 
 // TraceHit is one scored chunk as seen by the pipeline. Rank is 1-based and

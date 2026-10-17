@@ -57,6 +57,7 @@ type Core struct {
 	db       *sql.DB
 	root     string
 	provider Provider
+	reranker Reranker
 	wake     chan struct{}
 }
 
@@ -234,7 +235,92 @@ func (c *Core) Search(ctx context.Context, scope Scope, request SearchRequest) (
 	if len(scope.KnowledgeIDs) == 0 {
 		return SearchResult{Hits: []Hit{}, MatchMode: "no_accessible_bases"}, nil
 	}
-	return c.provider.Search(ctx, scope, request)
+	result, err := c.provider.Search(ctx, scope, request)
+	if err != nil {
+		return result, err
+	}
+	if request.Rerank {
+		return c.rerank(ctx, request, result), nil
+	}
+	return result, nil
+}
+
+// SetReranker installs the optional model reranker. Passing nil keeps heuristic
+// ordering only.
+func (c *Core) SetReranker(reranker Reranker) { c.reranker = reranker }
+
+// rerankLimit bounds the model call: only the fused top candidates are sent.
+const rerankLimit = 20
+
+// rerank reorders the first candidates by model preference. Any failure keeps
+// the heuristic order and is recorded in the trace instead of failing the
+// search.
+func (c *Core) rerank(ctx context.Context, request SearchRequest, result SearchResult) SearchResult {
+	before := make([]string, 0, len(result.Hits))
+	for _, hit := range result.Hits {
+		before = append(before, hit.SourceID)
+	}
+	record := func(mode, fallback string, after []string) {
+		if result.Trace != nil {
+			result.Trace.Rerank = &RerankTrace{Mode: mode, Before: before, After: after, Fallback: fallback}
+		}
+	}
+	if c.reranker == nil || len(result.Hits) < 2 {
+		record("none", "unavailable", before)
+		return result
+	}
+	candidates := result.Hits
+	if len(candidates) > rerankLimit {
+		candidates = candidates[:rerankLimit]
+	}
+	ids, err := c.reranker.Rerank(ctx, request.Query, candidates)
+	if err != nil {
+		record("llm", "heuristic", before)
+		return result
+	}
+	ordered := reorder(result.Hits, ids)
+	after := make([]string, 0, len(ordered))
+	for _, hit := range ordered {
+		after = append(after, hit.SourceID)
+	}
+	record("llm", "", after)
+	result.Hits = ordered
+	if result.Trace != nil {
+		result.Trace.Selected = result.Trace.Selected[:0]
+		for index, hit := range ordered {
+			entry := TraceHit{SourceID: hit.SourceID, DocumentID: hit.DocumentID, Title: hit.Title, Rank: index + 1}
+			if hit.Score != nil {
+				entry.Score = *hit.Score
+			}
+			result.Trace.Selected = append(result.Trace.Selected, entry)
+		}
+	}
+	return result
+}
+
+// reorder applies the model's order, keeping any candidate the model omitted at
+// the end in its original position.
+func reorder(hits []Hit, ids []string) []Hit {
+	position := map[string]int{}
+	for index, hit := range hits {
+		position[hit.SourceID] = index
+	}
+	used := map[string]bool{}
+	ordered := make([]Hit, 0, len(hits))
+	for _, id := range ids {
+		index, ok := position[id]
+		if !ok || used[id] {
+			continue
+		}
+		used[id] = true
+		ordered = append(ordered, hits[index])
+	}
+	for _, hit := range hits {
+		if !used[hit.SourceID] {
+			ordered = append(ordered, hit)
+		}
+	}
+	return ordered
 }
 func (c *Core) Read(ctx context.Context, scope Scope, request ReadRequest) (Source, error) {
 	return c.provider.Read(ctx, scope, request)
