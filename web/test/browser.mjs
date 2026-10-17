@@ -279,6 +279,13 @@ try {
     .filter({ hasText: "收到：你好" })
     .waitFor();
   await page.getByText("已完成", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "标记为有用", exact: true }).first().click();
+  await page.getByText("已标记有用", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "清除", exact: true }).first().click();
+  await page.getByRole("button", { name: "标记为需要改进", exact: true }).first().click();
+  await page.getByLabel("反馈原因", { exact: true }).selectOption("no_evidence");
+  await page.getByRole("button", { name: "提交", exact: true }).click();
+  await page.getByText("已标记需要改进", { exact: false }).waitFor();
   await page.screenshot({
     path: join(artifacts, "desktop.png"),
     fullPage: true,
@@ -1026,6 +1033,22 @@ try {
   });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("tab", { name: "检索测试", exact: true }).click();
+  await page.getByLabel("检索问题", { exact: true }).fill("完全不存在的问题关键词");
+  await page.getByRole("button", { name: "检索当前知识库", exact: true }).click();
+  await page.getByText("没有找到依据。", { exact: false }).waitFor();
+  await page.getByRole("tab", { name: "内容缺口", exact: true }).click();
+  await page.locator(".kb-gap-list li").first().waitFor();
+  assert.equal(
+    await page.locator(".kb-gap-list li").first().getByText("完全不存在的问题关键词").count(),
+    1,
+    "empty search should be recorded as a content gap",
+  );
+  await page.getByRole("button", { name: "标记已解决", exact: true }).first().click();
+  await page.getByText("还没有记录到未命中的问题", { exact: false }).waitFor();
+  await page.getByRole("tab", { name: "检索测试", exact: true }).click();
+  await page.getByLabel("检索问题", { exact: true }).fill("发票开具流程");
+  await page.getByRole("button", { name: "检索当前知识库", exact: true }).click();
+  await page.locator(".knowledge-hits li").first().waitFor();
   const sourceHref = await page
     .locator(".knowledge-hits a")
     .first()

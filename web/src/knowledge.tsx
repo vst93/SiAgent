@@ -65,6 +65,15 @@ export type RetrievalTrace = {
     fallback?: string;
   };
 };
+type ContentGap = {
+  id: number;
+  knowledge_id: string;
+  query: string;
+  count: number;
+  status: string;
+  created: number;
+  last_seen: number;
+};
 type EvalQuestion = {
   id: string;
   knowledge_id: string;
@@ -597,7 +606,9 @@ function LibraryDocuments({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
-  const [tab, setTab] = useState<"documents" | "search" | "eval">("documents");
+  const [tab, setTab] = useState<"documents" | "search" | "eval" | "gaps">(
+    "documents",
+  );
   const [filter, setFilter] = useState("");
   const [status, setStatus] = useState("all");
   const [upload, setUpload] = useState<{ replacement: Document | null } | null>(
@@ -719,13 +730,13 @@ function LibraryDocuments({
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
               return;
             event.preventDefault();
-            const order = ["documents", "search", "eval"] as const;
+            const order = ["documents", "search", "eval", "gaps"] as const;
             const index = order.indexOf(tab);
             const value =
               event.key === "Home"
                 ? "documents"
                 : event.key === "End"
-                  ? "eval"
+                  ? "gaps"
                   : order[
                       event.key === "ArrowLeft"
                         ? (index + order.length - 1) % order.length
@@ -766,6 +777,16 @@ function LibraryDocuments({
             onClick={() => changeTab("eval")}
           >
             评测
+          </button>
+          <button
+            role="tab"
+            id="kb-tab-gaps"
+            aria-selected={tab === "gaps"}
+            aria-controls="kb-gaps"
+            tabIndex={tab === "gaps" ? 0 : -1}
+            onClick={() => changeTab("gaps")}
+          >
+            内容缺口
           </button>
         </div>
         <span className="kb-status-summary">
@@ -991,6 +1012,19 @@ function LibraryDocuments({
           documents={documents.filter((doc) => !doc.deleted)}
         />
       </div>
+      <div
+        role="tabpanel"
+        id="kb-gaps"
+        aria-labelledby="kb-tab-gaps"
+        hidden={tab !== "gaps"}
+      >
+        <KnowledgeGaps
+          key={base.id}
+          request={request}
+          baseID={base.id}
+          active={tab === "gaps"}
+        />
+      </div>
       {upload && (
         <UploadDialog
           request={request}
@@ -1081,6 +1115,138 @@ function LibraryDocuments({
             </button>
           </footer>
         </KnowledgeDialog>
+      )}
+    </section>
+  );
+}
+
+function KnowledgeGaps({
+  request,
+  baseID,
+  active,
+}: {
+  request: Api;
+  baseID: string;
+  active: boolean;
+}) {
+  const [gaps, setGaps] = useState<ContentGap[]>([]);
+  const [status, setStatus] = useState("open");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(0);
+
+  async function load(next = status) {
+    setLoading(true);
+    setError("");
+    try {
+      setGaps(
+        await request<ContentGap[]>(
+          `/knowledge/gaps?knowledge_id=${encodeURIComponent(baseID)}&status=${next}`,
+        ),
+      );
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    if (!active) return;
+    void load(status);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseID, status, active]);
+
+  async function act(id: number, action: "resolved" | "ignored" | "delete") {
+    setPending(id);
+    setError("");
+    try {
+      if (action === "delete") await request(`/knowledge/gaps/${id}`, "DELETE");
+      else
+        await request(`/knowledge/gaps/${id}/status`, "POST", {
+          status: action,
+        });
+      await load();
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending(0);
+    }
+  }
+
+  return (
+    <section className="kb-search-content kb-gaps">
+      <p className="kb-help">
+        检索没有命中时，问题会记录在这里，用于补充资料或调整用词。只保存问题文本，不保存回答或来源。
+      </p>
+      <div className="kb-gap-toolbar">
+        <label>
+          <span className="sr-only">缺口状态</span>
+          <select
+            aria-label="缺口状态"
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+          >
+            <option value="open">待处理</option>
+            <option value="resolved">已解决</option>
+            <option value="ignored">已忽略</option>
+            <option value="">全部</option>
+          </select>
+        </label>
+        <button disabled={loading} onClick={() => void load()}>
+          {loading ? "正在读取…" : "刷新"}
+        </button>
+      </div>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {!loading && !gaps.length && !error && (
+        <p className="kb-search-placeholder">
+          还没有记录到未命中的问题。检索到空结果时会自动出现在这里。
+        </p>
+      )}
+      {!!gaps.length && (
+        <ul className="kb-gap-list">
+          {gaps.map((gap) => (
+            <li key={gap.id}>
+              <div>
+                <strong>{gap.query}</strong>
+                <small>
+                  命中 0 次 · 出现 {gap.count} 次 · 最近{" "}
+                  {new Date(gap.last_seen).toLocaleString("zh-CN", {
+                    hourCycle: "h23",
+                  })}
+                </small>
+              </div>
+              <div className="kb-gap-actions">
+                {gap.status !== "resolved" && (
+                  <button
+                    disabled={pending === gap.id}
+                    onClick={() => void act(gap.id, "resolved")}
+                  >
+                    标记已解决
+                  </button>
+                )}
+                {gap.status !== "ignored" && (
+                  <button
+                    disabled={pending === gap.id}
+                    onClick={() => void act(gap.id, "ignored")}
+                  >
+                    忽略
+                  </button>
+                )}
+                <button
+                  className="kb-danger"
+                  disabled={pending === gap.id}
+                  onClick={() => void act(gap.id, "delete")}
+                >
+                  删除
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
     </section>
   );

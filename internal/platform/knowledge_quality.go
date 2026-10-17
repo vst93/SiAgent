@@ -47,5 +47,21 @@ func (s *Store) migrateAnswerEvidence() error {
 	if _, err := tx.Exec("ALTER TABLE runs ADD COLUMN citation_valid INTEGER NOT NULL DEFAULT -1; ALTER TABLE runs ADD COLUMN evidence_state TEXT NOT NULL DEFAULT ''; PRAGMA user_version=13;"); err != nil {
 		return err
 	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateFeedback()
+}
+
+// migrateFeedback adds answer ratings and content-gap tracking.
+func (s *Store) migrateFeedback() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(FeedbackSchema + knowledge.GapSchema + "\n PRAGMA user_version=14;"); err != nil {
+		return err
+	}
 	return tx.Commit()
 }

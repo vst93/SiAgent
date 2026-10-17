@@ -21,12 +21,12 @@ func (s *stubReranker) Rerank(_ context.Context, _ string, hits []Hit) ([]string
 
 func TestClassifyQueryUsesStructuralIntent(t *testing.T) {
 	cases := map[string]string{
-		"住宿标准是多少":   QueryTable,
-		"报销制度怎么规定的": QueryPolicy,
-		"请假流程怎么走":   QueryProcedure,
-		"这两个方案有什么区别": QueryComparison,
+		"住宿标准是多少":     QueryTable,
+		"报销制度怎么规定的":   QueryPolicy,
+		"请假流程怎么走":     QueryProcedure,
+		"这两个方案有什么区别":  QueryComparison,
 		"差旅和报销分别怎么处理": QueryMultiHop,
-		"公司地址在哪里":   QueryFact,
+		"公司地址在哪里":     QueryFact,
 	}
 	for query, want := range cases {
 		if got := classifyQuery(query); got != want {

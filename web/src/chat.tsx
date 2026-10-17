@@ -18,6 +18,7 @@ export type Run = {
   thinking?: string;
   evidence_state?: string;
   citation_valid?: number;
+  feedback?: string;
   tools?: { id: string; name: string; display_name?: string; status: string }[];
   id: string;
   status: string;
@@ -36,6 +37,128 @@ export type Snapshot = {
   }[];
   runs: Run[];
 };
+const feedbackReasons: Record<string, string> = {
+  wrong_answer: "答错了",
+  no_evidence: "缺少依据",
+  irrelevant: "来源不相关",
+  outdated: "资料过期",
+  off_topic: "答非所问",
+  too_long: "太长",
+  too_short: "太短",
+  other: "其他",
+};
+
+function RunFeedback({
+  request,
+  runID,
+  current,
+}: {
+  request: Api;
+  runID: string;
+  current: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("wrong_answer");
+  const [comment, setComment] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  async function rate(rating: "up" | "down", value = "", note = "") {
+    setPending(true);
+    setError("");
+    try {
+      await request(`/runs/${runID}/feedback`, "POST", {
+        rating,
+        reason: value,
+        comment: note,
+      });
+      setOpen(false);
+      setComment("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "反馈未保存。");
+    } finally {
+      setPending(false);
+    }
+  }
+  async function clear() {
+    setPending(true);
+    setError("");
+    try {
+      await request(`/runs/${runID}/feedback`, "DELETE");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "反馈未清除。");
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <div className="run-feedback">
+      {current ? (
+        <p className="run-feedback-state">
+          已标记{current === "up" ? "有用" : "需要改进"}
+          <button disabled={pending} onClick={() => void clear()}>
+            清除
+          </button>
+        </p>
+      ) : (
+        <div className="run-feedback-actions">
+          <button
+            disabled={pending}
+            aria-label="标记为有用"
+            onClick={() => void rate("up")}
+          >
+            <Icon name="thumbs-up" size={14} /> 有用
+          </button>
+          <button
+            disabled={pending}
+            aria-label="标记为需要改进"
+            aria-expanded={open}
+            onClick={() => setOpen((value) => !value)}
+          >
+            <Icon name="thumbs-down" size={14} /> 需要改进
+          </button>
+        </div>
+      )}
+      {open && !current && (
+        <div className="run-feedback-form">
+          <label>
+            <span className="sr-only">反馈原因</span>
+            <select
+              aria-label="反馈原因"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            >
+              {Object.entries(feedbackReasons).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <input
+            aria-label="补充说明"
+            maxLength={1000}
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+            placeholder="可选：补充说明"
+          />
+          <button
+            className="primary"
+            disabled={pending}
+            onClick={() => void rate("down", reason, comment)}
+          >
+            {pending ? "正在保存…" : "提交"}
+          </button>
+        </div>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 const statusNames: Record<string, string> = {
   queued: "排队中",
   running: "正在回答",
@@ -472,6 +595,11 @@ export function ChatWorkspace({
                                   </ul>
                                 </details>
                               )}
+                              <RunFeedback
+                                request={request}
+                                runID={run.id}
+                                current={run.feedback ?? ""}
+                              />
                               <RunDiagnostics run={run} request={request} />
                               {run.status === "cancelled" && (
                                 <p className="muted">

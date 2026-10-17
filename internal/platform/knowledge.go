@@ -128,12 +128,15 @@ func (s *Server) searchKnowledge(w http.ResponseWriter, r *http.Request) {
 		knowledgeError(w, err)
 		return
 	}
+	target := ""
+	if len(request.KnowledgeIDs) == 1 {
+		target = request.KnowledgeIDs[0]
+	}
 	if request.Trace {
-		target := ""
-		if len(request.KnowledgeIDs) == 1 {
-			target = request.KnowledgeIDs[0]
-		}
 		s.knowledge.RecordTrace(r.Context(), target, result.Trace)
+	}
+	if len(result.Hits) == 0 {
+		s.knowledge.RecordGap(r.Context(), target, request.Query)
 	}
 	respond(w, 200, result)
 }
@@ -345,6 +348,13 @@ func (s *Server) knowledgeRequest(event agentruntime.Event) error {
 			search, err = s.knowledge.Search(ctx, scope, input)
 			result = search
 			references = search.Hits
+			if err == nil && len(search.Hits) == 0 {
+				gapTarget := ""
+				if len(scope.KnowledgeIDs) == 1 {
+					gapTarget = scope.KnowledgeIDs[0]
+				}
+				s.knowledge.RecordGap(ctx, gapTarget, input.Query)
+			}
 		case "read":
 			var input knowledge.ReadRequest
 			if json.Unmarshal(request.Input, &input) != nil || input.Limit < 0 || input.Limit > 4000 {

@@ -30,6 +30,7 @@ type Run struct {
 	Output        *OutputPolicy `json:"output,omitempty"`
 	Thinking      string        `json:"thinking,omitempty"`
 	EvidenceState string        `json:"evidence_state,omitempty"`
+	Feedback      string        `json:"feedback,omitempty"`
 	Tools         []ToolCall    `json:"tools,omitempty"`
 	ID            string        `json:"id"`
 	Status        string        `json:"status"`
@@ -132,14 +133,14 @@ func (s *Server) snapshot(conversationID string) (Snapshot, error) {
 		return result, err
 	}
 	configs := map[string]runConfig{}
-	rows, err = s.store.db.Query("SELECT id,status,error,created,config,thinking,citation_valid,evidence_state FROM runs WHERE conversation_id=? ORDER BY created,rowid", conversationID)
+	rows, err = s.store.db.Query("SELECT r.id,r.status,r.error,r.created,r.config,r.thinking,r.citation_valid,r.evidence_state,coalesce((SELECT rating FROM answer_feedback WHERE run_id=r.id),'') FROM runs r WHERE r.conversation_id=? ORDER BY r.created,r.rowid", conversationID)
 	if err != nil {
 		return result, err
 	}
 	for rows.Next() {
 		var run Run
 		var config, thinking string
-		if err := rows.Scan(&run.ID, &run.Status, &run.Error, &run.Created, &config, &thinking, &run.CitationValid, &run.EvidenceState); err != nil {
+		if err := rows.Scan(&run.ID, &run.Status, &run.Error, &run.Created, &config, &thinking, &run.CitationValid, &run.EvidenceState, &run.Feedback); err != nil {
 			rows.Close()
 			return result, err
 		}

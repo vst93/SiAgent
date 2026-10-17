@@ -16,6 +16,8 @@ import { PuzzlePieceIcon } from "@phosphor-icons/react/dist/csr/PuzzlePiece";
 import { RobotIcon } from "@phosphor-icons/react/dist/csr/Robot";
 import { SignOutIcon } from "@phosphor-icons/react/dist/csr/SignOut";
 import { StarIcon } from "@phosphor-icons/react/dist/csr/Star";
+import { ThumbsDownIcon } from "@phosphor-icons/react/dist/csr/ThumbsDown";
+import { ThumbsUpIcon } from "@phosphor-icons/react/dist/csr/ThumbsUp";
 import { TrashIcon } from "@phosphor-icons/react/dist/csr/Trash";
 import { UploadSimpleIcon } from "@phosphor-icons/react/dist/csr/UploadSimple";
 import { WarningCircleIcon } from "@phosphor-icons/react/dist/csr/WarningCircle";
@@ -43,6 +45,8 @@ const icons = {
   agent: RobotIcon,
   logout: SignOutIcon,
   star: StarIcon,
+  "thumbs-down": ThumbsDownIcon,
+  "thumbs-up": ThumbsUpIcon,
   trash: TrashIcon,
   upload: UploadSimpleIcon,
   warning: WarningCircleIcon,
