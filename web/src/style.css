@@ -50,6 +50,23 @@ body {
   background: #cfe5da;
   color: var(--ink-strong);
 }
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 button,
 input,
 textarea,
@@ -305,7 +322,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #fff;
+  background: var(--paper);
   padding: 10px 15px;
 }
 .conversation-list {
@@ -316,16 +333,19 @@ textarea {
 .conversation {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   width: 100%;
   text-align: left;
   background: transparent;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--radius-sm);
   font-weight: 500;
-  font-size: 13px;
-  padding: 8px 10px;
-  margin: 2px 0;
+  font-size: 12.5px;
+  padding: 8px 9px;
+  margin: 1px 0;
+}
+.conversation:hover {
+  background: #eceeea;
 }
 .conversation > span:last-child {
   white-space: nowrap;
@@ -333,14 +353,14 @@ textarea {
   text-overflow: ellipsis;
 }
 .conversation.selected {
-  background: #e0eeee;
-  color: #00696f;
-  border-color: #d2e5e5;
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+  box-shadow: inset 2px 0 0 var(--teal);
 }
 .chat-glyph {
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1;
-  color: var(--muted);
+  color: var(--faint);
 }
 .nav-empty {
   padding: 4px 12px;
@@ -372,10 +392,11 @@ textarea {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  background: #fff7f7;
-  padding: 12px 28px;
+  background: #fbf1ef;
+  padding: 11px 28px;
   border-bottom: 1px solid var(--line);
   margin: 0;
+  font-size: 12.5px;
 }
 .workspace-alert.muted {
   background: var(--surface);
@@ -826,8 +847,8 @@ summary {
 .context-warning {
   max-width: 780px;
   margin: 8px auto 0;
-  font-size: 11px;
-  color: #91631e;
+  font-size: 11.5px;
+  color: var(--warning);
 }
 .composer-toolbar {
   flex-wrap: wrap;
@@ -1067,9 +1088,10 @@ summary {
 .knowledge-source-page {
   max-width: 980px;
   margin: 24px auto;
-  padding: 28px 32px 36px;
-  border-top: 3px solid var(--teal);
+  padding: 30px 34px 40px;
+  border-top: 2px solid var(--teal);
   background: var(--paper);
+  box-shadow: var(--shadow-1);
 }
 .knowledge-source-page > a {
   color: var(--teal);
@@ -2258,12 +2280,14 @@ summary {
   max-height: calc(100dvh - 40px);
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 22px;
-  box-shadow: 0 20px 80px #163c3026;
+  background: var(--paper);
+  box-shadow: var(--shadow-2);
 }
-.confirmation-dialog::backdrop {
-  background: #102b2859;
+.confirmation-dialog::backdrop,
+.kb-dialog::backdrop {
+  background: rgba(16, 35, 31, 0.42);
 }
 .confirmation-heading {
   display: flex;
@@ -2301,13 +2325,13 @@ summary {
   margin-top: 20px;
 }
 .danger-button {
-  background: #af4545;
-  border-color: #af4545;
+  background: var(--danger);
+  border-color: var(--danger);
   color: white;
 }
 .danger-button:hover:not(:disabled) {
-  background: #923a3a;
-  border-color: #923a3a;
+  background: #8c2f3a;
+  border-color: #8c2f3a;
 }
 @media (max-width: 1200px) {
   .model-console {
@@ -3105,21 +3129,23 @@ summary {
   overflow-wrap: anywhere;
 }
 .message-markdown code {
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.88em;
   padding: 2px 5px;
   border-radius: 4px;
-  background: #eef3f0;
+  background: var(--surface);
 }
 .message-markdown pre {
   max-width: 100%;
   overflow-x: auto;
   padding: 14px 16px;
   border: 1px solid var(--line);
-  border-radius: 7px;
-  background: #f6f8f7;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
   margin: 12px 0;
   white-space: pre;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
   line-height: 1.7;
 }
 .message-markdown pre code {
@@ -3147,8 +3173,8 @@ summary {
   min-width: 80px;
 }
 .markdown-table th {
-  background: #f5f8f6;
-  font-weight: 600;
+  background: var(--surface-raised);
+  font-weight: 650;
 }
 .message-markdown hr {
   border: 0;
@@ -3736,8 +3762,26 @@ summary {
   font-size: 11px;
   color: var(--muted);
 }
-.channel-status .badge {
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-family: var(--font-mono);
   font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.badge.success {
+  border-color: #c9dfd4;
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+}
+.channel-status .badge {
   flex-shrink: 0;
 }
 .channel-controls {
