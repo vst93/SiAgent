@@ -8,7 +8,7 @@ Release workflow 的版本输入可留空，按最高有效版本标签递增补
 
 “运行与维护”增加应用更新。安装器部署后台下载并校验，空闲时停机，独立进程取得数据锁后完整备份、切换程序、验证新版本与唯一启动标识；失败则恢复旧程序及数据并验证旧版本。重启验证期间阻止业务写入和渠道接收。Docker 与外部服务管理器显示相应更新指引。GitHub 官方地址有限重试后依次回退镜像，安装脚本与 PowerShell 入口采用相同顺序，可配置或关闭。
 
-本地已通过完整 Go 竞态、进程 E2E、Chromium 桌面/320px/390px 回归、发布包私有 Node/版本/重定位/安装验证、macOS arm64 交叉编译、go vet 与 workflow 静态检查。新增真实子进程测试覆盖失败迁移后的完整恢复，HTTP fixtures 验证重试、超时、镜像、校验、准备/取消与重启恢复。当前版本的 macOS/Windows 安装器与官方 Dockerfile 验证仍以推送后的 CI 为准；第三方镜像持续可用性和真实 Windows/WSL 重启不由本地 fixture 证明。详见 [application-updates.md](application-updates.md)。
+本地已通过完整 Go 竞态、进程 E2E、Chromium 桌面/320px/390px 回归、发布包私有 Node/版本/重定位/安装验证、macOS arm64 交叉编译、go vet 与 workflow 静态检查。新增真实子进程测试覆盖失败迁移后的完整恢复，HTTP fixtures 验证重试、超时、镜像、校验、准备/取消与重启恢复。真实程序还通过本地 HTTPS Release fixture 完成双版本下载、停机、完整备份和自动重启，保留登录、模型密钥、会话和数据，已加入 CI；浏览器补充准备完成/确认重启状态验证。[本轮 Linux/macOS/Windows 安装器云端验证已通过](https://github.com/vst93/SiAgent/actions/runs/38987073602)。官方 Dockerfile 验证以完整 checks 结果为准；第三方镜像持续可用性和真实 Windows/WSL 重启不由本地 fixture 证明。详见 [application-updates.md](application-updates.md)。
 
 ## 可插拔聊天渠道重构
 

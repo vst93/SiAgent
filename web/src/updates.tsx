@@ -149,7 +149,7 @@ export function ApplicationUpdates({ request }: { request: Api }) {
       {status.supported && status.phase === "ready" && (
         <div className="update-confirmation">
           <p>
-            更新期间会短暂停机。系统会等待当前任务和渠道投递结束，关闭服务后备份完整数据，再切换程序并重启；若新版本启动失败，将恢复旧程序和数据备份。
+            请先等待当前任务和渠道投递结束。确认后系统会短暂停机，备份完整数据，再切换程序并重启；若新版本启动失败，将恢复旧程序和数据备份。
           </p>
           <label className="checkbox-label">
             <input

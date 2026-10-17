@@ -435,6 +435,67 @@ try {
     fullPage: true,
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  let updatePhase = "ready";
+  const updateFixture = () => ({
+    mode: "installer",
+    supported: true,
+    current: "v0.0.1",
+    latest: "v0.0.2",
+    available: true,
+    phase: updatePhase,
+    message:
+      updatePhase === "ready"
+        ? "下载与校验已完成。"
+        : "正在停机、备份和重启，请等待自动重新连接。",
+  });
+  await page.route("**/api/updates", (route) =>
+    route.fulfill({ json: updateFixture() }),
+  );
+  await page.route("**/api/updates/apply", async (route) => {
+    assert.equal(route.request().postDataJSON().confirm, true);
+    updatePhase = "restarting";
+    await route.fulfill({ status: 202, json: updateFixture() });
+  });
+  const installUpdate = page.getByRole("button", {
+    name: "安装更新并重启",
+    exact: true,
+  });
+  await installUpdate.waitFor();
+  assert.equal(await installUpdate.isDisabled(), true);
+  await page.screenshot({
+    path: join(artifacts, "updates-ready-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 320, height: 844 });
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await page.screenshot({
+    path: join(artifacts, "updates-ready-mobile.png"),
+    fullPage: true,
+  });
+  await page
+    .getByRole("checkbox", { name: "我确认现在停机备份并更新", exact: false })
+    .check();
+  assert.equal(await installUpdate.isEnabled(), true);
+  await installUpdate.click();
+  await page
+    .getByRole("status")
+    .filter({ hasText: "正在停机、备份和重启" })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "检查新版本", exact: true })
+      .isDisabled(),
+    true,
+  );
+  await page.unroute("**/api/updates");
+  await page.unroute("**/api/updates/apply");
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await config("模型连接");
+  await config("运行与维护");
   assert.equal(
     await page.getByLabel("上下文保守上限（字节）", { exact: true }).count(),
     0,

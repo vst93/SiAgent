@@ -31,6 +31,7 @@ jobs:
           sh scripts/package.sh
           python3 tests/package.py artifacts/siagent-linux-amd64.tar.xz
           python3 tests/install.py artifacts/siagent-linux-amd64.tar.xz
+          python3 tests/update.py artifacts/siagent-linux-amd64.tar.xz
       - run: make test
       - run: python3 tests/e2e.py
       - run: npm --prefix web run test:browser

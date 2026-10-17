@@ -81,4 +81,8 @@ $env:SIAGENT_GITHUB_MIRRORS = 'https://your-mirror.example/'
 - `POST /api/updates/cancel`：取消已准备好的更新。
 - `POST /api/updates/apply`：传入 `{"confirm":true}`，检查空闲状态后停机更新。
 
+`python3 tests/update.py artifacts/siagent-linux-amd64.tar.xz` 通过本地 HTTPS 代理模拟 GitHub Release，使用真实程序、完整私有 Runtime 和两个构建版本验证下载、停机、备份、新版启动及登录/模型密钥/会话/数据保留；不会创建或修改公开 Release。此测试已接入 CI。浏览器验证确认框、重复提交保护、重启提示与 320px 布局。
+
 Go 测试使用真实子进程验证成功重启和模拟迁移失败后的完整数据/旧程序恢复；覆盖下载超时、重试顺序、镜像回退、大小限制、准备/取消/重启恢复、认证与更新期间写入屏障。安装脚本测试通过本地 Release 和网络包装器验证官方失败后切镜像，校验失败不替换旧程序；Windows fixture 在 GitHub CI 验证 PowerShell 5.1 与 WSL 参数、重试及校验流程。真实第三方镜像的持续可用性不属于本地测试保证。
+
+本轮 Linux、macOS、Windows PowerShell 安装器云端测试已通过：[installer CI](https://github.com/vst93/SiAgent/actions/runs/38987073602)。此结果不等同于真实 Windows 机器上的 WSL 安装和应用更新已验收。
