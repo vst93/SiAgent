@@ -122,5 +122,8 @@ func (s *Store) migratePlugins() error {
 	if _, err := tx.Exec(plugins.Schema + "\n PRAGMA user_version=17;"); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateIntegration()
 }

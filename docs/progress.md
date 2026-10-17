@@ -60,6 +60,18 @@
 - [x] 单元测试覆盖 Markdown 层级/表格/列表、纯文本章节与条款、DOCX 标题/表格/列表、损坏 DOCX、长节父子片段、结构元数据入库与标题检索；平台与浏览器测试回归。
 - [ ] 复杂版式 PDF、合并单元格与嵌套表格仍需按真实资料验证。
 
+## 扩展与集成 M4：/v1 集成 API
+
+- [x] schema 18 增加 `api_keys`、`api_idempotency`、`api_conversations`、`knowledge_external`，以及 `agents.revision`、`runs.agent_revision/source`。
+- [x] API Key 只存 SHA-256 哈希与前缀，完整密钥仅创建时返回一次；支持作用域、Agent/知识库限定、每分钟限流、有效期与吊销。
+- [x] `/v1` 使用 Bearer 认证，不复用 Cookie/CSRF；写请求不再套用浏览器来源校验。
+- [x] 异步任务：幂等键、`external_conversation_id` 映射、`agent_revision` 钉住、取消、任务视图与来源。
+- [x] SSE 增量事件：`run.state`、`message.delta`、`run.settled`，断线重连从最新文本继续。
+- [x] 知识库：列出、推送/替换（external_id）、状态、删除、检索、来源读取；无结果记录内容缺口。
+- [x] 管理端“集成接口”页创建与吊销密钥；创建/吊销与 API 任务写入审计。
+- [x] 平台测试覆盖认证、作用域、吊销、幂等冲突、revision 冲突、取消、限流、Agent 限定、SSE、知识推送/替换/检索/删除与迁移。
+- [ ] 真实业务系统接入与长期限流表现仍需生产观察。
+
 ## 扩展与集成 M3：扩展宿主与管理页
 
 - [x] schema 17 增加 `plugins` 与 `plugin_events`；扩展包按 `<data>/plugin-packages/<id>/<version>/plugin.json` 发现。

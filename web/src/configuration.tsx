@@ -7,6 +7,7 @@ import { PluginsWorkspace } from "./plugins";
 import { ExtensionsWorkspace } from "./extensions";
 import { ChannelsWorkspace } from "./channels";
 import { ExecutionSettings } from "./runtime-controls";
+import { ApiKeysWorkspace } from "./api-keys";
 import { configSections, type ConfigSection, type Page } from "./navigation";
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 export function Configuration({
@@ -97,6 +98,9 @@ export function Configuration({
             />
           )}
           {section === "system" && <ExecutionSettings request={request} />}
+          {section === "api" && (
+            <ApiKeysWorkspace request={request} agents={agents} />
+          )}
         </div>
       </main>
     </section>

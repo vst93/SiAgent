@@ -15,6 +15,7 @@ type Agent struct {
 	Instructions           string      `json:"instructions"`
 	Enabled                bool        `json:"enabled"`
 	ModelID                int64       `json:"model_id"`
+	Revision               int         `json:"revision"`
 	Archived               bool        `json:"archived"`
 }
 
@@ -28,7 +29,7 @@ func (s *Server) agent() (Agent, error) { return s.agentByID("default") }
 func (s *Server) agentByID(id string) (Agent, error) {
 	var a Agent
 	var policy string
-	err := s.store.db.QueryRow("SELECT id,name,instructions,enabled,model_id,archived,policy FROM agents WHERE id=?", id).Scan(&a.ID, &a.Name, &a.Instructions, &a.Enabled, &a.ModelID, &a.Archived, &policy)
+	err := s.store.db.QueryRow("SELECT id,name,instructions,enabled,model_id,archived,policy,revision FROM agents WHERE id=?", id).Scan(&a.ID, &a.Name, &a.Instructions, &a.Enabled, &a.ModelID, &a.Archived, &policy, &a.Revision)
 	if err == nil {
 		a.Policy, err = parseAgentPolicy([]byte(policy), defaultAgentPolicy())
 	}
@@ -52,7 +53,7 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, a)
 }
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.db.Query("SELECT id,name,instructions,enabled,model_id,archived,policy FROM agents ORDER BY CASE WHEN id='default' THEN 0 ELSE 1 END,rowid")
+	rows, err := s.store.db.Query("SELECT id,name,instructions,enabled,model_id,archived,policy,revision FROM agents ORDER BY CASE WHEN id='default' THEN 0 ELSE 1 END,rowid")
 	if err != nil {
 		internal(w)
 		return
@@ -62,7 +63,7 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var a Agent
 		var policy string
-		if err := rows.Scan(&a.ID, &a.Name, &a.Instructions, &a.Enabled, &a.ModelID, &a.Archived, &policy); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Instructions, &a.Enabled, &a.ModelID, &a.Archived, &policy, &a.Revision); err != nil {
 			internal(w)
 			return
 		}
@@ -148,7 +149,7 @@ func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
 		_, err = s.store.db.Exec("INSERT INTO agents(id,name,instructions,enabled,model_id,policy) VALUES(?,?,?,?,?,?)", agentID, input.Name, input.Instructions, input.Enabled, input.ModelID, string(encodedPolicy))
 	} else {
-		_, err = s.store.db.Exec("UPDATE agents SET name=?,instructions=?,enabled=?,model_id=?,policy=? WHERE id=?", input.Name, input.Instructions, input.Enabled, input.ModelID, string(encodedPolicy), agentID)
+		_, err = s.store.db.Exec("UPDATE agents SET name=?,instructions=?,enabled=?,model_id=?,policy=?,revision=revision+1 WHERE id=?", input.Name, input.Instructions, input.Enabled, input.ModelID, string(encodedPolicy), agentID)
 	}
 	if err != nil {
 		internal(w)

@@ -44,6 +44,12 @@ export const configSections = [
     description: "调整执行限制，检查服务状态和磁盘用量。",
     icon: "settings",
   },
+  {
+    id: "api",
+    title: "集成接口",
+    description: "为业务系统创建 API 密钥，调用 Agent 与知识库。",
+    icon: "models",
+  },
 ] as const;
 export type ConfigSection = (typeof configSections)[number]["id"];
 export type Page = "chat" | `settings/${ConfigSection}`;

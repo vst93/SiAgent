@@ -52,6 +52,8 @@ type Server struct {
 	limits                Limits
 	stopping              bool
 	advancedToolsDisabled bool
+	apiRate               map[string]*rateWindow
+	apiRateMu             sync.Mutex
 	lastStatus            time.Time
 	restarting            bool
 	schedulerCtx          context.Context
@@ -174,6 +176,19 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/wecom/deliveries/{delivery}/retry", s.authorize(http.HandlerFunc(s.retryChannelSend)))
 	mux.Handle("GET /api/models", s.authorize(http.HandlerFunc(s.listModels)))
 	mux.Handle("GET /api/model-providers", s.authorize(http.HandlerFunc(s.listModelProviders)))
+	mux.Handle("GET /api/api-keys", s.authorize(http.HandlerFunc(s.listAPIKeys)))
+	mux.Handle("POST /api/api-keys", s.authorize(http.HandlerFunc(s.createAPIKey)))
+	mux.Handle("DELETE /api/api-keys/{id}", s.authorize(http.HandlerFunc(s.revokeAPIKey)))
+	mux.Handle("POST /v1/agents/{agent}/runs", s.integration(scopeAgentRun, s.v1CreateRun))
+	mux.Handle("GET /v1/runs/{run}", s.integration(scopeAgentRead, s.v1GetRun))
+	mux.Handle("GET /v1/runs/{run}/events", s.integration(scopeAgentRead, s.v1RunEvents))
+	mux.Handle("POST /v1/runs/{run}/cancel", s.integration(scopeAgentRun, s.v1CancelRun))
+	mux.Handle("GET /v1/knowledge/bases", s.integration(scopeKnowledgeRead, s.v1ListKnowledge))
+	mux.Handle("POST /v1/knowledge/{base}/documents", s.integration(scopeKnowledgeWrite, s.v1UploadDocument))
+	mux.Handle("GET /v1/knowledge/documents/{document}", s.integration(scopeKnowledgeRead, s.v1DocumentStatus))
+	mux.Handle("DELETE /v1/knowledge/documents/{document}", s.integration(scopeKnowledgeWrite, s.v1DeleteDocument))
+	mux.Handle("POST /v1/knowledge/{base}/search", s.integration(scopeKnowledgeRead, s.v1Search))
+	mux.Handle("GET /v1/knowledge/sources/{source}", s.integration(scopeKnowledgeRead, s.v1Source))
 	mux.Handle("GET /api/plugins", s.authorize(http.HandlerFunc(s.listPlugins)))
 	mux.Handle("GET /api/plugins/events", s.authorize(http.HandlerFunc(s.pluginEvents)))
 	mux.Handle("POST /api/plugins/{id}/install", s.authorize(http.HandlerFunc(s.installPlugin)))
@@ -232,7 +247,9 @@ func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if r.Method != "GET" && !s.sameOrigin(r) {
+		// Integration API uses Bearer keys, not cookies, so browser origin rules
+		// do not apply to /v1.
+		if r.Method != "GET" && !strings.HasPrefix(r.URL.Path, "/v1/") && !s.sameOrigin(r) {
 			fail(w, 403, "请求来源不匹配，请从配置的管理地址访问。")
 			return
 		}

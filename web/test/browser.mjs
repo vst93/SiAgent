@@ -451,6 +451,15 @@ try {
   await page.getByRole("heading", { name: "已安装", exact: true }).waitFor();
   await page.getByRole("heading", { name: "随系统分发", exact: true }).waitFor();
   await page.getByRole("heading", { name: "最近事件", exact: true }).waitFor();
+  await config("集成接口");
+  await page.getByRole("heading", { name: "创建密钥", exact: true }).waitFor();
+  await page.getByLabel("名称", { exact: true }).fill("browser-key");
+  await page.getByRole("button", { name: "创建密钥", exact: true }).click();
+  await page.locator(".apikey-token code").waitFor();
+  const issued = await page.locator(".apikey-token code").innerText();
+  assert(issued.startsWith("siagent_"), "token should be shown once");
+  await page.getByRole("button", { name: "吊销", exact: true }).first().click();
+  await page.getByText("密钥已吊销。", { exact: false }).waitFor();
   await config("运行与维护");
   await page.getByRole("heading", { name: "应用更新", exact: true }).waitFor();
   const updateState = await page.evaluate(() =>
