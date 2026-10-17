@@ -1408,18 +1408,6 @@ summary {
   min-height: 0;
   overflow-y: auto;
 }
-.configuration-intro {
-  padding: 0 12px 16px;
-}
-.configuration-intro h2 {
-  font-size: 14px;
-  letter-spacing: -0.2px;
-  margin: 0 0 5px;
-}
-.configuration-intro > p:last-child {
-  font-size: 11px;
-  color: var(--muted);
-}
 .nav-group-label {
   padding: 0 10px;
   font-family: var(--font-mono);
@@ -1449,12 +1437,6 @@ summary {
   background: var(--teal-soft);
   color: var(--teal-strong);
   box-shadow: inset 2px 0 0 var(--teal);
-}
-.configuration-tip {
-  padding: 16px 12px 0;
-  margin-top: auto;
-  font-size: 11px;
-  color: var(--muted);
 }
 .configuration-main {
   min-width: 0;
@@ -1792,9 +1774,6 @@ summary {
   .configuration-content {
     padding: 20px 24px 28px;
   }
-  .configuration-intro {
-    padding-inline: 8px;
-  }
   .resource-workspace {
     grid-template-columns: 1fr;
   }
@@ -1859,8 +1838,6 @@ summary {
     flex-shrink: 0;
     overflow: hidden;
   }
-  .configuration-intro,
-  .configuration-tip,
   .nav-group-label {
     display: none;
   }
