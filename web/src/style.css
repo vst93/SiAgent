@@ -3911,3 +3911,24 @@ details[open] > summary > .disclosure-icon {
 .update-confirmation button {
   justify-self: start;
 }
+
+.channel-view-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.channel-conversation-notice {
+  padding: 12px 24px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.channel-conversation-notice p {
+  margin: 0;
+}
+.channel-conversation-notice p + p {
+  margin-top: 4px;
+}

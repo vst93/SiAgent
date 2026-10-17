@@ -1,3 +1,4 @@
+import { withTurnTime, type TurnTime } from "./time-context.js";
 import {
   contextPolicy,
   compactionSettings,
@@ -229,6 +230,7 @@ type Request = {
   probe_tool?: boolean;
   model?: ModelConfig;
   instructions?: string;
+  time_context?: TurnTime;
   limits?: Partial<Limits>;
   context_policy?: Partial<ContextPolicy>;
   output_policy?: OutputPolicy;
@@ -542,7 +544,7 @@ async function execute(req: Request, state: Active) {
       const submission = await conversation.submit(
         {
           type: "input",
-          content: req.input!,
+          content: withTurnTime(req.input!, req.time_context),
           requestId: runID,
           whenBusy: "reject",
         },
@@ -762,6 +764,7 @@ async function dispatch(req: Request) {
       journal.prepare("SELECT 1 FROM executions WHERE run_id=?").get(req.run_id)
     )
       throw new Error("duplicate_run");
+    withTurnTime(req.input, req.time_context);
     const policy = contextPolicy(req.context_policy);
     if (
       req.output_policy &&

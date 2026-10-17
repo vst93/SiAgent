@@ -104,6 +104,10 @@ export function ChatWorkspace({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const nearBottom = useRef(true);
+  const conversation =
+    snapshot?.conversation ?? conversations.find((item) => item.id === selected);
+  const channelConversation = Boolean(conversation?.channel_id);
+  const fetchingConversation = Boolean(selected && !snapshot);
   const currentRun = snapshot?.runs.find(active);
   const waitingCount =
     snapshot?.runs.filter((run) => run.status === "queued").length ?? 0;
@@ -111,7 +115,7 @@ export function ChatWorkspace({
     pending ||
     !ready ||
     agent?.policy.session.types === "group" ||
-    Boolean(snapshot?.conversation.channel_id) ||
+    channelConversation ||
     agent?.enabled === false ||
     agent?.archived === true ||
     (Boolean(selected) && !snapshot);
@@ -133,7 +137,12 @@ export function ChatWorkspace({
     <section className="chat-workspace" aria-label="Agent 对话工作区">
       <header className="chat-header">
         <div className="chat-heading">
-          <h1>{snapshot?.conversation.title ?? "开始一段对话"}</h1>
+          <h1>{conversation?.title ?? "开始一段对话"}</h1>
+          {channelConversation && (
+            <span className="channel-view-label">
+              <Icon name="channels" size={14} />渠道对话 · 只读
+            </span>
+          )}
         </div>
         <div className="chat-header-actions">
           <label className="chat-agent-select">
@@ -240,7 +249,7 @@ export function ChatWorkspace({
             {maintenanceFeedback}
           </p>
         )}
-        {loading ? (
+        {loading || fetchingConversation ? (
           <div className="empty-view" role="status">
             正在读取对话…
           </div>
@@ -295,6 +304,7 @@ export function ChatWorkspace({
               ) : (
                 <div className="messages">
                   {snapshot.messages.map((message) => {
+                    const messageTime = new Date(message.created);
                     const run = snapshot.runs.find(
                       (run) => run.id === message.run_id,
                     );
@@ -304,19 +314,29 @@ export function ChatWorkspace({
                         className={`message ${message.role}`}
                       >
                         <div className="message-avatar" aria-hidden="true">
-                          {message.role === "user" ? "你" : "S·"}
+                          {message.role === "user" ? (
+                            channelConversation ? <Icon name="channels" size={16} /> : "你"
+                          ) : "S·"}
                         </div>
                         <div className="message-body">
                           <div className="message-meta">
                             <strong>
-                              {message.role === "user" ? "你" : "助手"}
+                              {message.role === "user"
+                                ? channelConversation ? "渠道用户" : "你"
+                                : "助手"}
                             </strong>
                             <time
-                              dateTime={new Date(message.created).toISOString()}
+                              dateTime={messageTime.toISOString()}
+                              title={messageTime.toLocaleString("zh-CN", {
+                                timeZoneName: "short",
+                              })}
                             >
-                              {new Date(message.created).toLocaleTimeString(
+                              {messageTime.toLocaleString(
                                 "zh-CN",
-                                { hour: "2-digit", minute: "2-digit" },
+                                {
+                                  year: "numeric", month: "2-digit", day: "2-digit",
+                                  hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+                                },
                               )}
                             </time>
                           </div>
@@ -421,7 +441,7 @@ export function ChatWorkspace({
                                             {tool.display_name || tool.name}
                                           </strong>
                                           <span>
-                                            {statusNames[tool.status] ??
+                                            {toolStatusNames[tool.status] ??
                                               tool.status}
                                           </span>
                                           {run.output?.tools === "detailed" && (
@@ -452,95 +472,104 @@ export function ChatWorkspace({
                 </div>
               )}
             </div>
-            <div className="composer-area">
-              <form
-                onSubmit={(event) => {
-                  nearBottom.current = true;
-                  void send(event);
-                }}
-                className="composer"
-              >
-                <label className="sr-only" htmlFor="message-input">
-                  发送给助手的消息
-                </label>
-                <textarea
-                  id="message-input"
-                  ref={inputRef}
-                  rows={2}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder={
-                    agent?.policy.session.types === "group"
-                      ? "此助手仅接收群聊消息"
-                      : agent?.enabled === false
-                        ? "助手已停用"
-                        : "给助手发消息…"
-                  }
-                  maxLength={100000}
-                  disabled={
-                    agent?.policy.session.types === "group" ||
-                    agent?.enabled === false ||
-                    agent?.archived ||
-                    Boolean(snapshot?.conversation.channel_id)
-                  }
-                  onKeyDown={(e) => {
-                    if (
-                      e.key === "Enter" &&
-                      !e.shiftKey &&
-                      !e.nativeEvent.isComposing
-                    ) {
-                      e.preventDefault();
-                      if (!blocked && input.trim())
-                        e.currentTarget.form?.requestSubmit();
-                    }
-                  }}
-                />
-                <div className="composer-toolbar">
-                  <span>
-                    {currentRun
-                      ? `${statusNames[currentRun.status]}${waitingCount ? ` · 等待 ${waitingCount} 条` : ""}`
-                      : !ready
-                        ? "对话服务正在恢复"
-                        : waitingCount
-                          ? `等待 ${waitingCount} 条，按顺序处理`
-                          : "Enter 发送 · Shift + Enter 换行"}
-                  </span>
-                  <div className="composer-buttons">
-                    {currentRun && (
-                      <button
-                        type="button"
-                        disabled={currentRun.status === "cancelling"}
-                        onClick={() => void cancel(currentRun.id)}
-                      >
-                        取消当前运行
-                      </button>
-                    )}
-                    <button
-                      className="primary send-button"
-                      disabled={blocked || !input.trim()}
-                    >
-                      发送 <Icon name="arrow-up" size={16} />
-                    </button>
-                  </div>
-                </div>
-              </form>
-              {agent?.policy.session.types === "group" &&
-                !snapshot?.conversation.channel_id && (
-                  <p className="context-warning">
-                    此助手仅接收群聊消息。请在已绑定的群聊中使用，Web
-                    中仍可查看历史和运行详情。
+            {channelConversation ? (
+              <div className="channel-conversation-notice">
+                <p>
+                  请在原聊天平台发送新消息。这里可查看对话记录和取消任务。
+                </p>
+                {(currentRun || waitingCount > 0) && (
+                  <p className="muted" role="status">
+                    {currentRun ? statusNames[currentRun.status] : "等待处理"}
+                    {waitingCount > 0 ? ` · 排队 ${waitingCount} 条` : ""}
                   </p>
                 )}
-              {snapshot?.conversation.channel_id && (
-                <p className="context-warning">
-                  渠道会话仅供查看和取消任务，请在原聊天平台发送消息。新建对话可独立测试助手。
-                </p>
-              )}
+              </div>
+            ) : (
+              <div className="composer-area">
+                <form
+                  onSubmit={(event) => {
+                    nearBottom.current = true;
+                    void send(event);
+                  }}
+                  className="composer"
+                >
+                  <label className="sr-only" htmlFor="message-input">
+                    发送给助手的消息
+                  </label>
+                  <textarea
+                    id="message-input"
+                    ref={inputRef}
+                    rows={2}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={
+                      agent?.policy.session.types === "group"
+                        ? "此助手仅接收群聊消息"
+                        : agent?.enabled === false
+                          ? "助手已停用"
+                          : "给助手发消息…"
+                    }
+                    maxLength={100000}
+                    disabled={
+                      agent?.policy.session.types === "group" ||
+                      agent?.enabled === false ||
+                      agent?.archived ||
+                      Boolean(snapshot?.conversation.channel_id)
+                    }
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === "Enter" &&
+                        !e.shiftKey &&
+                        !e.nativeEvent.isComposing
+                      ) {
+                        e.preventDefault();
+                        if (!blocked && input.trim())
+                          e.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                  />
+                  <div className="composer-toolbar">
+                    <span>
+                      {currentRun
+                        ? `${statusNames[currentRun.status]}${waitingCount ? ` · 等待 ${waitingCount} 条` : ""}`
+                        : !ready
+                          ? "对话服务正在恢复"
+                          : waitingCount
+                            ? `等待 ${waitingCount} 条，按顺序处理`
+                            : "Enter 发送 · Shift + Enter 换行"}
+                    </span>
+                    <div className="composer-buttons">
+                      {currentRun && (
+                        <button
+                          type="button"
+                          disabled={currentRun.status === "cancelling"}
+                          onClick={() => void cancel(currentRun.id)}
+                        >
+                          取消当前运行
+                        </button>
+                      )}
+                      <button
+                        className="primary send-button"
+                        disabled={blocked || !input.trim()}
+                      >
+                        发送 <Icon name="arrow-up" size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </form>
+                {agent?.policy.session.types === "group" &&
+                  !snapshot?.conversation.channel_id && (
+                    <p className="context-warning">
+                      此助手仅接收群聊消息。请在已绑定的群聊中使用，Web
+                      中仍可查看历史和运行详情。
+                    </p>
+                  )}
 
-              <p className="composer-note">
-                模型可能出错，请核对重要信息。对话发送至当前配置的模型服务。
-              </p>
-            </div>
+                <p className="composer-note">
+                  模型可能出错，请核对重要信息。对话发送至当前配置的模型服务。
+                </p>
+              </div>
+            )}
           </>
         )}
       </div>

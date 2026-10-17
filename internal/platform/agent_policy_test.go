@@ -30,6 +30,7 @@ func TestAgentPolicyValidationPreservationAndFrozenQueue(t *testing.T) {
 	f.model(t, "fixture", "key")
 	p := defaultAgentPolicy()
 	p.Context.Strategy = "time"
+	p.Timezone = "America/New_York"
 	p.Context.MaxTurns = 7
 	p.Output.Thinking = true
 	p.Output.Tools = "detailed"
@@ -41,13 +42,25 @@ func TestAgentPolicyValidationPreservationAndFrozenQueue(t *testing.T) {
 	if err != nil || a.Policy != p {
 		t.Fatal("basic edit erased policy", a, err)
 	}
-	for _, bad := range []any{map[string]any{"session": map[string]any{"types": "everyone"}}, map[string]any{"session": map[string]any{"group_scope": "global"}}, map[string]any{"session": map[string]any{"idle_minutes": -1}}, map[string]any{"context": map[string]any{"strategy": "unknown"}}, map[string]any{"context": map[string]any{"max_turn": 3}}, map[string]any{"context": map[string]any{"max_turns": 0}}, map[string]any{"context": map[string]any{"summary_threshold": 99}}, map[string]any{"output": map[string]any{"tools": "raw"}}, nil} {
+	for _, bad := range []any{map[string]any{"timezone": "Mars/Olympus"}, map[string]any{"timezone": "Local"}, map[string]any{"timezone": ""}, map[string]any{"session": map[string]any{"types": "everyone"}}, map[string]any{"session": map[string]any{"group_scope": "global"}}, map[string]any{"session": map[string]any{"idle_minutes": -1}}, map[string]any{"context": map[string]any{"strategy": "unknown"}}, map[string]any{"context": map[string]any{"max_turn": 3}}, map[string]any{"context": map[string]any{"max_turns": 0}}, map[string]any{"context": map[string]any{"summary_threshold": 99}}, map[string]any{"output": map[string]any{"tools": "raw"}}, nil} {
 		requireStatus(t, f.request(t, "PUT", "/api/agent", map[string]any{"name": "updated", "enabled": true, "policy": bad}, true, nil), 400)
 	}
 	f.server.limits.Concurrent = 1
 	chat := f.conversation(t)
 	first := f.start(t, chat, "one")
 	second := f.start(t, chat, "two")
+	var frozenRaw string
+	if err := f.store.db.QueryRow("SELECT config FROM runs WHERE id=?", second).Scan(&frozenRaw); err != nil {
+		t.Fatal(err)
+	}
+	var frozen runConfig
+	if err := json.Unmarshal([]byte(frozenRaw), &frozen); err != nil {
+		t.Fatal(err)
+	}
+	if frozen.TimeContext == nil || frozen.TimeContext.Timezone != "America/New_York" {
+		t.Fatal("time context not frozen", frozen.TimeContext)
+	}
+	p.Timezone = "UTC"
 	p.Context.Strategy = "recent"
 	p.Output.Thinking = false
 	p.Output.Tools = "hidden"
@@ -59,6 +72,14 @@ func TestAgentPolicyValidationPreservationAndFrozenQueue(t *testing.T) {
 	if req["run_id"] != second || req["context_policy"].(ContextPolicy).Strategy != "time" || !req["output_policy"].(OutputPolicy).Thinking {
 		t.Fatal("queued policy changed", req)
 	}
+	clock, ok := req["time_context"].(*TurnTime)
+	if !ok || *clock != *frozen.TimeContext {
+		t.Fatal("queued time context changed", req["time_context"], frozen.TimeContext)
+	}
+	if req["instructions"] != frozen.Agent.Instructions {
+		t.Fatal("time was added to role instructions")
+	}
+
 }
 func TestAgentSessionScopesRestrictionsIdleAndReset(t *testing.T) {
 	f := newFixture(t)
@@ -119,14 +140,14 @@ func TestAgentSessionScopesRestrictionsIdleAndReset(t *testing.T) {
 		t.Fatal("group-only agent admitted private")
 	}
 	requireStatus(t, f.request(t, "POST", "/api/conversations", nil, true, nil), 403)
-	if _, err := f.server.enqueueRun(ctx, first, "allowed group question", nil); err != nil {
+	if _, err := f.server.enqueueRun(ctx, first, "allowed group question", 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	// Even when the session is old, pending/running work must keep the same scope.
 	if _, err := f.store.db.Exec("UPDATE conversations SET created=? WHERE id=?", time.Now().Add(-2*time.Minute).UnixMilli(), fresh); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.server.enqueueRun(ctx, fresh, "pending group question", nil); err != nil {
+	if _, err := f.server.enqueueRun(ctx, fresh, "pending group question", 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.store.db.Exec("UPDATE runs SET created=? WHERE conversation_id=?", time.Now().Add(-2*time.Minute).UnixMilli(), fresh); err != nil {
@@ -313,5 +334,34 @@ func TestVersionNinePolicyMigrationPreservesHistoryAndDefaults(t *testing.T) {
 	upgraded.db.QueryRow("PRAGMA user_version").Scan(&version)
 	if version != 10 {
 		t.Fatal("migration version", version)
+	}
+}
+
+func TestChannelTimeUsesDurableReceiptInsteadOfDispatchTime(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	f.model(t, "fixture", "key")
+	c := createChannel(t, f, true)
+	requireStatus(t, callback(t, f, c, "2101", "member", "今天是哪天？"), 200)
+	received := time.Date(2026, 10, 17, 16, 0, 0, 0, time.UTC)
+	if _, err := f.store.db.Exec("UPDATE channel_inbox SET created=? WHERE channel_id=?", received.UnixMilli(), c.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.server.mu.Lock()
+	err := f.server.admitChannelInbox(context.Background())
+	f.server.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.runtime.requests) != 1 {
+		t.Fatal("channel input not dispatched")
+	}
+	clock, ok := f.runtime.requests[0]["time_context"].(*TurnTime)
+	if !ok || clock.ReceivedAt != received.Format(time.RFC3339Nano) || clock.Timezone != "Asia/Shanghai" {
+		t.Fatal("channel receipt time was replaced", clock)
+	}
+	var created int64
+	if err := f.store.db.QueryRow("SELECT created FROM messages WHERE role='user'").Scan(&created); err != nil || created != received.UnixMilli() {
+		t.Fatal("history lost channel receive time", created, err)
 	}
 }

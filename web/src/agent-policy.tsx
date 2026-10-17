@@ -1,4 +1,5 @@
 export type AgentPolicy = {
+  timezone: string;
   session: {
     types: "all" | "private" | "group";
     group_scope: "member" | "shared";
@@ -20,6 +21,7 @@ export type AgentPolicy = {
   };
 };
 export const defaultAgentPolicy: AgentPolicy = {
+  timezone: "Asia/Shanghai",
   session: {
     types: "all",
     group_scope: "member",

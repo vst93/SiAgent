@@ -13,10 +13,13 @@ const artifacts =
   process.env.SIAGENT_BROWSER_ARTIFACTS ??
   join(tmpdir(), "siagent-browser-artifacts");
 await mkdir(artifacts, { recursive: true });
+const messageText = (content) => typeof content === "string" ? content : content.filter((part) => part.type === "text").at(-1)?.text ?? "";
 const modelInputs = [];
 const modelRequests = [];
 const modelListRequests = [];
 let releaseHold;
+let releaseChannelHold;
+const channelHeld = new Promise((resolve) => { releaseChannelHold = resolve; });
 const held = new Promise((resolve) => {
   releaseHold = resolve;
 });
@@ -50,8 +53,9 @@ const model = createServer(async (req, res) => {
     res.write(
       `data: ${JSON.stringify({ id: "browser", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`,
     );
-  modelInputs.push(body.messages.at(-1).content);
-  if (body.messages.at(-1).content === "browser knowledge") {
+  const question = messageText(body.messages.at(-1).content);
+  modelInputs.push(question);
+  if (question === "browser knowledge") {
     send({ role: "assistant", content: "" });
     send({
       tool_calls: [
@@ -70,7 +74,7 @@ const model = createServer(async (req, res) => {
     res.end("data: [DONE]\n\n");
     return;
   }
-  if (body.messages.at(-1).content === "browser MCP") {
+  if (question === "browser MCP") {
     send({ role: "assistant", content: "" });
     send({
       tool_calls: [
@@ -92,7 +96,7 @@ const model = createServer(async (req, res) => {
     return;
   }
   send({ role: "assistant", content: "" });
-  if (body.messages.at(-1).content === "browser markdown") {
+  if (question === "browser markdown") {
     send({
       content:
         '## Markdown 渲染示例\n\n这是 **重点** 与 `inline code`。\n\n- 第一项\n- 第二项\n\n> 引用内容\n\n| 模块 | 状态 | 说明 |\n| --- | --- | --- |\n| 知识库 | 就绪 | 可检索 |\n\n```javascript\nconst message = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";\nconsole.log(message);\n```\n\n[安全链接](https://example.com) [危险链接](javascript:alert(1))\n\n![远程图片](https://example.invalid/image.png)\n\n<img src=x onerror=window.markdownPwned=true>\n<script>window.markdownPwned=true</script>',
@@ -101,17 +105,34 @@ const model = createServer(async (req, res) => {
     res.end("data: [DONE]\n\n");
     return;
   }
-  if (body.messages.at(-1).content === "browser hold") {
+  if (question === "browser channel hold") {
+    send({ content: "渠道处理中…" });
+    await channelHeld;
+  }
+  if (question === "browser hold") {
     send({ content: "正在处理…" });
     await held;
   }
-  send({ content: "收到：" + body.messages.at(-1).content });
+  send({ content: "收到：" + question });
   send({}, "stop");
   res.end("data: [DONE]\n\n");
 });
 model.listen(0, "127.0.0.1");
 await once(model, "listening");
 const directory = await mkdtemp(join(tmpdir(), "siagent-browser-"));
+const adapterDirectory = join(directory, "channel-adapters", "browser-fixture");
+await mkdir(adapterDirectory, { recursive: true });
+await writeFile(join(adapterDirectory, "adapter.json"), JSON.stringify({
+  v: 1, entry: "worker.mjs", provider: {
+    id: "zz-browser-channel", name: "Browser channel fixture", transport: "websocket", max_text_bytes: 1024,
+    identity_fields: ["account"], fields: [{ key: "account", label: "Account", required: true }],
+  },
+}));
+await writeFile(join(adapterDirectory, "worker.mjs"), String.raw`import {createInterface} from 'node:readline';
+const output = frame => process.stdout.write(JSON.stringify({v:1,...frame})+'\n');
+const lines = createInterface({input:process.stdin});
+lines.on('line',line=>{const frame=JSON.parse(line);if(frame.type==='configure'){output({type:'status',state:'connected'});output({type:'incoming',incoming:{id:'browser-channel-message',session:'remote-member',kind:'text',text:'browser channel hold'}});}if(frame.type==='send')output({type:'result',id:frame.id,result:{state:'sent'}});});
+lines.on('close',()=>process.stdin.destroy());`);
 const skillDirectory = await mkdtemp(join(tmpdir(), "siagent-browser-skill-"));
 await writeFile(
   join(skillDirectory, "SKILL.md"),
@@ -1298,6 +1319,45 @@ try {
     fullPage: true,
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  const remoteChannel = await page.evaluate(async () => {
+    const auth = await fetch("/api/auth/status").then((response) => response.json());
+    const response = await fetch("/api/channels", {
+      method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": auth.csrf },
+      body: JSON.stringify({ name: "浏览器渠道对话", provider: "zz-browser-channel", config: { account: "browser" }, agent_id: "default", enabled: true, confirm: true }),
+    });
+    if (response.status !== 201) throw new Error(await response.text());
+    return response.json();
+  });
+  await chat();
+  await config("渠道接入");
+  await page.locator(".channel-catalog button").filter({ hasText: "浏览器渠道对话" }).click();
+  await page.getByRole("button", { name: "查看会话", exact: true }).waitFor();
+  await page.getByRole("button", { name: "查看会话", exact: true }).click();
+  await page.getByText("渠道对话 · 只读", { exact: true }).waitFor();
+  await page.locator(".message.assistant .message-text").filter({ hasText: "渠道处理中…" }).waitFor();
+  assert.equal(await page.getByLabel("发送给助手的消息").count(), 0);
+  assert.equal(await page.getByRole("button", { name: "发送", exact: false }).count(), 0);
+  assert.equal(await page.locator(".message.user .message-meta strong").textContent(), "渠道用户");
+  assert.match(await page.locator(".message.user time").textContent(), /202\d/);
+  await page.screenshot({ path: join(artifacts, "channel-chat-desktop.png"), fullPage: true });
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    assert.equal(await page.getByLabel("发送给助手的消息").count(), 0);
+    await page.screenshot({ path: join(artifacts, `channel-chat-${width}.png`), fullPage: true });
+  }
+  await page.getByRole("button", { name: "取消运行", exact: true }).click();
+  await page.getByText("已取消", { exact: true }).waitFor();
+  releaseChannelHold();
+  await page.evaluate(async (channel) => {
+    const auth = await fetch("/api/auth/status").then((response) => response.json());
+    const response = await fetch(`/api/channels/${channel.id}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": auth.csrf }, body: JSON.stringify({ name: channel.name, provider: channel.provider, config: channel.config, agent_id: "default", enabled: false }) });
+    if (!response.ok) throw new Error(await response.text());
+  }, remoteChannel);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("button", { name: "新对话", exact: true }).click();
+  await page.getByLabel("发送给助手的消息").waitFor();
+  assert.equal(await page.locator(".channel-view-label").count(), 0);
   await config("模型连接");
   await page.getByRole("button", { name: "新增模型连接", exact: true }).click();
   const modelForm = page.locator(".agents-model-editor");
@@ -1552,6 +1612,13 @@ try {
     .getByRole("button", { name: "进入对话", exact: true })
     .click();
   assert.equal(await page.locator(".conversation-list button").count(), 0);
+  await config("Agent");
+  await page.locator(".agent-card").filter({ hasText: "财务助手" }).locator(".agent-card-select").click();
+  assert.equal(await page.getByLabel("时区", { exact: true }).inputValue(), "Asia/Shanghai");
+  await page.getByLabel("时区", { exact: true }).fill("America/New_York");
+  await page.getByRole("button", { name: "保存助手", exact: true }).click();
+  await page.getByText("助手已保存，新任务使用新配置", { exact: false }).waitFor();
+  await page.locator(".agent-card").filter({ hasText: "财务助手" }).getByRole("button", { name: "进入对话", exact: true }).click();
   await page.getByLabel("发送给助手的消息").fill("finance isolated question");
   await page.getByRole("button", { name: "发送", exact: false }).click();
   await page
@@ -1559,9 +1626,11 @@ try {
     .filter({ hasText: "收到：finance isolated question" })
     .waitFor();
   const financeRequest = modelRequests.find(
-    (call) => call.body.messages.at(-1).content === "finance isolated question",
+    (call) => messageText(call.body.messages.at(-1).content) === "finance isolated question",
   );
   assert.equal(financeRequest.body.model, "finance-model");
+  assert.match(financeRequest.body.messages.at(-1).content[0].text, /America\/New_York/);
+  assert(!JSON.stringify(financeRequest.body.messages.filter((message) => message.role === "system")).includes("平台时间上下文"));
   assert.equal(financeRequest.body.max_tokens, 2048);
   assert.equal(financeRequest.body.temperature, 0.25);
   assert.equal(financeRequest.body.top_p, 0.8);
@@ -1625,6 +1694,7 @@ try {
   await page
     .getByRole("combobox", { name: "选择助手", exact: true })
     .selectOption("default");
+  await page.locator(".conversation-list .conversation").filter({ hasText: "你好，请帮我整理今天的工作。" }).click();
   await page
     .locator(".message.assistant .message-text")
     .filter({ hasText: "收到：你好" })
@@ -1693,10 +1763,11 @@ try {
   await page.getByRole("heading", { name: "欢迎回来" }).waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "Browser passed: safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, no JS errors.",
+    "Browser passed: Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, no JS errors.",
   );
 } finally {
   releaseHold();
+  releaseChannelHold();
   await browser?.close();
   const exited = once(child, "close");
   child.kill("SIGTERM");

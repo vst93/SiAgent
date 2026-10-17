@@ -19,6 +19,12 @@ import urllib.error
 import urllib.request
 
 
+def message_text(content):
+    if not content:
+        return ""
+    return content if isinstance(content, str) else next((part['text'] for part in reversed(content) if part['type'] == 'text'), '')
+
+
 class Model(http.server.BaseHTTPRequestHandler):
     requests = []
     gates = {name: threading.Event() for name in ("gate", "gate2", "gate3", "hang")}
@@ -42,7 +48,7 @@ class Model(http.server.BaseHTTPRequestHandler):
             return
         self.send_header('Content-Type', 'text/event-stream')
         self.end_headers()
-        question = body['messages'][-1]['content']
+        question = message_text(body['messages'][-1]['content'])
         if question == 'e2e-knowledge':
             for delta, reason in [({'role': 'assistant', 'content': ''}, None), ({'tool_calls': [{'index': 0, 'id': 'knowledge-call-' + str(len(self.requests)), 'type': 'function', 'function': {'name': 'knowledge_search', 'arguments': json.dumps({'query': '发票开具流程'})}}]}, None), ({}, 'tool_calls')]:
                 event = {'id': 'e2e', 'object': 'chat.completion.chunk', 'created': 1, 'model': body['model'], 'choices': [{'index': 0, 'delta': delta, 'finish_reason': reason}]}
@@ -163,7 +169,7 @@ def main():
                 time.sleep(.05)
             else:
                 raise AssertionError(final)
-            assert any(message.get('content') == 'first question' for message in Model.requests[-1]['messages'])
+            assert any(message_text(message.get('content')) == 'first question' for message in Model.requests[-1]['messages'])
             assert final['messages'][-1]['content'] == 'echo: second question'
             def wait_snapshot(route, predicate):
                 for _ in range(160):
@@ -184,11 +190,11 @@ def main():
             other_path = '/api/conversations/' + other['id']
             assert request(other_path + '/runs', 'POST', {'input': 'independent'})[0] == 202
             wait_snapshot(other_path, lambda state: state['runs'][0]['status'] == 'completed')
-            assert not any(body['messages'][-1]['content'] == 'queued two' for body in Model.requests)
+            assert not any(message_text(body['messages'][-1]['content']) == 'queued two' for body in Model.requests)
             Model.gates['gate'].set()
             queued = wait_snapshot(queue_path, lambda state: len(state['runs']) == 3 and all(run['status'] == 'completed' for run in state['runs']))
             assert [message['content'] for message in queued['messages'] if message['role'] == 'user'] == ['gate', 'queued two', 'queued three']
-            assert any(message.get('content') == 'queued two' for message in Model.requests[-1]['messages'])
+            assert any(message_text(message.get('content')) == 'queued two' for message in Model.requests[-1]['messages'])
 
             # Queue overflow is explicit; cancellation never sends a queued input.
             limits = request('/api/limits')[1]
@@ -199,7 +205,7 @@ def main():
             assert request('/api/runs/' + cancelled['id'] + '/cancel', 'POST')[0] == 200
             Model.gates['gate2'].set()
             wait_snapshot(queue_path, lambda state: state['runs'][-2]['status'] == 'completed')
-            assert not any(body['messages'][-1]['content'] in ('never execute', 'overflow') for body in Model.requests)
+            assert not any(message_text(body['messages'][-1]['content']) in ('never execute', 'overflow') for body in Model.requests)
 
             # A hung provider is cancelled at the saved run deadline.
             assert request('/api/limits', 'PUT', {**limits, 'run_timeout_seconds': 1})[0] == 200
@@ -229,8 +235,8 @@ def main():
                 time.sleep(.05)
             assert request(queue_path + '/runs', 'POST', {'input': 'explicit restart'})[0] == 202
             wait_snapshot(queue_path, lambda state: state['runs'][-1]['status'] == 'completed')
-            assert sum(body['messages'][-1]['content'] == 'gate3' for body in Model.requests) == 1
-            assert not any(body['messages'][-1]['content'] == 'abandoned queued' for body in Model.requests)
+            assert sum(message_text(body['messages'][-1]['content']) == 'gate3' for body in Model.requests) == 1
+            assert not any(message_text(body['messages'][-1]['content']) == 'abandoned queued' for body in Model.requests)
             detail = request('/api/runs/' + crashed['id'])[1]
             assert any(event['kind'] == 'interrupted' for event in detail['events'])
 
@@ -301,7 +307,7 @@ def main():
                 raise AssertionError('MCP process survived its Runtime')
             effects = pathlib.Path(directory) / 'workspaces/default/effects.txt'
             assert effects.read_text() == 'hang\nhang\n'
-            assert sum(body['messages'][-1]['content'] == 'e2e-mcp:hang' for body in Model.requests) == 2
+            assert sum(message_text(body['messages'][-1]['content']) == 'e2e-mcp:hang' for body in Model.requests) == 2
 
             # Native knowledge is independent of MCP, survives a full service restart,
             # and resolves real versioned references through the Go authority.
@@ -429,7 +435,7 @@ def main():
                 assert request(path + '/runs', 'POST', {'input': 'restored continuation'})[0] == 202
                 restored_chat = wait_snapshot(path, lambda state: state['runs'][-1]['status'] == 'completed')
                 assert restored_chat['messages'][-1]['content'] == 'echo: restored continuation'
-                assert any(message.get('content') == 'first question' for message in Model.requests[-1]['messages'])
+                assert any(message_text(message.get('content')) == 'first question' for message in Model.requests[-1]['messages'])
                 for file in restored_directory.glob('platform.sqlite*'):
                     assert b'restore-channel-secret' not in file.read_bytes()
                 wait_snapshot('/api/runs/' + restored_chat['runs'][-1]['id'], lambda state: state['released'])

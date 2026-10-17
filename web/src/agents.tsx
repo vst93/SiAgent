@@ -269,6 +269,30 @@ export function AgentWorkspace({
                         })
                       }
                     />
+                    <label>
+                      时区
+                      <input
+                        required
+                        list="agent-timezones"
+                        maxLength={128}
+                        value={editor.policy.timezone}
+                        onChange={(event) =>
+                          setEditor({ ...editor, policy: { ...editor.policy, timezone: event.target.value } })
+                        }
+                        placeholder="Asia/Shanghai"
+                      />
+                    </label>
+                    <datalist id="agent-timezones">
+                      <option value="Asia/Shanghai">北京时间</option>
+                      <option value="Asia/Hong_Kong">香港时间</option>
+                      <option value="Asia/Tokyo">东京时间</option>
+                      <option value="America/New_York">纽约时间</option>
+                      <option value="Europe/London">伦敦时间</option>
+                      <option value="UTC">协调世界时</option>
+                    </datalist>
+                    <p className="muted">
+                      自动向助手提供每轮消息的接收时间，用于理解“今天”“明天”等相对日期。
+                    </p>
                     <label className="checkbox-label">
                       <input
                         type="checkbox"

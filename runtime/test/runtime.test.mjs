@@ -31,7 +31,8 @@ async function fixture(t) {
     if (body.messages.some(message => message.role === 'system' && JSON.stringify(message.content).includes('context summarization assistant'))) {
       send({content:'Checkpoint summary: previous facts are retained.'}); send({},'stop'); res.end('data: [DONE]\n\n'); return;
     }
-    const last = body.messages.at(-1);
+    const latest = body.messages.at(-1);
+    const last = { ...latest, content: typeof latest.content === 'string' ? latest.content : latest.content.filter(part => part.type === 'text').at(-1)?.text ?? '' };
     if(last?.content === 'think') send({reasoning_content:'A provider reasoning summary.'});
     if (last?.content === 'hang') { send({ content: 'partial' }); return; }
     if (last?.content === 'fail') { res.end('data: invalid-json\n\n'); return; }
@@ -518,4 +519,39 @@ test('recent strategy continues after archived history exceeds the model window'
  const users=f.requests.at(-1).messages.filter(message=>message.role==='user');
  assert.equal(users.length,2);assert(users[0].content.startsWith('turn-10:'));assert(users[1].content.startsWith('turn-11:'));
  assert(!JSON.stringify(f.requests.at(-1)).includes('turn-0:'));
+});
+
+
+test('turn time survives tool rounds, later turns and restart without rewriting the cached prefix', {timeout:30000}, async t => {
+  const f = await fixture(t);
+  let r = f.start();
+  await r.wait(e => e.type === 'ready');
+  const instructions = 'Keep this role stable.';
+  const firstTime = {received_at:'2026-03-08T06:30:00Z',timezone:'America/New_York'};
+  r.send('start',{run_id:'clock-one',conversation_id:'clock',input:'hello',instructions,probe_tool:true,time_context:firstTime});
+  assert.equal((await r.wait(terminal('clock-one'))).type,'run_completed');
+  await r.wait(e=>e.run_id==='clock-one'&&e.type==='run_released');
+  const first = f.requests[0];
+  const originalUser = first.messages.find(m=>m.role==='user');
+  assert.equal(originalUser.content.at(-1).text,'hello');
+  assert.match(originalUser.content[0].text,/01:30:00/);
+  assert(!JSON.stringify(first.messages.filter(m=>m.role==='system')).includes(firstTime.received_at));
+  const secondTime = {received_at:'2026-03-08T07:30:00Z',timezone:'America/New_York'};
+  r.send('start',{run_id:'clock-two',conversation_id:'clock',input:'tool',instructions,time_context:secondTime,probe_tool:true});
+  assert.equal((await r.wait(terminal('clock-two'))).type,'run_completed');
+  await r.wait(e=>e.run_id==='clock-two'&&e.type==='run_released');
+  const second = f.requests[1], afterTools = f.requests[2];
+  const currentUser = second.messages.filter(m=>m.role==='user').at(-1);
+  assert.match(currentUser.content[0].text,/03:30:00/);
+  assert.deepEqual(second.messages.find(m=>m.role==='user'),originalUser);
+  assert.deepEqual(afterTools.messages.filter(m=>m.role==='user').at(-1),currentUser);
+  assert.deepEqual(second.messages.slice(0,first.messages.length),first.messages);
+  const closed=once(r.child,'close');r.child.kill('SIGTERM');await closed;
+  r=f.start();await r.wait(e=>e.type==='ready');
+  r.send('start',{run_id:'clock-three',conversation_id:'clock',input:'hello',instructions,probe_tool:true,time_context:{received_at:'2026-03-09T00:01:00Z',timezone:'UTC'}});
+  assert.equal((await r.wait(terminal('clock-three'))).type,'run_completed');
+  const reopened=f.requests.at(-1);
+  assert.deepEqual(reopened.messages.find(m=>m.role==='user'),originalUser);
+  assert.deepEqual(reopened.messages.filter(m=>m.role==='user')[1],currentUser);
+  assert.match(reopened.messages.filter(m=>m.role==='user').at(-1).content[0].text,/2026-03-09T00:01:00Z/);
 });

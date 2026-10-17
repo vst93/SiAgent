@@ -72,7 +72,13 @@ func (s *Server) saveLimits(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, l)
 }
 
+type TurnTime struct {
+	ReceivedAt string `json:"received_at"`
+	Timezone   string `json:"timezone"`
+}
+
 type runConfig struct {
+	TimeContext  *TurnTime     `json:"time_context,omitempty"`
 	ModelOptions ModelOptions  `json:"model_options"`
 	ModelID      int64         `json:"model_id,omitempty"`
 	KnowledgeIDs []string      `json:"knowledge_ids,omitempty"`
@@ -140,6 +146,9 @@ func (s *Server) dispatch() error {
 			return err
 		}
 		request := map[string]any{"v": 1, "type": "start", "request_id": runID, "run_id": runID, "conversation_id": conversationID, "input": input, "instructions": snapshot.Agent.Instructions, "model": map[string]any{"base_url": snapshot.BaseURL, "name": snapshot.Model, "api_key": key, "options": snapshot.ModelOptions}, "limits": map[string]int{"run_timeout_ms": snapshot.Limits.RunTimeout * 1000, "tool_timeout_ms": snapshot.Limits.ToolTimeout * 1000, "tool_rounds": snapshot.Limits.ToolRounds}}
+		if snapshot.TimeContext != nil {
+			request["time_context"] = snapshot.TimeContext
+		}
 		policy := snapshot.Agent.effectivePolicy()
 		request["context_policy"] = policy.Context
 		request["output_policy"] = policy.Output

@@ -1,3 +1,4 @@
+import {withTurnTime} from "../dist/time-context.js";
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
@@ -36,12 +37,14 @@ for(const api of ['openai-completions','openai-responses','anthropic-messages'])
   const models=configuredModels({name:'fixture',base_url:`http://127.0.0.1:${server.address().port}${api==='anthropic-messages'?'':'/v1'}`,api_key:'test-secret',options},()=>{});
   const model=models.getModel('siagent','fixture');
   assert.equal(model.contextWindow,65536);assert.equal(model.maxTokens,4096);
-  const result=await models.completeSimple(model,{messages:[{role:'user',content:'hello',timestamp:Date.now()}]});
+  const result=await models.completeSimple(model,{messages:[{role:'user',content:withTurnTime('hello',{received_at:'2026-10-17T16:00:00Z',timezone:'Asia/Shanghai'}),timestamp:Date.now()}]});
   assert.equal(result.stopReason,'stop',result.errorMessage);
   assert(result.content.some(part=>part.type==='text'&&part.text==='OK'));
   assert.equal(requests.length,1);
   const request=requests[0];
   assert.equal(request.body.model,'fixture');
+  assert.match(JSON.stringify(request.body),/2026-10-17T16:00:00Z/);
+  assert.match(JSON.stringify(request.body),/Asia\/Shanghai/);
   if(api==='openai-completions'){
    assert.equal(request.path,'/v1/chat/completions');assert.equal(request.body.max_tokens,4096);assert.equal(request.body.reasoning_effort,'low');
   }else if(api==='openai-responses'){

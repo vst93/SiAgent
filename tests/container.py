@@ -287,7 +287,7 @@ def journey(deployment):
     final = api.wait(path, lambda value: value['runs'][-1]['status'] == 'completed')
     assert final['messages'][-1]['content'] == 'echo: restored container continuation'
     last = deployment.model_requests()[-1]
-    assert any(message.get('content') == 'first container question' for message in last['messages'])
+    assert any(message.get('content') == 'first container question' or (isinstance(message.get('content'), list) and message['content'][-1].get('text') == 'first container question') for message in last['messages'])
     assert api.request('/api/auth/logout', 'POST')
     deployment.stop('restored')
     return ('Local journey passed (Docker NOT validated)' if deployment.local else 'Docker acceptance passed') + ': setup, real Runtime/model protocol, authentication, instance recreation, offline full backup, exact file hashes in a new data root, model key, knowledge originals/index/binding and conversation context.'

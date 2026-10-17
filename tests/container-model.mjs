@@ -19,7 +19,8 @@ createServer(async (request, response) => {
   for await (const chunk of request) raw += chunk;
   const body = JSON.parse(raw);
   requests.push(body);
-  const question = body.messages.at(-1).content;
+  const content = body.messages.at(-1).content;
+  const question = typeof content === "string" ? content : content.filter((part) => part.type === "text").at(-1)?.text ?? "";
   const answer = `echo: ${question}`;
   if (!body.stream) {
     response.setHeader("Content-Type", "application/json");

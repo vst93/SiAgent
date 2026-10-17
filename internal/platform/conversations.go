@@ -240,11 +240,11 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if channel > 0 {
-		fail(w, 403, "企微会话在管理后台仅可查看和取消任务，请从企微发送新消息。")
+		fail(w, 403, "渠道会话在管理后台仅可查看和取消任务，请从原聊天平台发送新消息。")
 		return
 	}
 
-	run, err := s.enqueueRun(r.Context(), r.PathValue("id"), input.Input, nil)
+	run, err := s.enqueueRun(r.Context(), r.PathValue("id"), input.Input, 0, nil)
 	if err != nil {
 		var rejected *admissionError
 		if errors.As(err, &rejected) {
@@ -267,7 +267,7 @@ func (e *admissionError) Error() string { return e.Message }
 // enqueueRun is shared by Web and channel admission; callers hold s.mu.
 // The admission callback joins the run transaction, so an acknowledged inbox
 // message cannot lose its run link or be admitted twice after a crash.
-func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, admitted func(*sql.Tx, string) error) (Run, error) {
+func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, receivedAt int64, admitted func(*sql.Tx, string) error) (Run, error) {
 
 	if s.stopping || !s.ready() || s.restarting {
 		return Run{}, &admissionError{503, "对话服务正在启动或恢复，请稍后重试。"}
@@ -360,7 +360,15 @@ func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, a
 	}
 	runID := id()
 	created := time.Now().UnixMilli()
-	config, _ := json.Marshal(runConfig{ModelOptions: model.Options, ModelID: model.ID, ModelVersion: model.Version, BaseURL: model.BaseURL, Model: model.Name, Agent: agent, Limits: s.limits, Capabilities: &capabilities, KnowledgeIDs: knowledgeIDs})
+	if receivedAt == 0 {
+		receivedAt = created
+	}
+	timezone := agent.Policy.Timezone
+	if timezone == "" {
+		timezone = defaultAgentPolicy().Timezone
+	}
+	turnTime := &TurnTime{ReceivedAt: time.UnixMilli(receivedAt).UTC().Format(time.RFC3339Nano), Timezone: timezone}
+	config, _ := json.Marshal(runConfig{TimeContext: turnTime, ModelOptions: model.Options, ModelID: model.ID, ModelVersion: model.Version, BaseURL: model.BaseURL, Model: model.Name, Agent: agent, Limits: s.limits, Capabilities: &capabilities, KnowledgeIDs: knowledgeIDs})
 	credentials, _ := json.Marshal(RunCredentials{ModelKey: model.APIKey, MCPs: toolSecrets})
 	tx, err := s.store.db.Begin()
 	if err != nil {
@@ -369,7 +377,7 @@ func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, a
 	defer tx.Rollback()
 	_, err = tx.Exec("INSERT INTO runs(id,conversation_id,status,config,credential,created) VALUES(?,?,'queued',?,?,?)", runID, conversationID, string(config), s.store.encrypt(string(credentials)), created)
 	if err == nil {
-		_, err = tx.Exec("INSERT INTO messages(conversation_id,run_id,role,content,created) VALUES(?,?,'user',?,?),(?,?,'assistant','',?)", conversationID, runID, input, created, conversationID, runID, created)
+		_, err = tx.Exec("INSERT INTO messages(conversation_id,run_id,role,content,created) VALUES(?,?,'user',?,?),(?,?,'assistant','',?)", conversationID, runID, input, receivedAt, conversationID, runID, created)
 	}
 	title := []rune(input)
 	if len(title) > 32 {

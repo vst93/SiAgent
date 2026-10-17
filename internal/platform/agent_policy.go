@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"time"
+	_ "time/tzdata"
 )
 
 type SessionPolicy struct {
@@ -26,16 +28,18 @@ type OutputPolicy struct {
 	Progress bool   `json:"progress"`
 }
 type AgentPolicy struct {
-	Session SessionPolicy `json:"session"`
-	Context ContextPolicy `json:"context"`
-	Output  OutputPolicy  `json:"output"`
+	Timezone string        `json:"timezone"`
+	Session  SessionPolicy `json:"session"`
+	Context  ContextPolicy `json:"context"`
+	Output   OutputPolicy  `json:"output"`
 }
 
 func defaultAgentPolicy() AgentPolicy {
 	return AgentPolicy{
-		Session: SessionPolicy{Types: "all", GroupScope: "member", AllowReset: true},
-		Context: ContextPolicy{Strategy: "recent", MaxTurns: 20, MaxAgeMinutes: 1440, SummaryThreshold: 70, KeepRecentTokens: 4096},
-		Output:  OutputPolicy{Tools: "summary", Sources: true, Progress: true},
+		Timezone: "Asia/Shanghai",
+		Session:  SessionPolicy{Types: "all", GroupScope: "member", AllowReset: true},
+		Context:  ContextPolicy{Strategy: "recent", MaxTurns: 20, MaxAgeMinutes: 1440, SummaryThreshold: 70, KeepRecentTokens: 4096},
+		Output:   OutputPolicy{Tools: "summary", Sources: true, Progress: true},
 	}
 }
 func parseAgentPolicy(raw []byte, base AgentPolicy) (AgentPolicy, error) {
@@ -48,6 +52,12 @@ func parseAgentPolicy(raw []byte, base AgentPolicy) (AgentPolicy, error) {
 		if err := decoder.Decode(&base); err != nil {
 			return base, errors.New("Agent 策略格式无效。")
 		}
+	}
+	if len(base.Timezone) > 128 || base.Timezone == "" || base.Timezone == "Local" {
+		return base, errors.New("请填写有效的 IANA 时区，例如 Asia/Shanghai 或 UTC。")
+	}
+	if _, err := time.LoadLocation(base.Timezone); err != nil {
+		return base, errors.New("时区无效，请使用 Asia/Shanghai、America/New_York 或 UTC 等 IANA 时区名称。")
 	}
 	if base.Session.Types != "all" && base.Session.Types != "private" && base.Session.Types != "group" {
 		return base, errors.New("请选择私聊、群聊或两者都允许。")

@@ -258,11 +258,13 @@ function App() {
     setSnapshot(null);
     setConnectionLost(false);
     if (!selected || !auth?.authenticated) return;
+    let subscribed = true;
     const source = new EventSource(`/api/conversations/${selected}/events`);
     source.addEventListener("snapshot", (event) => {
       const value = JSON.parse(
         (event as MessageEvent<string>).data,
       ) as Snapshot;
+      if (!subscribed || value.conversation.id !== selected) return;
       setSnapshot(value);
       setConnectionLost(false);
       setConversations((items) =>
@@ -272,10 +274,14 @@ function App() {
       );
     });
     source.onerror = () => {
+      if (!subscribed) return;
       setConnectionLost(true);
       void refreshAuth().catch(() => {});
     };
-    return () => source.close();
+    return () => {
+      subscribed = false;
+      source.close();
+    };
   }, [selected, auth?.authenticated]);
   async function createConversation() {
     const conversation = await api<Conversation>("/conversations", "POST", {
@@ -288,6 +294,10 @@ function App() {
   async function send(event: FormEvent) {
     event.preventDefault();
     if (!input.trim() || pending) return;
+    if (
+      selected &&
+      (snapshot?.conversation.id !== selected || snapshot.conversation.channel_id)
+    ) return;
     const submitted = input;
     setPending(true);
     setError("");
@@ -453,7 +463,7 @@ function App() {
             agentID={agentID}
             conversations={visibleConversations}
             selected={selected}
-            snapshot={snapshot}
+            snapshot={snapshot?.conversation.id === selected ? snapshot : null}
             loading={loading}
             ready={ready}
             pending={pending}

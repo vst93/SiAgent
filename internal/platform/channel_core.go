@@ -146,7 +146,8 @@ func (s *Server) recoverChannels() error {
 func (s *Server) admitChannelInbox(ctx context.Context) error {
 	for range 4 {
 		var inbox, channel, member, agent, text string
-		err := s.store.db.QueryRowContext(ctx, "SELECT i.id,i.channel_id,i.member,i.agent_id,i.content FROM channel_inbox i JOIN channels c ON c.id=i.channel_id WHERE i.state='pending' AND c.enabled=1 AND c.archived=0 ORDER BY i.created,i.rowid LIMIT 1").Scan(&inbox, &channel, &member, &agent, &text)
+		var receivedAt int64
+		err := s.store.db.QueryRowContext(ctx, "SELECT i.id,i.channel_id,i.member,i.agent_id,i.content,i.created FROM channel_inbox i JOIN channels c ON c.id=i.channel_id WHERE i.state='pending' AND c.enabled=1 AND c.archived=0 ORDER BY i.created,i.rowid LIMIT 1").Scan(&inbox, &channel, &member, &agent, &text, &receivedAt)
 		if err == sql.ErrNoRows {
 			return nil
 		}
@@ -162,7 +163,7 @@ func (s *Server) admitChannelInbox(ctx context.Context) error {
 			continue
 		}
 		if err == nil {
-			_, err = s.enqueueRun(ctx, conversation, text, func(tx *sql.Tx, run string) error {
+			_, err = s.enqueueRun(ctx, conversation, text, receivedAt, func(tx *sql.Tx, run string) error {
 				_, err := tx.ExecContext(ctx, "UPDATE channel_inbox SET state='admitted',run_id=?,conversation_id=? WHERE id=? AND state='pending'", run, conversation, inbox)
 				return err
 			})
