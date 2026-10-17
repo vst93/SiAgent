@@ -307,7 +307,7 @@ func TestVersionNinePolicyMigrationPreservesHistoryAndDefaults(t *testing.T) {
 	emit(t, f, run, "run_started", 1)
 	emit(t, f, run, "run_completed", 2)
 	emit(t, f, run, "run_released", 3)
-	if _, err := f.store.db.Exec("ALTER TABLE agents DROP COLUMN policy; ALTER TABLE runs DROP COLUMN thinking; DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type; ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause; ALTER TABLE knowledge_chunks DROP COLUMN content_hash; PRAGMA user_version=9;"); err != nil {
+	if _, err := f.store.db.Exec("ALTER TABLE agents DROP COLUMN policy; ALTER TABLE runs DROP COLUMN thinking; DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type; ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause; ALTER TABLE knowledge_chunks DROP COLUMN content_hash; ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state; PRAGMA user_version=9;"); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.Close(); err != nil {
@@ -332,7 +332,7 @@ func TestVersionNinePolicyMigrationPreservesHistoryAndDefaults(t *testing.T) {
 	}
 	var version int
 	upgraded.db.QueryRow("PRAGMA user_version").Scan(&version)
-	if version != 12 {
+	if version != 13 {
 		t.Fatal("migration version", version)
 	}
 }

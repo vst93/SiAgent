@@ -167,7 +167,7 @@ func TestVersionEightChannelMigrationPreservesDeliveryAndSessionOwnership(t *tes
 	var conversation, inbox string
 	f.store.db.QueryRow("SELECT id,conversation_id FROM channel_inbox WHERE channel_id=?", c.ID).Scan(&inbox, &conversation)
 	downgradeChannelFixture(t, f.store)
-	if _, err := f.store.db.Exec("DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type; ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause; ALTER TABLE knowledge_chunks DROP COLUMN content_hash; PRAGMA user_version=8"); err != nil {
+	if _, err := f.store.db.Exec("DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type; ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause; ALTER TABLE knowledge_chunks DROP COLUMN content_hash; ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state; PRAGMA user_version=8"); err != nil {
 		t.Fatal(err)
 	}
 	f.store.Close()

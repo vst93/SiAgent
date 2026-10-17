@@ -202,8 +202,15 @@ func TestKnowledgeRPCUsesFrozenScopeAndPersistsActualSources(t *testing.T) {
 			t.Fatal("source summary leaked body or scope")
 		}
 	}
-	if err := f.server.HandleEvent(agentruntime.Event{Type: "run_completed", RunID: runID, Sequence: 1, Data: json.RawMessage(`{}`)}); err != nil {
+	if err := f.server.HandleEvent(agentruntime.Event{Type: "run_completed", RunID: runID, Sequence: 1, Data: json.RawMessage(`{"answer":"依据来源 [1] 回答。"}`)}); err != nil {
 		t.Fatal(err)
+	}
+	completed, err := f.server.snapshot(conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Runs[0].EvidenceState != "used" || completed.Runs[0].CitationValid != 1 {
+		t.Fatalf("run completion did not record evidence: %+v", completed.Runs[0])
 	}
 	if data := rpc("late-request", "search", map[string]any{"query": "invoice"}); data["ok"] != false {
 		t.Fatal("terminal run retained RPC access")

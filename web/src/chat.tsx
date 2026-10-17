@@ -16,6 +16,8 @@ export type Conversation = {
 export type Run = {
   output?: AgentPolicy["output"];
   thinking?: string;
+  evidence_state?: string;
+  citation_valid?: number;
   tools?: { id: string; name: string; display_name?: string; status: string }[];
   id: string;
   status: string;
@@ -425,6 +427,16 @@ export function ChatWorkspace({
                               )}
                               {run.error && (
                                 <p className="error">{run.error}</p>
+                              )}
+                              {run.evidence_state === "none" && (
+                                <p className="context-warning" role="status">
+                                  本次回答没有检索到知识库依据，请核对内容或补充资料。
+                                </p>
+                              )}
+                              {run.citation_valid === 0 && (
+                                <p className="context-warning" role="status">
+                                  回答引用了本次未返回的来源编号，请核对引用。
+                                </p>
                               )}
                               {run.tools && run.tools.length > 0 && (
                                 <details className="run-tool-output">

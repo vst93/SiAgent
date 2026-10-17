@@ -30,5 +30,22 @@ func (s *Store) migrateKnowledgeStructure() error {
 	if _, err := tx.Exec(knowledge.ChunkStructureSchema + "\n PRAGMA user_version=12;"); err != nil {
 		return err
 	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateAnswerEvidence()
+}
+
+// migrateAnswerEvidence records whether an answer was backed by retrieved
+// sources and whether its citation markers pointed at real sources.
+func (s *Store) migrateAnswerEvidence() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("ALTER TABLE runs ADD COLUMN citation_valid INTEGER NOT NULL DEFAULT -1; ALTER TABLE runs ADD COLUMN evidence_state TEXT NOT NULL DEFAULT ''; PRAGMA user_version=13;"); err != nil {
+		return err
+	}
 	return tx.Commit()
 }

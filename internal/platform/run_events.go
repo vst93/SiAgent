@@ -3,11 +3,64 @@ package platform
 import (
 	"database/sql"
 	"encoding/json"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	agentruntime "siagent/internal/runtime"
 )
+
+var citationMarker = regexp.MustCompile(`\[(\d{1,3})\]`)
+
+// recordAnswerEvidence stores whether a knowledge-backed answer had retrieved
+// sources and whether its numeric citations pointed at those sources. It never
+// rewrites the answer: the flag is shown to the administrator instead.
+func recordAnswerEvidence(tx *sql.Tx, runID string) error {
+	var answer string
+	if err := tx.QueryRow("SELECT content FROM messages WHERE run_id=? AND role='assistant'", runID).Scan(&answer); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	var toolUses, sources int
+	if err := tx.QueryRow("SELECT count(*) FROM tool_calls WHERE run_id=? AND name IN ('knowledge_search','knowledge_read')", runID).Scan(&toolUses); err != nil {
+		return err
+	}
+	if err := tx.QueryRow("SELECT count(*) FROM run_sources WHERE run_id=?", runID).Scan(&sources); err != nil {
+		return err
+	}
+	// Persisted sources are the ground truth: a knowledge-backed answer either
+	// cites real retrieval or it does not.
+	state := ""
+	if sources > 0 {
+		state = "used"
+	} else if toolUses > 0 {
+		state = "none"
+	}
+	citation := -1
+	highest := 0
+	for _, match := range citationMarker.FindAllStringSubmatch(answer, -1) {
+		value, err := strconv.Atoi(match[1])
+		if err != nil {
+			continue
+		}
+		if value > highest {
+			highest = value
+		}
+	}
+	if highest > 0 {
+		citation = 0
+		if highest <= sources {
+			citation = 1
+		}
+	}
+	if _, err := tx.Exec("UPDATE runs SET citation_valid=?,evidence_state=? WHERE id=?", citation, state, runID); err != nil {
+		return err
+	}
+	return recordEvent(tx, runID, 0, "answer_evidence", map[string]any{"evidence_state": state, "citation_valid": citation, "sources": sources, "knowledge_tool_uses": toolUses})
+}
 
 func terminal(status string) bool {
 	return status != "running" && status != "cancelling" && status != "queued"
@@ -146,6 +199,9 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 				return err
 			}
 			data["bytes"] = len(*payload.Answer)
+		}
+		if err = recordAnswerEvidence(tx, runID); err != nil {
+			return err
 		}
 	case "run_failed":
 		status = "failed"

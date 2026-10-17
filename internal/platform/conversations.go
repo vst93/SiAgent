@@ -27,13 +27,15 @@ type Message struct {
 	Created int64  `json:"created"`
 }
 type Run struct {
-	Output   *OutputPolicy `json:"output,omitempty"`
-	Thinking string        `json:"thinking,omitempty"`
-	Tools    []ToolCall    `json:"tools,omitempty"`
-	ID       string        `json:"id"`
-	Status   string        `json:"status"`
-	Error    string        `json:"error"`
-	Created  int64         `json:"created"`
+	Output        *OutputPolicy `json:"output,omitempty"`
+	Thinking      string        `json:"thinking,omitempty"`
+	EvidenceState string        `json:"evidence_state,omitempty"`
+	Tools         []ToolCall    `json:"tools,omitempty"`
+	ID            string        `json:"id"`
+	Status        string        `json:"status"`
+	Error         string        `json:"error"`
+	CitationValid int           `json:"citation_valid"`
+	Created       int64         `json:"created"`
 }
 type RunSource struct {
 	RunID string `json:"run_id"`
@@ -130,14 +132,14 @@ func (s *Server) snapshot(conversationID string) (Snapshot, error) {
 		return result, err
 	}
 	configs := map[string]runConfig{}
-	rows, err = s.store.db.Query("SELECT id,status,error,created,config,thinking FROM runs WHERE conversation_id=? ORDER BY created,rowid", conversationID)
+	rows, err = s.store.db.Query("SELECT id,status,error,created,config,thinking,citation_valid,evidence_state FROM runs WHERE conversation_id=? ORDER BY created,rowid", conversationID)
 	if err != nil {
 		return result, err
 	}
 	for rows.Next() {
 		var run Run
 		var config, thinking string
-		if err := rows.Scan(&run.ID, &run.Status, &run.Error, &run.Created, &config, &thinking); err != nil {
+		if err := rows.Scan(&run.ID, &run.Status, &run.Error, &run.Created, &config, &thinking, &run.CitationValid, &run.EvidenceState); err != nil {
 			rows.Close()
 			return result, err
 		}
