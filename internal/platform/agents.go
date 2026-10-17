@@ -8,13 +8,14 @@ import (
 )
 
 type Agent struct {
-	Policy       AgentPolicy `json:"policy"`
-	ID           string      `json:"id"`
-	Name         string      `json:"name"`
-	Instructions string      `json:"instructions"`
-	Enabled      bool        `json:"enabled"`
-	ModelID      int64       `json:"model_id"`
-	Archived     bool        `json:"archived"`
+	Policy                 AgentPolicy `json:"policy"`
+	ID                     string      `json:"id"`
+	AdvancedToolsAvailable bool        `json:"advanced_tools_available"`
+	Name                   string      `json:"name"`
+	Instructions           string      `json:"instructions"`
+	Enabled                bool        `json:"enabled"`
+	ModelID                int64       `json:"model_id"`
+	Archived               bool        `json:"archived"`
 }
 
 func agentPath(r *http.Request) string {
@@ -47,6 +48,7 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 		internal(w)
 		return
 	}
+	a.AdvancedToolsAvailable = !s.advancedToolsDisabled
 	respond(w, 200, a)
 }
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +71,7 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 			internal(w)
 			return
 		}
+		a.AdvancedToolsAvailable = !s.advancedToolsDisabled
 		values = append(values, a)
 	}
 	if rows.Err() != nil {
@@ -128,6 +131,10 @@ func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
+	if policy.AdvancedTools && s.advancedToolsDisabled {
+		fail(w, 409, "当前部署已禁用高级工具（SIAGENT_DISABLE_ADVANCED_TOOLS），不能为助手开启。")
+		return
+	}
 	encodedPolicy, _ := json.Marshal(policy)
 	model, err := s.store.modelByID(input.ModelID)
 	if err == sql.ErrNoRows || model.Archived {
@@ -147,11 +154,19 @@ func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 		internal(w)
 		return
 	}
+	if policy.AdvancedTools != basePolicy.AdvancedTools {
+		detail := "disabled"
+		if policy.AdvancedTools {
+			detail = "enabled"
+		}
+		s.audit("agent.advanced_tools."+detail, agentID, "")
+	}
 	a, err := s.agentByID(agentID)
 	if err != nil {
 		internal(w)
 		return
 	}
+	a.AdvancedToolsAvailable = !s.advancedToolsDisabled
 	respond(w, status, a)
 }
 func (s *Server) archiveAgent(w http.ResponseWriter, r *http.Request) {

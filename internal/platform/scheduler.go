@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"time"
 )
 
@@ -155,6 +156,11 @@ func (s *Server) dispatch() error {
 		request["capabilities"] = snapshot.Capabilities
 		request["mcp_secrets"] = credentials.MCPs
 		request["agent_id"] = snapshot.Agent.ID
+		advanced := snapshot.Agent.Policy.AdvancedTools && !s.advancedToolsDisabled
+		request["advanced_tools"] = advanced
+		if advanced {
+			request["workspace"] = filepath.Join(s.store.directory, "workspaces", snapshot.Agent.ID)
+		}
 		if snapshot.KnowledgeIDs == nil {
 			snapshot.KnowledgeIDs = []string{}
 		}

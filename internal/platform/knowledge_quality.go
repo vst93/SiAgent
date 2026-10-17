@@ -84,5 +84,24 @@ func (s *Store) migrateModelProviders() error {
  PRAGMA user_version=15;`); err != nil {
 		return err
 	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateAudit()
+}
+
+// migrateAudit adds the administrator audit trail. Entries never store message
+// bodies, tool arguments or credentials.
+func (s *Store) migrateAudit() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`CREATE TABLE audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT,actor TEXT NOT NULL,action TEXT NOT NULL,resource TEXT NOT NULL,detail TEXT NOT NULL DEFAULT '',created INTEGER NOT NULL);
+ CREATE INDEX audit_log_created ON audit_log(created DESC);
+ PRAGMA user_version=16;`); err != nil {
+		return err
+	}
 	return tx.Commit()
 }

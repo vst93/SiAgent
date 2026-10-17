@@ -1,4 +1,5 @@
 export type AgentPolicy = {
+  advanced_tools: boolean;
   timezone: string;
   session: {
     types: "all" | "private" | "group";
@@ -21,6 +22,7 @@ export type AgentPolicy = {
   };
 };
 export const defaultAgentPolicy: AgentPolicy = {
+  advanced_tools: false,
   timezone: "Asia/Shanghai",
   session: {
     types: "all",

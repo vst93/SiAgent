@@ -60,6 +60,15 @@
 - [x] 单元测试覆盖 Markdown 层级/表格/列表、纯文本章节与条款、DOCX 标题/表格/列表、损坏 DOCX、长节父子片段、结构元数据入库与标题检索；平台与浏览器测试回归。
 - [ ] 复杂版式 PDF、合并单元格与嵌套表格仍需按真实资料验证。
 
+## 扩展与集成 M2：高级工具一键开关
+
+- [x] Agent 策略新增 `advanced_tools`，默认关闭；开启需勾选风险确认，保存按钮在确认前禁用。
+- [x] schema 16 增加 `audit_log`；开启/关闭高级工具写入 `agent.advanced_tools.enabled/disabled`，不记录正文或参数。
+- [x] 部署级 kill switch：`SIAGENT_DISABLE_ADVANCED_TOOLS` 拒绝开启请求，Agent 响应带 `advanced_tools_available=false`，派发时强制关闭。
+- [x] Runtime 仅为开启的 Agent 注册 `read/write/edit/bash`，工作目录为 `<data>/workspaces/<agent_id>/`，通过 `NodeExecutionEnv` 限定 cwd；关闭时不注册、不进入上下文。
+- [x] 平台测试覆盖默认关闭、审计记录、派发字段与工作目录、关闭后不再下发、kill switch 拒绝与强制覆盖；浏览器确认开关存在。
+- [ ] 真实文件/命令操作仍按可信 Agent 场景人工验收。
+
 ## 扩展与集成 M1：模型供应商与配置界面
 
 - [x] schema 15 为 `models` 增加 `provider` 并新增 `provider_packs`；旧连接按协议映射为 `openai` / `anthropic`，保留密钥与参数。

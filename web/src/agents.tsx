@@ -30,6 +30,7 @@ export type Model = {
 };
 export type Agent = {
   policy: AgentPolicy;
+  advanced_tools_available?: boolean;
   id: string;
   name: string;
   instructions: string;
@@ -69,6 +70,12 @@ export function AgentWorkspace({
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [pending, setPending] = useState(false);
+  const [advancedConfirmed, setAdvancedConfirmed] = useState(false);
+  const savedAgent = agents.find((agent) => agent.id === editor.id);
+  const advancedNeedsConfirm =
+    editor.policy.advanced_tools &&
+    !savedAgent?.policy.advanced_tools &&
+    !advancedConfirmed;
   function selectTab(next: typeof tab) {
     setTab(next);
     setFeedback("");
@@ -310,6 +317,49 @@ export function AgentWorkspace({
                     <p className="muted">
                       停用后拒绝新消息，已有任务继续执行；可在对应会话单独取消。
                     </p>
+                    {editor.advanced_tools_available === false ? (
+                      <p className="permission-notice">
+                        当前部署已通过 SIAGENT_DISABLE_ADVANCED_TOOLS 禁用高级工具，无法为任何助手开启。
+                      </p>
+                    ) : (
+                      <>
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={editor.policy.advanced_tools}
+                            onChange={(event) => {
+                              setAdvancedConfirmed(false);
+                              setEditor({
+                                ...editor,
+                                policy: {
+                                  ...editor.policy,
+                                  advanced_tools: event.target.checked,
+                                },
+                              });
+                            }}
+                          />
+                          允许此 Agent 使用本地工作区工具（read / write / edit /
+                          bash）
+                        </label>
+                        {editor.policy.advanced_tools && (
+                          <>
+                            <p className="permission-notice">
+                              这些工具可以读写服务器文件并执行命令。工作目录约定不是操作系统沙箱；对外客服、纯知识库问答建议保持关闭。开启与关闭都会写入审计记录。
+                            </p>
+                            <label className="checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={advancedConfirmed}
+                                onChange={(event) =>
+                                  setAdvancedConfirmed(event.target.checked)
+                                }
+                              />
+                              我了解风险，仅对可信 Agent 开启
+                            </label>
+                          </>
+                        )}
+                      </>
+                    )}
                   </>
                 ) : (
                   <AgentPolicySettings
@@ -326,7 +376,10 @@ export function AgentWorkspace({
                 )}
                 <button
                   className="primary"
-                  disabled={!models.some((model) => !model.archived)}
+                  disabled={
+                    !models.some((model) => !model.archived) ||
+                    advancedNeedsConfirm
+                  }
                 >
                   {editor.id ? "保存助手" : "创建助手"}
                 </button>

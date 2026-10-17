@@ -28,10 +28,13 @@ type OutputPolicy struct {
 	Progress bool   `json:"progress"`
 }
 type AgentPolicy struct {
-	Timezone string        `json:"timezone"`
-	Session  SessionPolicy `json:"session"`
-	Context  ContextPolicy `json:"context"`
-	Output   OutputPolicy  `json:"output"`
+	// AdvancedTools enables read/write/edit/bash inside the Agent workspace.
+	// It is off by default and cannot be enabled when the deployment disables it.
+	AdvancedTools bool          `json:"advanced_tools"`
+	Timezone      string        `json:"timezone"`
+	Session       SessionPolicy `json:"session"`
+	Context       ContextPolicy `json:"context"`
+	Output        OutputPolicy  `json:"output"`
 }
 
 func defaultAgentPolicy() AgentPolicy {

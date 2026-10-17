@@ -36,6 +36,8 @@ import {
   type Extension,
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { createCodingTools } from "@earendil-works/pi-durable/tools";
+import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 
 // stdout is exclusively the v1 NDJSON protocol. Never print credentials or provider errors.
 process.umask(0o077);
@@ -115,9 +117,13 @@ const open = async (
   config = environmentModel,
   control?: Control,
   capabilityExtension?: Extension,
+  advancedTools = false,
 ) => {
   const localRegistry = createRegistry();
   localRegistry.install(probe);
+  // High-risk workspace tools are installed only for Agents that opted in; the
+  // deployment kill switch is enforced by Go before the request is sent.
+  if (advancedTools) localRegistry.install(createCodingTools());
   if (capabilityExtension) localRegistry.install(capabilityExtension);
   if (control) {
     control.guard = defineExtension({
@@ -164,6 +170,8 @@ const open = async (
     {
       models: configuredModels(config, control),
       registry: localRegistry,
+      env: (target: { cwd?: string }) =>
+        target.cwd ? new NodeExecutionEnv({ cwd: target.cwd }) : undefined,
       settings: {
         retry: { maxRetries: 0 },
         compaction: compactionSettings(
@@ -241,6 +249,8 @@ type Request = {
   mcp?: MCPConfig;
   mcp_secret?: MCPSecret;
   knowledge_ids?: string[];
+  advanced_tools?: boolean;
+  workspace?: string;
   data?: { ok: boolean; result?: unknown; error?: string };
 };
 const knowledgePending = new Map<
@@ -340,11 +350,14 @@ async function execute(req: Request, state: Active) {
   }
   let harness: Awaited<ReturnType<typeof open>> | undefined;
   try {
+    if (req.advanced_tools && req.workspace)
+      await mkdir(req.workspace, { recursive: true });
     harness = await open(
       state.conversationID,
       config,
       control,
       capabilities.extension,
+      Boolean(req.advanced_tools),
     );
     const conversation = await harness.root(ctx);
     state.conversation = conversation;
@@ -359,6 +372,7 @@ async function execute(req: Request, state: Active) {
             : "") +
           capabilities.instructions,
         tools: [...(req.probe_tool ? [add, pause] : []), ...capabilities.tools],
+        ...(req.advanced_tools && req.workspace ? { cwd: req.workspace } : {}),
         extensions: [
           ...(req.probe_tool ? [control.guard!, probe] : [control.guard!]),
           capabilities.extension,

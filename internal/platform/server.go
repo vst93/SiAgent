@@ -26,39 +26,41 @@ import (
 
 type Runtime interface{ Send(any) error }
 type Server struct {
-	updater            *selfupdate.Manager
-	updateStop         func()
-	updateGate         sync.RWMutex
-	updating           atomic.Bool
-	updateDraining     atomic.Bool
-	maintenanceWork    sync.Mutex
-	channelConfigMu    sync.Mutex
-	channelProviders   *channels.Registry
-	channelTests       map[string]bool
-	channelConnections channelConnections
-	channelWork        sync.Mutex
-	store              *Store
-	runtime            Runtime
-	ready              func() bool
-	mu                 sync.Mutex
-	token              string
-	publicURL          string
-	secure             bool
-	loginFailures      int
-	loginWindow        time.Time
-	limits             Limits
-	stopping           bool
-	lastStatus         time.Time
-	restarting         bool
-	schedulerCtx       context.Context
-	pendingTests       map[string]chan agentruntime.Event
-	knowledge          *knowledge.Core
-	knowledgePending   map[string]context.CancelFunc
-	knowledgeWork      sync.WaitGroup
+	updater               *selfupdate.Manager
+	updateStop            func()
+	updateGate            sync.RWMutex
+	updating              atomic.Bool
+	updateDraining        atomic.Bool
+	maintenanceWork       sync.Mutex
+	channelConfigMu       sync.Mutex
+	channelProviders      *channels.Registry
+	channelTests          map[string]bool
+	channelConnections    channelConnections
+	channelWork           sync.Mutex
+	store                 *Store
+	runtime               Runtime
+	ready                 func() bool
+	mu                    sync.Mutex
+	token                 string
+	publicURL             string
+	secure                bool
+	loginFailures         int
+	loginWindow           time.Time
+	limits                Limits
+	stopping              bool
+	advancedToolsDisabled bool
+	lastStatus            time.Time
+	restarting            bool
+	schedulerCtx          context.Context
+	pendingTests          map[string]chan agentruntime.Event
+	knowledge             *knowledge.Core
+	knowledgePending      map[string]context.CancelFunc
+	knowledgeWork         sync.WaitGroup
 }
 
 func New(store *Store, runtime Runtime, ready func() bool, publicURL string) (*Server, error) {
 	s := &Server{pendingTests: make(map[string]chan agentruntime.Event), schedulerCtx: context.Background(), store: store, runtime: runtime, ready: ready, publicURL: strings.TrimRight(publicURL, "/")}
+	s.advancedToolsDisabled = advancedToolsDisabled()
 	s.channelConnections.values = make(map[string]channelConnection)
 	s.channelTests = make(map[string]bool)
 	if err := s.ConfigureChannelAdapters("node", "runtime/dist/channel-wecom.js"); err != nil {

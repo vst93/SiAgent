@@ -1659,6 +1659,13 @@ try {
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await policyTab("基本信息").click();
+  assert.equal(
+    await page
+      .getByLabel("允许此 Agent 使用本地工作区工具", { exact: false })
+      .count(),
+    1,
+    "advanced tools toggle should exist",
+  );
   await page.screenshot({
     path: join(artifacts, "agents-desktop.png"),
     fullPage: true,
