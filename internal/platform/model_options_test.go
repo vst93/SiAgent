@@ -93,7 +93,7 @@ func TestVersionSevenModelOptionsMigration(t *testing.T) {
 	f.setup(t)
 	f.model(t, "prior-model", "prior-secret")
 	downgradeChannelFixture(t, f.store)
-	if _, err := f.store.db.Exec("ALTER TABLE models DROP COLUMN options; PRAGMA user_version=7;"); err != nil {
+	if _, err := f.store.db.Exec("ALTER TABLE models DROP COLUMN options; DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; PRAGMA user_version=7;"); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.Close(); err != nil {

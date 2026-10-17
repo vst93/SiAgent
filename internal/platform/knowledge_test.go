@@ -246,3 +246,63 @@ func TestUnboundKnowledgeDispatchesAnEmptyArray(t *testing.T) {
 		t.Fatal("unbound knowledge must dispatch an empty array, not null")
 	}
 }
+
+func TestKnowledgeTraceAndEvaluationAPI(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	knowledgeWorker(t, f)
+	response := f.request(t, "POST", "/api/knowledge/bases", map[string]string{"name": "Eval"}, true, nil)
+	requireStatus(t, response, 201)
+	var base knowledge.Base
+	json.Unmarshal(response.Body.Bytes(), &base)
+	response = f.uploadKnowledge(t, base.ID, "travel.md", "出差住宿标准为每晚 500 元，超标部分自理。", true)
+	requireStatus(t, response, 202)
+	var document knowledge.Document
+	json.Unmarshal(response.Body.Bytes(), &document)
+	if waitDocument(t, f, document.ID).State != "ready" {
+		t.Fatal("document did not index")
+	}
+
+	response = f.request(t, "POST", "/api/knowledge/search", map[string]any{"query": "住宿标准", "knowledge_ids": []string{base.ID}, "trace": true}, true, nil)
+	requireStatus(t, response, 200)
+	var result knowledge.SearchResult
+	json.Unmarshal(response.Body.Bytes(), &result)
+	if result.Trace == nil || len(result.Trace.Terms) == 0 || len(result.Trace.Stages) == 0 {
+		t.Fatalf("management search did not return a trace: %s", response.Body.String())
+	}
+	if len(result.Trace.Selected) != len(result.Hits) {
+		t.Fatal("trace selection diverged from returned hits")
+	}
+
+	// Trace stays optional so Agent-facing payloads are unchanged.
+	response = f.request(t, "POST", "/api/knowledge/search", map[string]any{"query": "住宿", "knowledge_ids": []string{base.ID}}, true, nil)
+	requireStatus(t, response, 200)
+	result = knowledge.SearchResult{}
+	json.Unmarshal(response.Body.Bytes(), &result)
+	if result.Trace != nil {
+		t.Fatal("trace should be opt-in")
+	}
+
+	requireStatus(t, f.request(t, "GET", "/api/knowledge/bases/"+base.ID+"/eval/questions", nil, true, nil), 200)
+	response = f.request(t, "POST", "/api/knowledge/bases/"+base.ID+"/eval/questions", map[string]any{"question": "住宿标准是多少", "expected_document_ids": []string{document.ID}}, true, nil)
+	requireStatus(t, response, 201)
+	var question knowledge.EvalQuestion
+	json.Unmarshal(response.Body.Bytes(), &question)
+	if question.ID == "" || len(question.ExpectedDocumentIDs) != 1 {
+		t.Fatalf("question not stored: %s", response.Body.String())
+	}
+	requireStatus(t, f.request(t, "POST", "/api/knowledge/bases/"+base.ID+"/eval/questions", map[string]any{"question": "越权", "expected_document_ids": []string{"missing"}}, true, nil), 400)
+
+	response = f.request(t, "POST", "/api/knowledge/bases/"+base.ID+"/eval/run", nil, true, nil)
+	requireStatus(t, response, 201)
+	var run knowledge.EvalRun
+	json.Unmarshal(response.Body.Bytes(), &run)
+	if run.Metrics.Questions != 1 || run.Metrics.RecallAt5 != 1 {
+		t.Fatalf("unexpected metrics: %s", response.Body.String())
+	}
+	requireStatus(t, f.request(t, "GET", "/api/knowledge/bases/"+base.ID+"/eval/runs", nil, true, nil), 200)
+	requireStatus(t, f.request(t, "GET", "/api/knowledge/eval/runs/"+run.ID, nil, true, nil), 200)
+	requireStatus(t, f.request(t, "GET", "/api/knowledge/eval/runs/missing", nil, true, nil), 404)
+	requireStatus(t, f.request(t, "DELETE", "/api/knowledge/eval/questions/"+question.ID, nil, true, nil), 200)
+	requireStatus(t, f.request(t, "POST", "/api/knowledge/bases/"+base.ID+"/eval/run", nil, true, nil), 400)
+}

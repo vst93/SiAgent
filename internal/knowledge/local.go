@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -19,6 +20,7 @@ type LocalProvider struct {
 }
 
 func (p *LocalProvider) Search(ctx context.Context, scope Scope, request SearchRequest) (SearchResult, error) {
+	started := time.Now()
 	tokens, err := tokenize(request.Query)
 	if err != nil {
 		return SearchResult{}, err
@@ -35,6 +37,10 @@ func (p *LocalProvider) Search(ctx context.Context, scope Scope, request SearchR
 	if len(terms) > 32 {
 		return SearchResult{}, invalid("检索词过多，请缩短问题后重试。")
 	}
+	trace := &Trace{Query: request.Query, Terms: terms, KnowledgeID: append([]string{}, scope.KnowledgeIDs...)}
+	if request.Trace {
+		trace.Stages = append(trace.Stages, TraceStage{Name: "tokenize", Detail: strconv.Itoa(len(terms)) + " terms", Hits: len(terms), Duration: time.Since(started)})
+	}
 	excerptLimit := 600
 	if request.Compact {
 		excerptLimit = 140
@@ -46,8 +52,10 @@ func (p *LocalProvider) Search(ctx context.Context, scope Scope, request SearchR
 	for index, term := range terms {
 		quoted[index] = `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
 	}
+	result := SearchResult{Hits: []Hit{}, MatchMode: "any_terms"}
 	for _, mode := range []struct{ name, operator string }{{"all_terms", " AND "}, {"any_terms", " OR "}} {
-		result := SearchResult{Hits: []Hit{}, MatchMode: mode.name}
+		stageStart := time.Now()
+		result = SearchResult{Hits: []Hit{}, MatchMode: mode.name}
 		placeholders := make([]string, len(scope.KnowledgeIDs))
 		args := []any{strings.Join(quoted, mode.operator)}
 		for index, id := range scope.KnowledgeIDs {
@@ -55,7 +63,7 @@ func (p *LocalProvider) Search(ctx context.Context, scope Scope, request SearchR
 			args = append(args, id)
 		}
 		args = append(args, request.Limit)
-		rows, err := p.db.QueryContext(ctx, `SELECT c.id,c.knowledge_id,c.document_id,c.version,d.title,c.text,c.location,bm25(knowledge_fts,0,3,1) FROM knowledge_fts JOIN knowledge_chunks c ON c.id=knowledge_fts.chunk_id JOIN knowledge_documents d ON d.id=c.document_id JOIN knowledge_bases k ON k.id=c.knowledge_id WHERE knowledge_fts MATCH ? AND d.deleted=0 AND k.deleted=0 AND c.version=d.active_version AND c.knowledge_id IN (`+strings.Join(placeholders, ",")+`) ORDER BY bm25(knowledge_fts,0,3,1),c.id LIMIT ?`, args...)
+		rows, err := p.db.QueryContext(ctx, `SELECT c.id,c.knowledge_id,c.document_id,c.version,c.position,d.title,c.text,c.location,bm25(knowledge_fts,0,3,1) FROM knowledge_fts JOIN knowledge_chunks c ON c.id=knowledge_fts.chunk_id JOIN knowledge_documents d ON d.id=c.document_id JOIN knowledge_bases k ON k.id=c.knowledge_id WHERE knowledge_fts MATCH ? AND d.deleted=0 AND k.deleted=0 AND c.version=d.active_version AND c.knowledge_id IN (`+strings.Join(placeholders, ",")+`) ORDER BY bm25(knowledge_fts,0,3,1),c.id LIMIT ?`, args...)
 		if err != nil {
 			return SearchResult{}, err
 		}
@@ -63,7 +71,8 @@ func (p *LocalProvider) Search(ctx context.Context, scope Scope, request SearchR
 			var hit Hit
 			var raw string
 			var score float64
-			if err := rows.Scan(&hit.SourceID, &hit.KnowledgeID, &hit.DocumentID, &hit.Version, &hit.Title, &hit.Text, &raw, &score); err != nil {
+			var position int
+			if err := rows.Scan(&hit.SourceID, &hit.KnowledgeID, &hit.DocumentID, &hit.Version, &position, &hit.Title, &hit.Text, &raw, &score); err != nil {
 				rows.Close()
 				return result, err
 			}
@@ -75,17 +84,51 @@ func (p *LocalProvider) Search(ctx context.Context, scope Scope, request SearchR
 			hit.Score = &score
 			hit.Text = excerpt(hit.Text, terms, excerptLimit)
 			result.Hits = append(result.Hits, hit)
+			if request.Trace && len(trace.Candidates) < 50 {
+				trace.Candidates = append(trace.Candidates, TraceHit{SourceID: hit.SourceID, DocumentID: hit.DocumentID, Title: hit.Title, Position: position, Score: score, MatchedTerm: matchedTerms(hit.Text, terms)})
+			}
 		}
 		err = rows.Err()
 		rows.Close()
 		if err != nil {
 			return result, err
 		}
+		if request.Trace {
+			trace.Stages = append(trace.Stages, TraceStage{Name: "fts_" + mode.name, Detail: strings.Join(terms, " "), Hits: len(result.Hits), Duration: time.Since(stageStart)})
+		}
 		if len(result.Hits) > 0 || mode.name == "any_terms" {
-			return result, nil
+			break
 		}
 	}
-	return SearchResult{Hits: []Hit{}, MatchMode: "any_terms"}, nil
+	if request.Trace {
+		trace.MatchMode = result.MatchMode
+		trace.Total = len(result.Hits)
+		trace.Selected = make([]TraceHit, 0, len(result.Hits))
+		for index, hit := range result.Hits {
+			entry := TraceHit{SourceID: hit.SourceID, DocumentID: hit.DocumentID, Title: hit.Title, Rank: index + 1, MatchedTerm: matchedTerms(hit.Text, terms)}
+			if hit.Score != nil {
+				entry.Score = *hit.Score
+			}
+			trace.Selected = append(trace.Selected, entry)
+		}
+		trace.Duration = time.Since(started)
+		trace.Stages = append(trace.Stages, TraceStage{Name: "total", Hits: len(result.Hits), Duration: trace.Duration})
+		result.Trace = trace
+	}
+	return result, nil
+}
+
+// matchedTerms reports which query terms appear in the returned excerpt. It is
+// used only for diagnostics and never changes ranking.
+func matchedTerms(text string, terms []string) []string {
+	lower := strings.ToLower(text)
+	matched := []string{}
+	for _, term := range terms {
+		if strings.Contains(lower, strings.ToLower(term)) {
+			matched = append(matched, term)
+		}
+	}
+	return matched
 }
 func excerpt(text string, terms []string, limit int) string {
 	runes := []rune(text)

@@ -27,6 +27,7 @@ type Location struct {
 }
 type SearchRequest struct {
 	Compact      bool     `json:"-"` // Management preview only; Agent retrieval retains its context budget.
+	Trace        bool     `json:"trace,omitempty"`
 	Query        string   `json:"query"`
 	KnowledgeIDs []string `json:"knowledge_ids,omitempty"`
 	Limit        int      `json:"limit,omitempty"`
@@ -44,8 +45,9 @@ type Hit struct {
 	Score       *float64 `json:"score,omitempty"`
 }
 type SearchResult struct {
-	Hits      []Hit  `json:"hits"`
-	MatchMode string `json:"match_mode"`
+	Hits      []Hit   `json:"hits"`
+	MatchMode string  `json:"match_mode"`
+	Trace     *Trace  `json:"trace,omitempty"`
 }
 type ReadRequest struct {
 	SourceID string `json:"source_id"`

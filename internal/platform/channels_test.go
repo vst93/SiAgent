@@ -167,7 +167,7 @@ func TestVersionEightChannelMigrationPreservesDeliveryAndSessionOwnership(t *tes
 	var conversation, inbox string
 	f.store.db.QueryRow("SELECT id,conversation_id FROM channel_inbox WHERE channel_id=?", c.ID).Scan(&inbox, &conversation)
 	downgradeChannelFixture(t, f.store)
-	if _, err := f.store.db.Exec("PRAGMA user_version=8"); err != nil {
+	if _, err := f.store.db.Exec("DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; PRAGMA user_version=8"); err != nil {
 		t.Fatal(err)
 	}
 	f.store.Close()

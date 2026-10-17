@@ -31,6 +31,12 @@
 
 检索测试只展示紧凑摘要：有效分词不超过 2 个时最多 140 字符，其余最多 220 字符（省略号另计），优先覆盖更多查询词；来源页保留完整片段与原文。Agent 检索仍保留最多 600 字符的摘要预算。已有索引立即使用紧凑摘要，新切片规则需对文档“重新索引”后生效，不改写历史来源。调整依据、操作与本地性能小样见 [knowledge-tuning.md](knowledge-tuning.md)。
 
+## 检索过程与评测
+
+管理端检索测试会同时返回一份检索 trace：分词结果、匹配模式（全部词 / 任一词）、每个阶段的命中数与耗时、候选片段及其 BM25 分数，以及最终入选片段。trace 只用于排查，不改变检索和回答；管理端最近 1000 条 trace 会被裁剪，正文和完整文档不会写入 trace。Agent 侧检索默认不返回 trace，保持原有响应体积。
+
+每个知识库可以维护一组评测问题，每题指定 1–10 份期望来源文档。运行评测会对当前已发布索引逐题检索 Top 5，计算 Recall@1/3/5、MRR、无结果比例和平均耗时，并保存逐题排名。评测不调用模型，因此可重复运行、可对比，也不会改动文档或索引。期望文档必须属于同一知识库且未删除，避免失效标注静默计零分。
+
 这是小规模资料的关键词全文检索，不是语义检索。没有大规模语料评测；词汇差异较大时需要改用资料中的关键词。非常短的段落过多时应合并或拆分文档，避免索引碎片超过上限。
 
 本地 PDF 支持需另行安装：macOS 使用 `brew install poppler`；Debian/Ubuntu 使用 `apt-get install poppler-utils`。Dockerfile 已添加 `poppler-utils`，但当前环境未安装 Docker，引擎中的实际构建和运行仍待验收。缺少依赖时会提示并将该 PDF 标为失败，安装后可重试；TXT、Markdown 和基础对话不受影响。
@@ -59,7 +65,7 @@ Go 的 `internal/knowledge` 不依赖 Runtime 或 MCP。`Core` 管理生命周�
 
 服务启动将中断的本地索引作业重新排队，清理未提交的暂存及孤立版本目录。这类确定的本地索引工作可以重建；Agent 模型任务和 MCP 外部副作用仍遵循原有“不自动重放”规则。
 
-当前数据库版本为 **9**（知识库表由版本 4 引入）。版本 1–8 自动迁移至当前版本；升级前停止整个服务并备份完整数据目录，回退需恢复完整旧备份。知识原文也必须包含在备份中。
+当前数据库版本为 **11**（知识库表由版本 4 引入，版本 11 增加检索 trace 与评测表）。版本 1–10 自动迁移至当前版本；升级前停止整个服务并备份完整数据目录，回退需恢复完整旧备份。知识原文也必须包含在备份中。
 
 ## 管理 API 与执行面
 
@@ -74,7 +80,13 @@ Go 的 `internal/knowledge` 不依赖 Runtime 或 MCP。`Core` 管理生命周�
 | `PUT /api/knowledge/bases/{id}/documents/{document}` | 上传替换版本 |
 | `DELETE /api/knowledge/documents/{document}` | 删除文档/重试文件清理 |
 | `POST /api/knowledge/documents/{document}/retry` | 重试失败版本或重新索引 |
-| `POST /api/knowledge/search` | 管理员本地检索，可指定 `knowledge_ids` |
+| `POST /api/knowledge/search` | 管理员本地检索，可指定 `knowledge_ids`；`trace: true` 返回检索过程 |
+| `GET/POST /api/knowledge/bases/{id}/eval/questions` | 列出/新增评测问题 |
+| `PUT /api/knowledge/bases/{id}/eval/questions/{question}` | 修改评测问题 |
+| `DELETE /api/knowledge/eval/questions/{question}` | 删除评测问题 |
+| `POST /api/knowledge/bases/{id}/eval/run` | 运行检索评测并保存结果 |
+| `GET /api/knowledge/bases/{id}/eval/runs` | 最近评测摘要 |
+| `GET /api/knowledge/eval/runs/{run}` | 单次评测与逐题结果 |
 | `GET /api/knowledge/sources/{source}?offset=0&limit=4000` | 读取来源片段及分页原文 |
 | `GET/PUT /api/agents/{agent}/knowledge` | 查看/保存指定助手关联；非空关联要求 `confirm: true`，旧 `/api/agent/knowledge` 仍指默认助手 |
 

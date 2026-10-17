@@ -989,6 +989,38 @@ try {
     .getByRole("button", { name: "检索当前知识库", exact: true })
     .click();
   await page.locator(".knowledge-hits li").first().waitFor();
+  const traceSummary = page.locator(".kb-trace > summary");
+  await traceSummary.waitFor();
+  assert.match(await traceSummary.innerText(), /检索过程/);
+  await traceSummary.click();
+  await page.locator(".kb-trace-stages li").first().waitFor();
+  assert(
+    (await page.locator(".kb-trace-hits li").count()) > 0,
+    "trace should list selected chunks",
+  );
+  await page.getByRole("tab", { name: "评测", exact: true }).click();
+  await page.getByLabel("评测问题", { exact: true }).fill("发票开具流程");
+  await page.locator(".kb-eval-docs .checkbox-label").first().click();
+  await page.getByRole("button", { name: "添加问题", exact: true }).click();
+  await page.locator(".kb-eval-questions li").first().waitFor();
+  await page.getByRole("button", { name: "运行评测", exact: true }).click();
+  await page.locator(".kb-eval-metrics").waitFor();
+  assert(
+    (await page.locator(".kb-eval-cases li").count()) > 0,
+    "evaluation should report cases",
+  );
+  await page.locator(".kb-eval-history li").first().waitFor();
+  await page.screenshot({
+    path: join(artifacts, "knowledge-eval-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: join(artifacts, "knowledge-eval-390.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole("tab", { name: "检索测试", exact: true }).click();
   const sourceHref = await page
     .locator(".knowledge-hits a")
     .first()

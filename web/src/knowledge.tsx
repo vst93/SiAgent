@@ -38,6 +38,64 @@ export type KnowledgeHit = {
     end?: number;
   };
 };
+export type TraceHit = {
+  source_id: string;
+  document_id: string;
+  title: string;
+  position: number;
+  score: number;
+  rank?: number;
+  matched_terms?: string[];
+};
+export type RetrievalTrace = {
+  query: string;
+  terms: string[];
+  match_mode: string;
+  knowledge_ids: string[];
+  stages: { name: string; detail?: string; hits: number; duration_ns: number }[];
+  candidates: TraceHit[];
+  selected: TraceHit[];
+  total_candidates: number;
+  duration_ns: number;
+};
+type EvalQuestion = {
+  id: string;
+  knowledge_id: string;
+  question: string;
+  expected_document_ids: string[];
+  tags: string[];
+  created: number;
+};
+type EvalMetrics = {
+  questions: number;
+  recall_at_1: number;
+  recall_at_3: number;
+  recall_at_5: number;
+  mrr: number;
+  no_result_rate: number;
+  avg_latency_ms: number;
+};
+type EvalCase = {
+  question_id: string;
+  question: string;
+  expected_document_ids: string[];
+  ranked_document_ids: string[];
+  first_rank: number;
+  pass: boolean;
+};
+type EvalRun = {
+  id: string;
+  knowledge_id: string;
+  created: number;
+  metrics: EvalMetrics;
+  cases: EvalCase[];
+};
+type EvalRunSummary = {
+  id: string;
+  knowledge_id: string;
+  created: number;
+  metrics: EvalMetrics;
+};
 type Source = KnowledgeHit & {
   deleted: boolean;
   historical: boolean;
@@ -532,7 +590,7 @@ function LibraryDocuments({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
-  const [tab, setTab] = useState<"documents" | "search">("documents");
+  const [tab, setTab] = useState<"documents" | "search" | "eval">("documents");
   const [filter, setFilter] = useState("");
   const [status, setStatus] = useState("all");
   const [upload, setUpload] = useState<{ replacement: Document | null } | null>(
@@ -654,14 +712,18 @@ function LibraryDocuments({
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
               return;
             event.preventDefault();
+            const order = ["documents", "search", "eval"] as const;
+            const index = order.indexOf(tab);
             const value =
               event.key === "Home"
                 ? "documents"
                 : event.key === "End"
-                  ? "search"
-                  : tab === "documents"
-                    ? "search"
-                    : "documents";
+                  ? "eval"
+                  : order[
+                      event.key === "ArrowLeft"
+                        ? (index + order.length - 1) % order.length
+                        : (index + 1) % order.length
+                    ];
             changeTab(value);
             event.currentTarget
               .querySelector<HTMLButtonElement>(`#kb-tab-${value}`)
@@ -687,6 +749,16 @@ function LibraryDocuments({
             onClick={() => changeTab("search")}
           >
             检索测试
+          </button>
+          <button
+            role="tab"
+            id="kb-tab-eval"
+            aria-selected={tab === "eval"}
+            aria-controls="kb-eval"
+            tabIndex={tab === "eval" ? 0 : -1}
+            onClick={() => changeTab("eval")}
+          >
+            评测
           </button>
         </div>
         <span className="kb-status-summary">
@@ -899,6 +971,19 @@ function LibraryDocuments({
             .join("|")}
         />
       </div>
+      <div
+        role="tabpanel"
+        id="kb-eval"
+        aria-labelledby="kb-tab-eval"
+        hidden={tab !== "eval"}
+      >
+        <KnowledgeEval
+          key={base.id}
+          request={request}
+          baseID={base.id}
+          documents={documents.filter((doc) => !doc.deleted)}
+        />
+      </div>
       {upload && (
         <UploadDialog
           request={request}
@@ -994,6 +1079,323 @@ function LibraryDocuments({
   );
 }
 
+function TracePanel({ trace }: { trace: RetrievalTrace }) {
+  const ms = (value: number) => `${(value / 1e6).toFixed(2)} ms`;
+  return (
+    <details className="kb-trace">
+      <summary>
+        <Icon name="caret-right" size={14} className="disclosure-icon" />
+        检索过程 · {trace.match_mode} · {trace.total_candidates} 个片段 ·{" "}
+        {ms(trace.duration_ns)}
+      </summary>
+      <div className="kb-trace-body">
+        <dl className="kb-trace-meta">
+          <dt>查询</dt>
+          <dd>{trace.query}</dd>
+          <dt>分词</dt>
+          <dd>{trace.terms.join(" / ") || "无"}</dd>
+          <dt>范围</dt>
+          <dd>{trace.knowledge_ids.length} 个知识库</dd>
+        </dl>
+        <ol className="kb-trace-stages">
+          {trace.stages.map((stage, index) => (
+            <li key={`${stage.name}-${index}`}>
+              <span>{stage.name}</span>
+              <span>{stage.detail ?? ""}</span>
+              <span>{stage.hits} 个</span>
+              <span>{ms(stage.duration_ns)}</span>
+            </li>
+          ))}
+        </ol>
+        {trace.selected.length > 0 && (
+          <ol className="kb-trace-hits">
+            {trace.selected.map((hit) => (
+              <li key={hit.source_id}>
+                <span className="kb-trace-rank">#{hit.rank}</span>
+                <span className="kb-trace-title">{hit.title}</span>
+                <span className="kb-trace-score">
+                  BM25 {hit.score.toFixed(4)}
+                </span>
+                <span className="kb-trace-terms">
+                  {(hit.matched_terms ?? []).join(" ")}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+        <p className="kb-help">
+          分数为 SQLite BM25，越小越相关；这里只用于排查，不改变回答。
+        </p>
+      </div>
+    </details>
+  );
+}
+
+function KnowledgeEval({
+  request,
+  baseID,
+  documents,
+}: {
+  request: Api;
+  baseID: string;
+  documents: Document[];
+}) {
+  const [questions, setQuestions] = useState<EvalQuestion[]>([]);
+  const [runs, setRuns] = useState<EvalRunSummary[]>([]);
+  const [run, setRun] = useState<EvalRun | null>(null);
+  const [question, setQuestion] = useState("");
+  const [expected, setExpected] = useState<string[]>([]);
+  const [pending, setPending] = useState("");
+  const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState("");
+  const ready = documents.filter((doc) => doc.state === "ready");
+
+  async function load() {
+    const [values, history] = await Promise.all([
+      request<EvalQuestion[]>(`/knowledge/bases/${baseID}/eval/questions`),
+      request<EvalRunSummary[]>(`/knowledge/bases/${baseID}/eval/runs?limit=10`),
+    ]);
+    setQuestions(values);
+    setRuns(history);
+  }
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      request<EvalQuestion[]>(`/knowledge/bases/${baseID}/eval/questions`),
+      request<EvalRunSummary[]>(`/knowledge/bases/${baseID}/eval/runs?limit=10`),
+    ])
+      .then(([values, history]) => {
+        if (!active) return;
+        setQuestions(values);
+        setRuns(history);
+      })
+      .catch((error) => {
+        if (active) setError(message(error));
+      });
+    return () => {
+      active = false;
+    };
+  }, [baseID]);
+
+  async function add(event: FormEvent) {
+    event.preventDefault();
+    if (!question.trim() || !expected.length) return;
+    setPending("add");
+    setError("");
+    setFeedback("");
+    try {
+      await request(`/knowledge/bases/${baseID}/eval/questions`, "POST", {
+        question,
+        expected_document_ids: expected,
+      });
+      setQuestion("");
+      setExpected([]);
+      setFeedback("评测问题已添加。");
+      await load();
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending("");
+    }
+  }
+
+  async function remove(id: string) {
+    setPending(id);
+    setError("");
+    try {
+      await request(`/knowledge/eval/questions/${id}`, "DELETE");
+      await load();
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending("");
+    }
+  }
+
+  async function evaluate() {
+    setPending("run");
+    setError("");
+    setFeedback("");
+    try {
+      const value = await request<EvalRun>(
+        `/knowledge/bases/${baseID}/eval/run`,
+        "POST",
+      );
+      setRun(value);
+      setFeedback(`评测完成：Recall@5 ${percent(value.metrics.recall_at_5)}。`);
+      await load();
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending("");
+    }
+  }
+
+  async function openRun(id: string) {
+    setPending(id);
+    setError("");
+    try {
+      setRun(await request<EvalRun>(`/knowledge/eval/runs/${id}`));
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending("");
+    }
+  }
+
+  const title = (id: string) =>
+    documents.find((doc) => doc.id === id)?.title ?? id;
+
+  return (
+    <section className="kb-search-content kb-eval">
+      <p className="kb-help">
+        用黄金问题衡量检索效果。评测只查询本地索引，不调用模型，可重复运行并对比。
+      </p>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {feedback && (
+        <p className="kb-feedback success" role="status">
+          {feedback}
+        </p>
+      )}
+      <form className="kb-eval-form" onSubmit={add}>
+        <label>
+          评测问题
+          <input
+            required
+            maxLength={2000}
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder="例如：出差住宿标准是多少？"
+          />
+        </label>
+        <fieldset className="kb-eval-docs">
+          <legend>期望来源文档</legend>
+          {!ready.length && (
+            <p className="muted">先上传并等待文档变为可检索。</p>
+          )}
+          {ready.map((doc) => (
+            <label key={doc.id} className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={expected.includes(doc.id)}
+                onChange={(event) =>
+                  setExpected((values) =>
+                    event.target.checked
+                      ? [...values, doc.id]
+                      : values.filter((id) => id !== doc.id),
+                  )
+                }
+              />
+              {doc.title}
+            </label>
+          ))}
+        </fieldset>
+        <div className="form-actions">
+          <button
+            className="primary"
+            disabled={pending === "add" || !question.trim() || !expected.length}
+          >
+            {pending === "add" ? "正在添加…" : "添加问题"}
+          </button>
+          <button
+            type="button"
+            disabled={!questions.length || pending === "run"}
+            onClick={() => void evaluate()}
+          >
+            {pending === "run" ? "正在评测…" : "运行评测"}
+          </button>
+        </div>
+      </form>
+      {questions.length > 0 && (
+        <ul className="kb-eval-questions">
+          {questions.map((item) => (
+            <li key={item.id}>
+              <div>
+                <strong>{item.question}</strong>
+                <small>
+                  期望来源：{item.expected_document_ids.map(title).join("、")}
+                </small>
+              </div>
+              <button
+                disabled={pending === item.id}
+                onClick={() => void remove(item.id)}
+              >
+                删除
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {run && (
+        <div className="kb-eval-run">
+          <div className="kb-eval-metrics">
+            {[
+              ["Recall@1", run.metrics.recall_at_1],
+              ["Recall@3", run.metrics.recall_at_3],
+              ["Recall@5", run.metrics.recall_at_5],
+              ["MRR", run.metrics.mrr],
+            ].map(([label, value]) => (
+              <div key={label as string}>
+                <strong>{percent(value as number)}</strong>
+                <span>{label}</span>
+              </div>
+            ))}
+            <div>
+              <strong>{run.metrics.questions}</strong>
+              <span>问题数</span>
+            </div>
+            <div>
+              <strong>{run.metrics.avg_latency_ms.toFixed(1)}</strong>
+              <span>平均毫秒</span>
+            </div>
+          </div>
+          <ul className="kb-eval-cases">
+            {run.cases.map((item) => (
+              <li key={item.question_id} className={item.pass ? "" : "failed"}>
+                <span>{item.pass ? `#${item.first_rank}` : "未命中"}</span>
+                <strong>{item.question}</strong>
+                <small>
+                  {item.ranked_document_ids.length
+                    ? item.ranked_document_ids.slice(0, 3).map(title).join("、")
+                    : "无结果"}
+                </small>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {runs.length > 0 && (
+        <div className="kb-eval-history">
+          <h3>历史评测</h3>
+          <ul>
+            {runs.map((item) => (
+              <li key={item.id}>
+                <button
+                  disabled={pending === item.id}
+                  onClick={() => void openRun(item.id)}
+                >
+                  {new Date(item.created).toLocaleString("zh-CN", {
+                    hourCycle: "h23",
+                  })}
+                </button>
+                <span>R@5 {percent(item.metrics.recall_at_5)}</span>
+                <span>MRR {percent(item.metrics.mrr)}</span>
+                <span>{item.metrics.questions} 题</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
+
 function KnowledgeSearch({
   request,
   baseID,
@@ -1005,6 +1407,7 @@ function KnowledgeSearch({
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<KnowledgeHit[] | null>(null);
+  const [trace, setTrace] = useState<RetrievalTrace | null>(null);
   const [searched, setSearched] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -1013,6 +1416,7 @@ function KnowledgeSearch({
   useEffect(() => {
     generation.current++;
     setResults(null);
+    setTrace(null);
     setSearched("");
     setPending(false);
     setError("");
@@ -1028,16 +1432,22 @@ function KnowledgeSearch({
     setPending(true);
     setError("");
     setResults(null);
+    setTrace(null);
     const submitted = query;
     const currentGeneration = ++generation.current;
     try {
-      const result = await request<{ hits: KnowledgeHit[] }>(
-        "/knowledge/search",
-        "POST",
-        { query: submitted, knowledge_ids: [baseID], limit: 5 },
-      );
+      const result = await request<{
+        hits: KnowledgeHit[];
+        trace?: RetrievalTrace;
+      }>("/knowledge/search", "POST", {
+        query: submitted,
+        knowledge_ids: [baseID],
+        limit: 5,
+        trace: true,
+      });
       if (mounted.current && generation.current === currentGeneration) {
         setResults(result.hits);
+        setTrace(result.trace ?? null);
         setSearched(submitted);
       }
     } catch (error) {
@@ -1086,6 +1496,7 @@ function KnowledgeSearch({
             : "没有找到依据。请检查文档是否处理完成，或使用资料中的关键词。"}
         </p>
       )}
+      {trace && <TracePanel trace={trace} />}
       {results && (
         <ol className="knowledge-hits">
           {results.map((hit) => (

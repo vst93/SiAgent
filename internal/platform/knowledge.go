@@ -128,7 +128,80 @@ func (s *Server) searchKnowledge(w http.ResponseWriter, r *http.Request) {
 		knowledgeError(w, err)
 		return
 	}
+	if request.Trace {
+		target := ""
+		if len(request.KnowledgeIDs) == 1 {
+			target = request.KnowledgeIDs[0]
+		}
+		s.knowledge.RecordTrace(r.Context(), target, result.Trace)
+	}
 	respond(w, 200, result)
+}
+
+func (s *Server) listEvalQuestions(w http.ResponseWriter, r *http.Request) {
+	values, err := s.knowledge.EvalQuestions(r.Context(), r.PathValue("id"))
+	if err != nil {
+		knowledgeError(w, err)
+		return
+	}
+	respond(w, 200, values)
+}
+
+func (s *Server) saveEvalQuestion(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Question            string   `json:"question"`
+		ExpectedDocumentIDs []string `json:"expected_document_ids"`
+		Tags                []string `json:"tags"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	value, err := s.knowledge.SaveEvalQuestion(r.Context(), r.PathValue("question"), r.PathValue("id"), input.Question, input.ExpectedDocumentIDs, input.Tags)
+	if err != nil {
+		knowledgeError(w, err)
+		return
+	}
+	status := 200
+	if r.PathValue("question") == "" {
+		status = 201
+	}
+	respond(w, status, value)
+}
+
+func (s *Server) deleteEvalQuestion(w http.ResponseWriter, r *http.Request) {
+	if err := s.knowledge.DeleteEvalQuestion(r.Context(), r.PathValue("question")); err != nil {
+		knowledgeError(w, err)
+		return
+	}
+	respond(w, 200, map[string]bool{"deleted": true})
+}
+
+func (s *Server) runEval(w http.ResponseWriter, r *http.Request) {
+	run, err := s.knowledge.RunEval(r.Context(), r.PathValue("id"))
+	if err != nil {
+		knowledgeError(w, err)
+		return
+	}
+	respond(w, 201, run)
+}
+
+func (s *Server) listEvalRuns(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	values, err := s.knowledge.EvalRuns(r.Context(), r.PathValue("id"), limit)
+	if err != nil {
+		knowledgeError(w, err)
+		return
+	}
+	respond(w, 200, values)
+}
+
+func (s *Server) getEvalRun(w http.ResponseWriter, r *http.Request) {
+	run, err := s.knowledge.EvalRun(r.Context(), r.PathValue("run"))
+	if err != nil {
+		knowledgeError(w, err)
+		return
+	}
+	respond(w, 200, run)
 }
 func (s *Server) readKnowledgeSource(w http.ResponseWriter, r *http.Request) {
 	request := knowledge.ReadRequest{SourceID: r.PathValue("source")}

@@ -99,5 +99,8 @@ func (s *Store) migrateAgentPolicies() error {
 	if _, err = tx.Exec("ALTER TABLE agents ADD COLUMN policy TEXT NOT NULL DEFAULT '{}'; ALTER TABLE runs ADD COLUMN thinking TEXT NOT NULL DEFAULT ''; PRAGMA user_version=10;"); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateKnowledgeQuality()
 }
