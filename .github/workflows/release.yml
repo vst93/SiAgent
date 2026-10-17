@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing version tag, for example v0.1.0'
-        required: true
+        description: 'Version tag (optional); blank increments the highest version patch'
+        required: false
         type: string
       draft:
         description: 'Keep the release as a draft'
@@ -19,16 +19,40 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.tag || github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test release version selection
+        run: python3 tests/release-version.py
+      - name: Resolve and reserve release version
+        id: version
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: python3 scripts/release-version.py
+
   installers:
+    needs: version
     uses: ./.github/workflows/installers.yml
     with:
-      ref: ${{ inputs.tag || github.ref }}
+      ref: ${{ needs.version.outputs.commit }}
 
   build:
+    needs: version
     name: ${{ matrix.target }}
     strategy:
       fail-fast: false
@@ -45,12 +69,12 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     env:
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
       CGO_ENABLED: '0'
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.version.outputs.commit }}
           fetch-depth: 0
       - name: Validate release tag
         shell: bash
@@ -89,7 +113,7 @@ jobs:
           retention-days: 7
 
   publish:
-    needs: [build, installers]
+    needs: [version, build, installers]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -97,12 +121,12 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
       KEEP_DRAFT: ${{ github.event_name == 'workflow_dispatch' && inputs.draft }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.version.outputs.commit }}
       - uses: actions/download-artifact@v4
         with:
           pattern: siagent-*

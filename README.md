@@ -92,7 +92,7 @@ make run
 
 **独立发布包自带固定版本 Node.js 和 Runtime 生产依赖，目标服务器无需安装 Node、npm 或 Go。** 下载 GitHub Release 对应 Linux/macOS、amd64/arm64 的压缩包，完整解压后直接运行包内的 `siagent`。Go 自动按自身位置查找私有 Node 与 Runtime，可从任意工作目录启动；默认数据目录为发布包内的 `data/`，建议通过 `SIAGENT_DATA_DIR` 指定独立持久目录。
 
-本地生成发布包：在与目标相同的操作系统及 CPU 架构上执行 `make install && make package`，产物位于 `artifacts/`。`make build` 仍用于源码开发，不能仅复制 `bin/siagent` 部署。PDF 处理另需 Poppler。推送 `v0.1.0` 这类版本标签后，GitHub release workflow 会构建、验证并发布四个平台的 `.tar.xz` 压缩包、两份安装脚本及统一的 SHA-256 校验文件；手动触发默认生成草稿。详见 [独立发布包、发版流程与缺依赖排查](docs/server-package.md)。
+本地生成发布包：在与目标相同的操作系统及 CPU 架构上执行 `make install && make package`，产物位于 `artifacts/`。`make build` 仍用于源码开发，不能仅复制 `bin/siagent` 部署。PDF 处理另需 Poppler。推送 `v0.1.0` 这类版本标签后，GitHub release workflow 会构建、验证并发布四个平台的 `.tar.xz` 压缩包、两份安装脚本及统一的 SHA-256 校验文件；手动触发默认生成草稿，版本号可留空，自动将最高版本标签的补丁号加 1（无标签时从 `v0.0.1` 开始）。详见 [独立发布包、发版流程与缺依赖排查](docs/server-package.md)。
 
 提供多阶段 [Dockerfile](Dockerfile) 和 [compose.yaml](compose.yaml)：一个容器运行 Go 与其监管的 Node Runtime，一个持久卷保存全部数据，以非 root 用户运行。Compose 开启 init 以回收异常退出的子进程；直接 docker run 时应使用 `--init`。
 
