@@ -203,10 +203,6 @@ export function ModelsWorkspace({
                     : protocols.find((p) => p.id === model.options.api)?.name}
                 </small>
               </span>
-              <span
-                className="model-connection-status"
-                aria-label={model.archived ? "已归档" : "已配置"}
-              />
             </button>
           ))}
         </div>
@@ -226,7 +222,7 @@ export function ModelsWorkspace({
       <section className="model-detail">
         <header className="model-detail-heading">
           <div>
-            <p className="eyebrow">
+            <p className="model-detail-meta">
               {first
                 ? "首次配置"
                 : editor.id

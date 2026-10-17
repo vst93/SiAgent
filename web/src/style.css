@@ -1145,36 +1145,48 @@ summary {
   min-width: 0;
 }
 .agents-workspace h2 {
-  font-size: 20px;
+  font-size: 17px;
   margin-bottom: 12px;
   overflow-wrap: anywhere;
 }
 .agent-card {
-  border: 1px solid var(--line);
-  background: var(--paper);
-  border-radius: 10px;
-  padding: 12px;
-  margin: 0 0 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  border-radius: 0;
+  padding: 11px 10px;
+  margin: 0;
+}
+.agent-card:hover {
+  background: var(--surface-raised);
 }
 .agent-card.selected {
-  border-left: 3px solid var(--teal);
+  background: var(--teal-soft);
+  box-shadow: inset 2px 0 0 var(--teal);
 }
 .agent-card-select {
   display: grid;
-  gap: 5px;
+  gap: 4px;
   width: 100%;
   text-align: left;
   border: 0;
   background: transparent;
-  padding: 0 0 10px;
+  padding: 0 0 8px;
 }
 .agent-card-select strong,
 .agent-card-select small {
   overflow-wrap: anywhere;
 }
+.agent-card-select strong {
+  font-size: 13px;
+}
+.agent-card-select small {
+  font-size: 10.5px;
+  color: var(--faint);
+}
 .agent-card > button:last-child {
-  font-size: 12px;
-  padding: 5px 10px;
+  font-size: 11.5px;
+  padding: 4px 9px;
 }
 .agent-editor fieldset {
   border: 0;
@@ -1231,7 +1243,8 @@ summary {
   background: var(--paper);
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
 }
 @media (max-width: 1050px) {
   .agents-workspace {
@@ -1958,15 +1971,14 @@ summary {
   margin-bottom: 12px;
 }
 .model-catalog-heading h2 {
-  font-size: 14px;
+  font-size: 13px;
   letter-spacing: 0;
 }
 .model-catalog-heading h2 span {
-  font:
-    11px "SFMono-Regular",
-    Consolas,
-    monospace;
-  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--faint);
   margin-left: 6px;
 }
 .model-catalog-heading button {
@@ -1984,33 +1996,33 @@ summary {
 .model-connection {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 9px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 9px 10px;
   text-align: left;
   border-color: transparent;
   background: transparent;
   border-radius: var(--radius-sm);
   font-weight: 400;
 }
+.model-connection:hover {
+  background: #eceeea;
+}
 .model-connection.selected {
-  border-color: #b6cec5;
-  background: #f0f6f3;
+  border-color: transparent;
+  background: var(--teal-soft);
+  box-shadow: inset 2px 0 0 var(--teal);
 }
 .model-provider-icon {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
-  background: white;
+  background: var(--paper);
   border: 1px solid var(--line);
-  border-radius: 7px;
-  font:
-    600 14px Georgia,
-    serif;
-  color: var(--teal);
-  font: inherit;
+  border-radius: var(--radius-sm);
+  color: var(--teal-strong);
 }
 .model-connection-copy {
   min-width: 0;
@@ -2018,46 +2030,37 @@ summary {
   gap: 3px;
 }
 .model-connection-copy strong {
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .model-connection-copy > span {
-  font:
-    10px/1.6 "SFMono-Regular",
-    Consolas,
-    monospace;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.6;
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 .model-connection-copy small {
   margin: 0;
   font-size: 10px;
-}
-.model-connection-status {
-  width: 5px;
-  height: 5px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: #7ca998;
-  margin: 7px 0 0 auto;
-}
-.model-connection.is-archived .model-connection-status {
-  background: var(--muted);
+  color: var(--faint);
 }
 .model-catalog-note {
-  color: var(--muted);
-  font-size: 11px;
-  padding: 14px 10px;
+  color: var(--faint);
+  font-size: 10.5px;
+  line-height: 1.7;
+  padding: 14px 10px 0;
   border-top: 1px solid var(--line);
   margin-top: 16px;
 }
 .model-list-empty {
-  padding: 20px 12px;
+  padding: 18px 12px;
   color: var(--muted);
   font-size: 12px;
-  border: 1px dashed var(--line);
-  border-radius: 8px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
 }
 .model-list-empty strong {
   color: var(--ink);
@@ -2070,35 +2073,39 @@ summary {
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: white;
+  background: var(--paper);
+  overflow: hidden;
 }
 .model-detail-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 16px;
+  padding: 14px 18px;
   border-bottom: 1px solid var(--line);
 }
 .model-detail-heading h2 {
-  margin-top: 4px;
+  margin-top: 3px;
   overflow-wrap: anywhere;
-  font-size: 17px;
+  font-size: 16px;
 }
-.model-detail-heading .eyebrow {
-  font-size: 10px;
+.model-detail-meta {
   margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--faint);
 }
 .model-save-state {
   flex-shrink: 0;
-  font-size: 11px;
-  color: var(--teal);
-  background: #edf5f0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--teal-strong);
+  background: var(--teal-soft);
   padding: 3px 8px;
   border-radius: 5px;
 }
 .model-save-state.unsaved {
-  color: #8b6b37;
+  color: var(--warning);
   background: #faf4e8;
 }
 .model-detail .model-form {
@@ -2115,11 +2122,11 @@ summary {
   min-width: 0;
 }
 .model-form-section {
-  padding: 14px 16px;
+  padding: 16px 18px;
   border-bottom: 1px solid var(--line);
 }
 .model-section-title {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .model-section-title h3 {
   font-size: 13px;
@@ -2128,12 +2135,13 @@ summary {
 }
 .model-section-title p {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 11.5px;
+  line-height: 1.65;
 }
 .model-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 14px;
+  gap: 12px 16px;
 }
 .model-fields > * {
   min-width: 0;
@@ -2196,9 +2204,9 @@ summary {
   font-size: 12px;
 }
 .model-form-actions {
-  padding: 12px 16px;
-  background: #fafcfb;
-  border-radius: 0 0 10px 10px;
+  padding: 14px 18px;
+  background: var(--surface-raised);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 .model-form-actions .form-actions {
   margin: 0;
@@ -2218,10 +2226,11 @@ summary {
   border-top: 1px solid var(--line);
 }
 .model-feedback {
-  margin: 0 26px 20px;
+  margin: 0 18px 18px;
   padding: 12px;
   background: var(--surface);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
 }
 .delete-conversation-button {
   display: grid;
