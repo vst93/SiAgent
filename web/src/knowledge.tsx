@@ -306,7 +306,7 @@ function UploadDialog({
             <input
               required
               type="file"
-              accept=".txt,.md,.markdown,.pdf"
+              accept=".txt,.md,.markdown,.pdf,.docx"
               disabled={pending}
               onChange={(event) => {
                 setFile(event.target.files?.[0] ?? null);
@@ -321,8 +321,8 @@ function UploadDialog({
           )}
         </div>
         <p className="kb-help">
-          UTF-8 TXT、Markdown、文本 PDF，单文件最多 20 MiB。不支持扫描件与
-          Office。
+          UTF-8 TXT、Markdown、DOCX、文本 PDF，单文件最多 20 MiB。不支持扫描件、旧版
+          .doc 与 OCR。
         </p>
         {replacement && (
           <p className="kb-help">
@@ -331,7 +331,7 @@ function UploadDialog({
         )}
         {pdf === false && (
           <p className="error">
-            PDF 解析依赖未就绪；TXT 与 Markdown 可正常上传。
+            PDF 解析依赖未就绪；TXT、Markdown 与 DOCX 可正常上传。
           </p>
         )}
         <details className="kb-limits">
@@ -842,7 +842,7 @@ function LibraryDocuments({
           <div className="kb-empty kb-documents-empty">
             <Icon name="upload" size={28} className="kb-empty-icon" />
             <h3>还没有文档</h3>
-            <p>点击“上传文档”添加 TXT、Markdown 或文本 PDF。</p>
+            <p>点击“上传文档”添加 TXT、Markdown、DOCX 或文本 PDF。</p>
           </div>
         ) : (
           <div

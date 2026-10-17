@@ -23,7 +23,7 @@ func fixture(t testing.TB) *Core {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
-	if _, err := db.Exec("PRAGMA foreign_keys=ON;" + Schema + EvalSchema); err != nil {
+	if _, err := db.Exec("PRAGMA foreign_keys=ON;" + Schema + EvalSchema + ChunkStructureSchema); err != nil {
 		t.Fatal(err)
 	}
 	core, err := New(db, root)
@@ -282,17 +282,17 @@ func testPDF(first, second string) string {
 	return pdf.String()
 }
 
-func TestFragmentationLimitFailsBeforeIndexPublication(t *testing.T) {
+func TestOversizeTextFailsBeforeIndexPublication(t *testing.T) {
 	c := fixture(t)
 	base := base(t, c, "Bounded parsing")
-	document := upload(t, c, base.ID, "", "many-paragraphs.txt", strings.Repeat("entry\n\n", MaxChunks+1))
+	document := upload(t, c, base.ID, "", "too-large.txt", strings.Repeat("x", MaxCharacters+1))
 	process(t, c)
 	failed, err := c.Document(context.Background(), document.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failed.State != "failed" || failed.ActiveVersion != 0 || !strings.Contains(failed.Error, "5000") {
-		t.Fatal("fragmentation limit did not fail clearly", failed)
+	if failed.State != "failed" || failed.ActiveVersion != 0 || !strings.Contains(failed.Error, "100 万") {
+		t.Fatal("size limit did not fail clearly", failed)
 	}
 	var chunks int
 	if err := c.db.QueryRow("SELECT count(*) FROM knowledge_chunks WHERE document_id=?", document.ID).Scan(&chunks); err != nil || chunks != 0 {

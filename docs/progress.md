@@ -2,6 +2,16 @@
 
 按 `plan.md` 逐步实施。以下为代码实际状态，不替代真实外部环境的验收。
 
+## 知识效果 K1：结构感知解析与切分
+
+- [x] schema 12 为 `knowledge_chunks` 增加 `parent_id`、`block_type`、`section_path`、`clause`、`content_hash`，从 1–11 自动迁移，旧片段使用默认值。
+- [x] Markdown 解析标题层级、列表、表格与围栏代码；DOCX 直接读取 `word/document.xml`，识别 Heading 样式、编号列表与表格；TXT/PDF 识别章节、条款、中文序号与 layout 表格。
+- [x] 切分按标题分节、按页闭合，表格整表保留，条款/步骤不跨节；超长小节拆分为子片段并记录父片段锚点。
+- [x] 章节路径与条款标签写入索引，标题类查询可直接命中正文片段。
+- [x] 上传接受 `.docx`（校验 ZIP 头），拒绝 `.doc`；UI 与文档同步更新。
+- [x] 单元测试覆盖 Markdown 层级/表格/列表、纯文本章节与条款、DOCX 标题/表格/列表、损坏 DOCX、长节父子片段、结构元数据入库与标题检索；平台与浏览器测试回归。
+- [ ] 复杂版式 PDF、合并单元格与嵌套表格仍需按真实资料验证。
+
 ## 知识效果 K0：评测与检索 trace 基线
 
 - [x] schema 11 增加 `knowledge_eval_questions`、`knowledge_eval_runs`、`retrieval_traces`，从 1–10 自动迁移，只新增表。

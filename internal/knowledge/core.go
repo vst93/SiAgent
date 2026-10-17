@@ -290,8 +290,10 @@ func (c *Core) Upload(ctx context.Context, baseID, documentID, filename string, 
 		kind = "markdown"
 	case ".pdf":
 		kind = "pdf"
+	case ".docx":
+		kind = "docx"
 	default:
-		return Document{}, invalid("仅支持 UTF-8 TXT、Markdown 和可提取文本的 PDF；不支持扫描件、OCR 或 Office 文件。")
+		return Document{}, invalid("仅支持 UTF-8 TXT、Markdown、DOCX 和可提取文本的 PDF；不支持扫描件、OCR 或旧版 .doc 文件。")
 	}
 	staging := filepath.Join(c.root, "staging", rand.Text())
 	if err := os.Mkdir(staging, 0700); err != nil {
@@ -318,6 +320,18 @@ func (c *Core) Upload(ctx context.Context, baseID, documentID, filename string, 
 	}
 	if size == 0 {
 		return Document{}, invalid("文件为空，请选择包含内容的文档。")
+	}
+	if kind == "docx" {
+		file, err := os.Open(filepath.Join(staging, "original"))
+		if err != nil {
+			return Document{}, err
+		}
+		var magic [2]byte
+		_, err = io.ReadFull(file, magic[:])
+		file.Close()
+		if err != nil || string(magic[:]) != "PK" {
+			return Document{}, invalid("文件内容不是有效的 DOCX。")
+		}
 	}
 	if kind == "pdf" {
 		file, err := os.Open(filepath.Join(staging, "original"))
@@ -594,11 +608,16 @@ func (c *Core) processOne(ctx context.Context) (bool, error) {
 }
 
 type chunk struct {
-	ID       string
-	Text     string
-	Location Location
-	Position int
-	Tokens   string
+	ID          string
+	Text        string
+	Location    Location
+	Position    int
+	Tokens      string
+	ParentID    string
+	BlockType   string
+	SectionPath string
+	Clause      string
+	ContentHash string
 }
 
 func (c *Core) build(ctx context.Context, id string, version int) error {
@@ -606,11 +625,14 @@ func (c *Core) build(ctx context.Context, id string, version int) error {
 	if err := c.db.QueryRowContext(ctx, "SELECT v.kind,d.title,d.knowledge_id FROM knowledge_versions v JOIN knowledge_documents d ON d.id=v.document_id WHERE v.document_id=? AND v.version=? AND d.deleted=0", id, version).Scan(&kind, &title, &baseID); err != nil {
 		return err
 	}
-	pages, err := parse(ctx, filepath.Join(c.root, id, strconv.Itoa(version), "original"), kind)
+	pages, blocks, err := parseDocument(ctx, filepath.Join(c.root, id, strconv.Itoa(version), "original"), kind)
 	if err != nil {
 		return err
 	}
-	chunks, characters, err := split(ctx, id, version, pages)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	chunks, characters, err := chunkBlocks(id, version, blocks)
 	if err != nil {
 		return err
 	}
@@ -622,7 +644,9 @@ func (c *Core) build(ctx context.Context, id string, version int) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		chunks[index].Tokens, err = tokenize(chunks[index].Text)
+		// Section path and clause labels are indexed with the body so structural
+		// queries can reach the right chunk even when the words live in a heading.
+		chunks[index].Tokens, err = tokenize(strings.Join([]string{chunks[index].SectionPath, chunks[index].Clause, chunks[index].Text}, "\n"))
 		if err != nil {
 			return err
 		}
@@ -653,7 +677,7 @@ func (c *Core) build(ctx context.Context, id string, version int) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM knowledge_fts WHERE chunk_id IN(SELECT id FROM knowledge_chunks WHERE document_id=?)", id); err != nil {
 		return err
 	}
-	insertChunk, err := tx.PrepareContext(ctx, "INSERT INTO knowledge_chunks VALUES(?,?,?,?,?,?,?)")
+	insertChunk, err := tx.PrepareContext(ctx, "INSERT INTO knowledge_chunks(id,document_id,knowledge_id,version,position,text,location,parent_id,block_type,section_path,clause,content_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
 	if err != nil {
 		return err
 	}
@@ -665,7 +689,7 @@ func (c *Core) build(ctx context.Context, id string, version int) error {
 	defer insertIndex.Close()
 	for _, chunk := range chunks {
 		location, _ := json.Marshal(chunk.Location)
-		if _, err := insertChunk.ExecContext(ctx, chunk.ID, id, baseID, version, chunk.Position, chunk.Text, string(location)); err != nil {
+		if _, err := insertChunk.ExecContext(ctx, chunk.ID, id, baseID, version, chunk.Position, chunk.Text, string(location), chunk.ParentID, chunk.BlockType, chunk.SectionPath, chunk.Clause, chunk.ContentHash); err != nil {
 			return err
 		}
 		if _, err := insertIndex.ExecContext(ctx, chunk.ID, titleTokens, chunk.Tokens); err != nil {

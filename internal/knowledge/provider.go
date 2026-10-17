@@ -45,9 +45,9 @@ type Hit struct {
 	Score       *float64 `json:"score,omitempty"`
 }
 type SearchResult struct {
-	Hits      []Hit   `json:"hits"`
-	MatchMode string  `json:"match_mode"`
-	Trace     *Trace  `json:"trace,omitempty"`
+	Hits      []Hit  `json:"hits"`
+	MatchMode string `json:"match_mode"`
+	Trace     *Trace `json:"trace,omitempty"`
 }
 type ReadRequest struct {
 	SourceID string `json:"source_id"`
