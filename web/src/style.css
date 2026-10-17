@@ -4491,3 +4491,95 @@ details[open] > summary > .disclosure-icon {
   padding: 3px 8px;
   border-radius: 5px;
 }
+
+/* Extensions: lifecycle cards plus a compact event log. */
+.extensions-workspace {
+  max-width: 880px;
+}
+.extensions-section {
+  margin-top: 22px;
+}
+.extensions-section h2 {
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+.extension-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  background: var(--paper);
+}
+.extension-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.extension-card strong {
+  font-size: 13px;
+}
+.extension-card small {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--faint);
+}
+.extension-card > p {
+  margin-top: 8px;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.extension-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px !important;
+}
+.extension-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.extension-actions button {
+  font-size: 11px;
+  padding: 4px 9px;
+}
+.extension-link {
+  font-size: 11.5px;
+  color: var(--teal-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.extension-events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+.extension-events li {
+  display: grid;
+  grid-template-columns: 70px 140px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.extension-events strong {
+  font-weight: 500;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.extension-events time {
+  color: var(--faint);
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .extension-events li {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

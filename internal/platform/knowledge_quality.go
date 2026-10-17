@@ -1,6 +1,9 @@
 package platform
 
-import "siagent/internal/knowledge"
+import (
+	"siagent/internal/knowledge"
+	"siagent/internal/plugins"
+)
 
 // migrateKnowledgeQuality adds evaluation and trace tables. It only adds
 // tables, so existing documents, indexes and history stay untouched.
@@ -101,6 +104,22 @@ func (s *Store) migrateAudit() error {
 	if _, err := tx.Exec(`CREATE TABLE audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT,actor TEXT NOT NULL,action TEXT NOT NULL,resource TEXT NOT NULL,detail TEXT NOT NULL DEFAULT '',created INTEGER NOT NULL);
  CREATE INDEX audit_log_created ON audit_log(created DESC);
  PRAGMA user_version=16;`); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migratePlugins()
+}
+
+// migratePlugins adds the extension registry and its bounded event log.
+func (s *Store) migratePlugins() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(plugins.Schema + "\n PRAGMA user_version=17;"); err != nil {
 		return err
 	}
 	return tx.Commit()

@@ -7,7 +7,9 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"siagent/internal/knowledge"
@@ -84,6 +86,10 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer part.Close()
+	if !s.uploadExtensionSupported(part.FileName()) {
+		fail(w, 400, "该文件格式需要先在“扩展”中安装并启用解析扩展。")
+		return
+	}
 	value, err := s.knowledge.Upload(r.Context(), r.PathValue("id"), r.PathValue("document"), part.FileName(), io.MultiReader(part, uploadEnd{reader}))
 	if err != nil {
 		var maxBytes *http.MaxBytesError
@@ -97,6 +103,22 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	// Only the first file is accepted; the endpoint never silently merges documents.
 	respond(w, 202, value)
 }
+
+// uploadExtensionSupported reports whether a built-in parser handles the file,
+// or an enabled parser extension declares its extension.
+func (s *Server) uploadExtensionSupported(filename string) bool {
+	extension := strings.ToLower(filepath.Ext(filename))
+	switch extension {
+	case ".txt", ".md", ".markdown", ".pdf", ".docx":
+		return true
+	}
+	if extension == "" {
+		return false
+	}
+	_, ok := s.plugins.ParserFor(extension)
+	return ok
+}
+
 func (s *Server) deleteDocument(w http.ResponseWriter, r *http.Request) {
 	if err := s.knowledge.DeleteDocument(r.Context(), r.PathValue("document")); err != nil {
 		knowledgeError(w, err)

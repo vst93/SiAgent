@@ -58,6 +58,7 @@ type Core struct {
 	root     string
 	provider Provider
 	reranker Reranker
+	external func(context.Context, string, string) (string, error)
 	wake     chan struct{}
 }
 
@@ -245,6 +246,12 @@ func (c *Core) Search(ctx context.Context, scope Scope, request SearchRequest) (
 	return result, nil
 }
 
+// SetExternalParser installs an extension-backed parser. It receives the
+// extension (without the dot) and the stored file path, and returns text.
+func (c *Core) SetExternalParser(parser func(context.Context, string, string) (string, error)) {
+	c.external = parser
+}
+
 // SetReranker installs the optional model reranker. Passing nil keeps heuristic
 // ordering only.
 func (c *Core) SetReranker(reranker Reranker) { c.reranker = reranker }
@@ -379,7 +386,10 @@ func (c *Core) Upload(ctx context.Context, baseID, documentID, filename string, 
 	case ".docx":
 		kind = "docx"
 	default:
-		return Document{}, invalid("仅支持 UTF-8 TXT、Markdown、DOCX 和可提取文本的 PDF；不支持扫描件、OCR 或旧版 .doc 文件。")
+		if c.external == nil || len(kind) < 2 || len(kind) > 17 {
+			return Document{}, invalid("仅支持 UTF-8 TXT、Markdown、DOCX 和可提取文本的 PDF；其他格式需要安装并启用解析扩展。")
+		}
+		kind = strings.TrimPrefix(kind, ".")
 	}
 	staging := filepath.Join(c.root, "staging", rand.Text())
 	if err := os.Mkdir(staging, 0700); err != nil {
@@ -711,7 +721,7 @@ func (c *Core) build(ctx context.Context, id string, version int) error {
 	if err := c.db.QueryRowContext(ctx, "SELECT v.kind,d.title,d.knowledge_id FROM knowledge_versions v JOIN knowledge_documents d ON d.id=v.document_id WHERE v.document_id=? AND v.version=? AND d.deleted=0", id, version).Scan(&kind, &title, &baseID); err != nil {
 		return err
 	}
-	pages, blocks, err := parseDocument(ctx, filepath.Join(c.root, id, strconv.Itoa(version), "original"), kind)
+	pages, blocks, err := c.parseDocument(ctx, filepath.Join(c.root, id, strconv.Itoa(version), "original"), kind)
 	if err != nil {
 		return err
 	}

@@ -27,6 +27,12 @@ export const configSections = [
     icon: "plugins",
   },
   {
+    id: "extensions",
+    title: "扩展",
+    description: "安装、启停和回滚扩展包，查看健康状态与事件。",
+    icon: "plugins",
+  },
+  {
     id: "channels",
     title: "渠道接入",
     description: "选择聊天渠道适配器，连接消息平台并绑定 Agent。",

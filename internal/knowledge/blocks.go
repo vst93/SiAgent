@@ -602,7 +602,22 @@ func splitRunes(runes []rune) []string {
 
 // parseDocument returns both the pages used for source reading and the blocks
 // used for indexing.
-func parseDocument(ctx context.Context, path, kind string) ([]page, []block, error) {
+func (c *Core) parseDocument(ctx context.Context, path, kind string) ([]page, []block, error) {
+	if kind != "txt" && kind != "markdown" && kind != "pdf" && kind != "docx" {
+		if c.external == nil {
+			return nil, nil, invalid("该格式需要安装并启用解析扩展。")
+		}
+		text, err := c.external(ctx, kind, path)
+		if err != nil {
+			return nil, nil, invalid("解析扩展未能处理该文件，请检查扩展状态后重试。")
+		}
+		if utf8.RuneCountInString(text) > MaxCharacters {
+			return nil, nil, invalid("提取文本超过 100 万字符，请拆分文档。")
+		}
+		blocks := blocksFromPlainText(text, 1, 0)
+		assignSections(blocks)
+		return []page{{Text: text}}, blocks, nil
+	}
 	if kind == "docx" {
 		data, err := os.ReadFile(path)
 		if err != nil {

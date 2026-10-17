@@ -447,6 +447,10 @@ try {
   await page.getByRole("button", { name: "测试模型连接", exact: true }).click();
   await page.getByText("连接成功，模型已返回文本响应。").waitFor();
   assert.equal(await page.getByLabel("API 密钥").inputValue(), "");
+  await config("扩展");
+  await page.getByRole("heading", { name: "已安装", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "随系统分发", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "最近事件", exact: true }).waitFor();
   await config("运行与维护");
   await page.getByRole("heading", { name: "应用更新", exact: true }).waitFor();
   const updateState = await page.evaluate(() =>

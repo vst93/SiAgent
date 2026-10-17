@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"siagent/internal/channels"
 	"siagent/internal/knowledge"
+	"siagent/internal/plugins"
 	agentruntime "siagent/internal/runtime"
 )
 
@@ -34,6 +36,7 @@ type Server struct {
 	maintenanceWork       sync.Mutex
 	channelConfigMu       sync.Mutex
 	channelProviders      *channels.Registry
+	plugins               *plugins.Registry
 	channelTests          map[string]bool
 	channelConnections    channelConnections
 	channelWork           sync.Mutex
@@ -90,6 +93,18 @@ func New(store *Store, runtime Runtime, ready func() bool, publicURL string) (*S
 	if err != nil {
 		return nil, err
 	}
+	registry, err := plugins.New(store.db, store.directory)
+	if err != nil {
+		return nil, err
+	}
+	s.plugins = registry
+	core.SetExternalParser(func(ctx context.Context, ext, path string) (string, error) {
+		value, ok := registry.ParserFor("." + ext)
+		if !ok {
+			return "", errors.New("no enabled parser extension")
+		}
+		return registry.Parse(ctx, value, path)
+	})
 	core.SetReranker(&modelReranker{store: store})
 	s.knowledge = core
 	s.knowledgePending = make(map[string]context.CancelFunc)
@@ -159,6 +174,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/wecom/deliveries/{delivery}/retry", s.authorize(http.HandlerFunc(s.retryChannelSend)))
 	mux.Handle("GET /api/models", s.authorize(http.HandlerFunc(s.listModels)))
 	mux.Handle("GET /api/model-providers", s.authorize(http.HandlerFunc(s.listModelProviders)))
+	mux.Handle("GET /api/plugins", s.authorize(http.HandlerFunc(s.listPlugins)))
+	mux.Handle("GET /api/plugins/events", s.authorize(http.HandlerFunc(s.pluginEvents)))
+	mux.Handle("POST /api/plugins/{id}/install", s.authorize(http.HandlerFunc(s.installPlugin)))
+	mux.Handle("POST /api/plugins/{id}/enable", s.authorize(http.HandlerFunc(s.enablePlugin)))
+	mux.Handle("POST /api/plugins/{id}/disable", s.authorize(http.HandlerFunc(s.disablePlugin)))
+	mux.Handle("POST /api/plugins/{id}/rollback", s.authorize(http.HandlerFunc(s.rollbackPlugin)))
+	mux.Handle("DELETE /api/plugins/{id}", s.authorize(http.HandlerFunc(s.uninstallPlugin)))
 	mux.Handle("POST /api/model-providers/packs/{id}/install", s.authorize(http.HandlerFunc(s.installProviderPack)))
 	mux.Handle("DELETE /api/model-providers/packs/{id}", s.authorize(http.HandlerFunc(s.uninstallProviderPack)))
 	mux.Handle("POST /api/models/discover", s.authorize(http.HandlerFunc(s.discoverModels)))

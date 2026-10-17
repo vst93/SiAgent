@@ -4,6 +4,7 @@ import { AgentWorkspace, type Agent, type Model } from "./agents";
 import { ModelsWorkspace } from "./models";
 import { KnowledgeWorkspace } from "./knowledge";
 import { PluginsWorkspace } from "./plugins";
+import { ExtensionsWorkspace } from "./extensions";
 import { ChannelsWorkspace } from "./channels";
 import { ExecutionSettings } from "./runtime-controls";
 import { configSections, type ConfigSection, type Page } from "./navigation";
@@ -45,7 +46,7 @@ export function Configuration({
           {configSections.map((item, index) => (
             <div key={item.id}>
               {index === 0 && <p className="nav-group-label">Agent 与能力</p>}
-              {index === 4 && <p className="nav-group-label">服务与维护</p>}
+              {index === 5 && <p className="nav-group-label">服务与维护</p>}
               <a
                 href={`#/settings/${item.id}`}
                 onClick={(event) => {
@@ -87,6 +88,7 @@ export function Configuration({
           )}
           {section === "knowledge" && <KnowledgeWorkspace request={request} />}
           {section === "tools" && <PluginsWorkspace request={request} />}
+          {section === "extensions" && <ExtensionsWorkspace request={request} />}
           {section === "channels" && (
             <ChannelsWorkspace
               request={request}
