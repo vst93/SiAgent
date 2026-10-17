@@ -60,6 +60,17 @@
 - [x] 单元测试覆盖 Markdown 层级/表格/列表、纯文本章节与条款、DOCX 标题/表格/列表、损坏 DOCX、长节父子片段、结构元数据入库与标题检索；平台与浏览器测试回归。
 - [ ] 复杂版式 PDF、合并单元格与嵌套表格仍需按真实资料验证。
 
+## 扩展与集成 M1：模型供应商与配置界面
+
+- [x] schema 15 为 `models` 增加 `provider` 并新增 `provider_packs`；旧连接按协议映射为 `openai` / `anthropic`，保留密钥与参数。
+- [x] 基础供应商（OpenAI、Anthropic、自定义 OpenAI 兼容网关）始终可用；官方预设（OpenRouter、DeepSeek、Groq、Mistral、xAI、Together、Fireworks、Gemini、Ollama、vLLM、LM Studio）来自“Pi 模型供应商”扩展。
+- [x] 扩展启用只记录本地安装状态，不下载或执行第三方代码；仍有连接使用时拒绝停用；未启用的供应商不能保存。
+- [x] 供应商与协议一致性校验：Anthropic 只能配 Anthropic Messages，OpenAI 系只能配两种 OpenAI 协议，自定义网关三种皆可；旧客户端省略 provider 时按协议推导。
+- [x] 派发前检查供应商可用性，扩展被移除后运行明确失败并提示安装扩展，不静默回退。
+- [x] 配置界面：供应商分组下拉、自动填充地址与协议、扩展启用卡片；连接列表保留搜索。
+- [x] 平台测试覆盖目录鉴权、扩展启用/停用限制、不可用供应商拒绝、协议不匹配、派发失败与列表字段；浏览器覆盖扩展启用前后选项状态。
+- [ ] 真实第三方供应商连通性仍需按供应商逐个验收。
+
 ## 知识效果 K0：评测与检索 trace 基线
 
 - [x] schema 11 增加 `knowledge_eval_questions`、`knowledge_eval_runs`、`retrieval_traces`，从 1–10 自动迁移，只新增表。

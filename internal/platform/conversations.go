@@ -306,6 +306,9 @@ func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, r
 	if model.Archived {
 		return Run{}, &admissionError{409, "关联模型已归档，请重新选择模型。"}
 	}
+	if message := s.store.modelProviderError(model); message != "" {
+		return Run{}, &admissionError{409, message}
+	}
 	var exists, waiting, total, occupied, sameActive int
 	if err := s.store.db.QueryRow("SELECT count(*) FROM conversations WHERE id=? AND NOT EXISTS(SELECT 1 FROM conversation_cleanup WHERE conversation_id=conversations.id)", conversationID).Scan(&exists); err != nil {
 		return Run{}, err

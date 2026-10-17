@@ -27,6 +27,7 @@ const defaults: ModelOptions = {
   max_tokens_field: "",
 };
 const blank: Model = {
+  provider: "openai",
   id: 0,
   name: "",
   base_url: "https://api.openai.com/v1",
@@ -36,6 +37,25 @@ const blank: Model = {
   options: defaults,
 };
 const count = (n: number) => n.toLocaleString();
+type ProviderPreset = {
+  id: string;
+  name: string;
+  group: "base" | "official";
+  api: string;
+  base_url: string;
+  documentation?: string;
+  pack?: string;
+  available: boolean;
+};
+type ProviderPack = {
+  id: string;
+  name: string;
+  description: string;
+  providers: string[];
+  installed: boolean;
+  installed_at?: number;
+};
+
 export function ModelsWorkspace({
   request,
   models,
@@ -55,10 +75,24 @@ export function ModelsWorkspace({
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [query, setQuery] = useState("");
+  const [providers, setProviders] = useState<ProviderPreset[]>([]);
+  const [packs, setPacks] = useState<ProviderPack[]>([]);
+  const [packError, setPackError] = useState("");
+  const [packPending, setPackPending] = useState(false);
   const [available, setAvailable] = useState<string[] | null>(null);
   const [manual, setManual] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState("");
+  useEffect(() => {
+    void request<{ presets: ProviderPreset[]; packs: ProviderPack[] }>(
+      "/model-providers",
+    )
+      .then((value) => {
+        setProviders(value.presets);
+        setPacks(value.packs);
+      })
+      .catch(() => setProviders([]));
+  }, []);
   const sequence = useRef(0);
   useEffect(() => {
     sequence.current++;
@@ -116,11 +150,48 @@ export function ModelsWorkspace({
     setFeedback("");
   }
   function options(value: Partial<ModelOptions>) {
+    setEditor((current) => {
+      const next = { ...current, options: { ...current.options, ...value } };
+      // Keep provider and protocol consistent: switching to Anthropic or back
+      // to OpenAI moves the provider with it.
+      if (value.api) {
+        if (value.api === "anthropic-messages") next.provider = "anthropic";
+        else if (current.provider === "anthropic") next.provider = "openai";
+      }
+      return next;
+    });
+    setFeedback("");
+  }
+  function chooseProvider(id: string) {
+    const preset = providers.find((value) => value.id === id);
     setEditor((current) => ({
       ...current,
-      options: { ...current.options, ...value },
+      provider: id,
+      base_url: preset?.base_url ? preset.base_url : current.base_url,
+      options: preset
+        ? { ...current.options, api: preset.api as ModelOptions["api"] }
+        : current.options,
     }));
     setFeedback("");
+  }
+  async function installPack(id: string) {
+    setPackPending(true);
+    setPackError("");
+    try {
+      const value = await request<{
+        presets: ProviderPreset[];
+        packs: ProviderPack[];
+      }>(`/model-providers/packs/${id}/install`, "POST");
+      setProviders(value.presets);
+      setPacks(value.packs);
+      setFeedback("供应商扩展已启用，可以选择新的供应商。");
+    } catch (error) {
+      setPackError(
+        error instanceof Error ? error.message : "供应商扩展未启用。",
+      );
+    } finally {
+      setPackPending(false);
+    }
   }
   async function action(work: () => Promise<void>) {
     setPending(true);
@@ -146,6 +217,7 @@ export function ModelsWorkspace({
           base_url: editor.base_url,
           name: editor.name,
           api_key: key,
+          provider: editor.provider,
           options: o,
         },
       );
@@ -254,6 +326,47 @@ export function ModelsWorkspace({
                 <p>选择接口协议，填写模型服务提供的地址和凭据。</p>
               </div>
               <div className="model-fields">
+                <label>
+                  供应商
+                  <select
+                    aria-label="模型供应商"
+                    value={editor.provider}
+                    onChange={(event) => chooseProvider(event.target.value)}
+                  >
+                    <optgroup label="基础协议">
+                      {providers
+                        .filter((item) => item.group === "base")
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      {!providers.length && (
+                        <>
+                          <option value="openai">OpenAI</option>
+                          <option value="anthropic">Anthropic</option>
+                          <option value="custom">自定义 OpenAI 兼容网关</option>
+                        </>
+                      )}
+                    </optgroup>
+                    {providers.some((item) => item.group === "official") && (
+                      <optgroup label="官方扩展">
+                        {providers
+                          .filter((item) => item.group === "official")
+                          .map((item) => (
+                            <option
+                              key={item.id}
+                              value={item.id}
+                              disabled={!item.available}
+                            >
+                              {item.name}
+                              {item.available ? "" : "（需启用扩展）"}
+                            </option>
+                          ))}
+                      </optgroup>
+                    )}
+                  </select>
+                </label>
                 <label>
                   连接名称
                   <input
@@ -422,6 +535,30 @@ export function ModelsWorkspace({
                   </small>
                 </div>
               </div>
+              {packs.map((pack) => (
+                <div className="model-pack" key={pack.id}>
+                  <div>
+                    <strong>{pack.name}</strong>
+                    <p>{pack.description}</p>
+                  </div>
+                  {pack.installed ? (
+                    <span className="model-pack-state">已启用</span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={packPending}
+                      onClick={() => void installPack(pack.id)}
+                    >
+                      {packPending ? "正在启用…" : "启用供应商扩展"}
+                    </button>
+                  )}
+                </div>
+              ))}
+              {packError && (
+                <p className="error" role="alert">
+                  {packError}
+                </p>
+              )}
             </section>
             <section className="model-form-section">
               <div className="model-section-title">

@@ -20,6 +20,7 @@ export type ModelOptions = {
 };
 export type Model = {
   options: ModelOptions;
+  provider: string;
   id: number;
   base_url: string;
   name: string;

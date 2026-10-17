@@ -245,6 +245,18 @@ try {
   await page
     .getByLabel("服务地址")
     .fill(`http://127.0.0.1:${model.address().port}/v1`);
+  const providerSelect = page.getByLabel("模型供应商", { exact: true });
+  await providerSelect.waitFor();
+  assert(
+    (await providerSelect.locator("option", { hasText: "DeepSeek" }).first().innerText()).includes("需启用扩展"),
+    "official providers should be locked until the pack is enabled",
+  );
+  await page.getByRole("button", { name: "启用供应商扩展", exact: true }).click();
+  await page.getByText("已启用", { exact: true }).waitFor();
+  assert(
+    !(await providerSelect.locator("option", { hasText: "DeepSeek" }).first().innerText()).includes("需启用扩展"),
+    "official providers should unlock after enabling the pack",
+  );
   await page.getByLabel("API 密钥").fill("browser-key");
   await page.getByRole("button", { name: "获取模型列表", exact: true }).click();
   await page.getByText("已获取 2 个模型", { exact: true }).waitFor();

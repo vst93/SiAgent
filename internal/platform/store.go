@@ -123,11 +123,14 @@ func (s *Store) migrate() error {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 14 {
-		return fmt.Errorf("platform database schema %d is newer than supported schema 14", version)
+	if version > 15 {
+		return fmt.Errorf("platform database schema %d is newer than supported schema 15", version)
+	}
+	if version == 15 {
+		return nil
 	}
 	if version == 14 {
-		return nil
+		return s.migrateModelProviders()
 	}
 	if version == 13 {
 		return s.migrateFeedback()
@@ -215,6 +218,7 @@ func (s *Store) decrypt(value string) (string, error) {
 
 type Model struct {
 	Options  ModelOptions `json:"options"`
+	Provider string       `json:"provider"`
 	ID       int64        `json:"id"`
 	Archived bool         `json:"archived"`
 	BaseURL  string       `json:"base_url"`
@@ -228,7 +232,7 @@ func (s *Store) model() (Model, error) { return s.modelByID(1) }
 func (s *Store) modelByID(id int64) (Model, error) {
 	var model Model
 	var encrypted, options string
-	err := s.db.QueryRow("SELECT id,base_url,name,api_key,version,archived,options FROM models WHERE id=?", id).Scan(&model.ID, &model.BaseURL, &model.Name, &encrypted, &model.Version, &model.Archived, &options)
+	err := s.db.QueryRow("SELECT id,base_url,name,api_key,version,archived,options,provider FROM models WHERE id=?", id).Scan(&model.ID, &model.BaseURL, &model.Name, &encrypted, &model.Version, &model.Archived, &options, &model.Provider)
 	if err != nil {
 		return model, err
 	}
@@ -238,6 +242,7 @@ func (s *Store) modelByID(id int64) (Model, error) {
 	}
 	model.APIKey, err = s.decrypt(encrypted)
 	model.HasKey = model.APIKey != ""
+	model.Provider = resolveProvider(model.Provider, model.Options.API)
 	return model, err
 }
 func id() string {

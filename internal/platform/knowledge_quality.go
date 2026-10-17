@@ -63,5 +63,26 @@ func (s *Store) migrateFeedback() error {
 	if _, err := tx.Exec(FeedbackSchema + knowledge.GapSchema + "\n PRAGMA user_version=14;"); err != nil {
 		return err
 	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateModelProviders()
+}
+
+// migrateModelProviders records a provider for every model connection and adds
+// the optional provider-pack table. Existing connections map to the provider
+// that matches their protocol.
+func (s *Store) migrateModelProviders() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`ALTER TABLE models ADD COLUMN provider TEXT NOT NULL DEFAULT '';
+ CREATE TABLE provider_packs(id TEXT PRIMARY KEY,installed_at INTEGER NOT NULL);
+ UPDATE models SET provider=CASE WHEN json_extract(options,'$.api')='anthropic-messages' THEN 'anthropic' ELSE 'openai' END WHERE provider='';
+ PRAGMA user_version=15;`); err != nil {
+		return err
+	}
 	return tx.Commit()
 }

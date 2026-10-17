@@ -32,10 +32,11 @@ func (s *Server) getModel(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) saveModel(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		BaseURL string          `json:"base_url"`
-		Name    string          `json:"name"`
-		APIKey  string          `json:"api_key"`
-		Options json.RawMessage `json:"options"`
+		BaseURL  string          `json:"base_url"`
+		Name     string          `json:"name"`
+		APIKey   string          `json:"api_key"`
+		Provider string          `json:"provider"`
+		Options  json.RawMessage `json:"options"`
 	}
 	if !decode(w, r, &input) {
 		return
@@ -72,6 +73,28 @@ func (s *Server) saveModel(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
+	model.Provider = strings.TrimSpace(input.Provider)
+	if model.Provider == "" {
+		// Legacy clients omit the provider. Keep the saved one when it still
+		// matches the requested protocol; otherwise derive it from the protocol.
+		model.Provider = old.Provider
+		if model.Provider == "" || !providerAllowsAPI(model.Provider, model.Options.API) {
+			model.Provider = resolveProvider("", model.Options.API)
+		}
+	}
+	preset, known := presetByID(model.Provider)
+	if !known {
+		fail(w, 400, "请选择支持的模型供应商。")
+		return
+	}
+	if !providerAllowsAPI(preset.ID, model.Options.API) {
+		fail(w, 400, "供应商与接口协议不匹配，请重新选择。")
+		return
+	}
+	if preset.Pack != "" && !s.store.providerAvailable(preset.ID) {
+		fail(w, 409, "该供应商来自未加载的扩展，请先在“模型连接”中安装供应商扩展。")
+		return
+	}
 	rawOptions, _ := json.Marshal(model.Options)
 	if !validateModel(model) {
 		fail(w, 400, "请填写有效的 HTTP(S) 服务地址、模型名称和密钥。使用无密钥的本地服务时，可填入该服务接受的占位密钥。")
@@ -85,12 +108,12 @@ func (s *Server) saveModel(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 	if r.Method == "POST" {
 		var result sql.Result
-		result, err = tx.Exec("INSERT INTO models(base_url,name,api_key,version,options) VALUES(?,?,?,1,?)", model.BaseURL, model.Name, s.store.encrypt(model.APIKey), string(rawOptions))
+		result, err = tx.Exec("INSERT INTO models(base_url,name,api_key,version,options,provider) VALUES(?,?,?,1,?,?)", model.BaseURL, model.Name, s.store.encrypt(model.APIKey), string(rawOptions), model.Provider)
 		if err == nil {
 			modelID, err = result.LastInsertId()
 		}
 	} else {
-		_, err = tx.Exec("INSERT INTO models(id,base_url,name,api_key,version,options) VALUES(?,?,?,?,1,?) ON CONFLICT(id) DO UPDATE SET base_url=excluded.base_url,name=excluded.name,api_key=excluded.api_key,version=models.version+1,options=excluded.options", modelID, model.BaseURL, model.Name, s.store.encrypt(model.APIKey), string(rawOptions))
+		_, err = tx.Exec("INSERT INTO models(id,base_url,name,api_key,version,options,provider) VALUES(?,?,?,?,1,?,?) ON CONFLICT(id) DO UPDATE SET base_url=excluded.base_url,name=excluded.name,api_key=excluded.api_key,version=models.version+1,options=excluded.options,provider=excluded.provider", modelID, model.BaseURL, model.Name, s.store.encrypt(model.APIKey), string(rawOptions), model.Provider)
 	}
 	if err == nil {
 		_, err = tx.Exec("INSERT OR IGNORE INTO agents(id,name,instructions,enabled) VALUES('default','默认助手','你是一位简洁、可靠的助手。请使用用户的语言回答。',1)")
@@ -253,7 +276,7 @@ func requestedModel(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return value, true
 }
 func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.db.Query("SELECT id,base_url,name,version,archived,options FROM models ORDER BY id")
+	rows, err := s.store.db.Query("SELECT id,base_url,name,version,archived,options,provider FROM models ORDER BY id")
 	if err != nil {
 		internal(w)
 		return
@@ -263,7 +286,7 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m Model
 		var options string
-		if err := rows.Scan(&m.ID, &m.BaseURL, &m.Name, &m.Version, &m.Archived, &options); err != nil {
+		if err := rows.Scan(&m.ID, &m.BaseURL, &m.Name, &m.Version, &m.Archived, &options, &m.Provider); err != nil {
 			internal(w)
 			return
 		}
@@ -273,6 +296,7 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		m.HasKey = true
+		m.Provider = resolveProvider(m.Provider, m.Options.API)
 		models = append(models, m)
 	}
 	if rows.Err() != nil {

@@ -93,7 +93,7 @@ func TestVersionSevenModelOptionsMigration(t *testing.T) {
 	f.setup(t)
 	f.model(t, "prior-model", "prior-secret")
 	downgradeChannelFixture(t, f.store)
-	if _, err := f.store.db.Exec("ALTER TABLE models DROP COLUMN options; ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state;  DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type; ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause; ALTER TABLE knowledge_chunks DROP COLUMN content_hash; DROP TABLE answer_feedback; DROP TABLE knowledge_gaps; PRAGMA user_version=7;"); err != nil {
+	if _, err := f.store.db.Exec("ALTER TABLE models DROP COLUMN options; ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state;  DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type; ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause; ALTER TABLE knowledge_chunks DROP COLUMN content_hash; DROP TABLE answer_feedback; DROP TABLE knowledge_gaps; ALTER TABLE models DROP COLUMN provider; DROP TABLE provider_packs; PRAGMA user_version=7;"); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.Close(); err != nil {
@@ -107,6 +107,9 @@ func TestVersionSevenModelOptionsMigration(t *testing.T) {
 	model, err := upgraded.model()
 	if err != nil || model.APIKey != "prior-secret" || model.Name != "prior-model" || model.Options.API != "openai-completions" || model.Options.ContextWindow != 32768 || model.Options.MaxTokens != 4096 {
 		t.Fatal("migration changed model or credential", err)
+	}
+	if model.Provider != "openai" {
+		t.Fatalf("legacy connection did not receive a provider: %q", model.Provider)
 	}
 }
 
