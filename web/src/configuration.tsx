@@ -41,10 +41,6 @@ export function Configuration({
   return (
     <section className="configuration-workspace" aria-label="配置工作区">
       <aside className="configuration-sidebar">
-        <div className="configuration-intro">
-          <h2>工作区配置</h2>
-          <p>管理模型、资源与服务。</p>
-        </div>
         <nav ref={navRef} aria-label="配置导航">
           {configSections.map((item, index) => (
             <div key={item.id}>
@@ -65,9 +61,6 @@ export function Configuration({
             </div>
           ))}
         </nav>
-        <p className="configuration-tip">
-          点击顶部星标，将常用页面设为默认打开。
-        </p>
       </aside>
       <main className="configuration-main">
         <header className="configuration-heading">
