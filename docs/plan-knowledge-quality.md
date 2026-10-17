@@ -1,6 +1,6 @@
 # SiAgent 知识效果专项计划（轻量优先）
 
-> 状态：方向已确认，待任务拆解。  
+> 状态：K0–K6 已实施并验证，见 `docs/progress.md`。  
 > 目标：在保持轻量、单机、SQLite、低资源占用的前提下，把知识问答从“能用”做成“有效果、可度量、可迭代”。  
 > 关联计划：`docs/plan-extensions-and-integration.md`（扩展体系、模型生态、高级工具、Integration API）。
 

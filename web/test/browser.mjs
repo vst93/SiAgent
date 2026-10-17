@@ -1860,12 +1860,18 @@ try {
 } finally {
   releaseHold();
   releaseChannelHold();
-  await browser?.close();
+  // A crashed browser or a server that ignores SIGTERM must not hang the run.
+  const bounded = (work, ms) =>
+    Promise.race([
+      work.catch(() => {}),
+      new Promise((resolve) => setTimeout(resolve, ms)),
+    ]);
+  await bounded(browser?.close(), 15000);
   const exited = once(child, "close");
   child.kill("SIGTERM");
-  await exited;
+  await bounded(exited, 15000);
   model.closeAllConnections();
-  await new Promise((resolve) => model.close(resolve));
+  await bounded(new Promise((resolve) => model.close(resolve)), 5000);
   await rm(directory, { recursive: true, force: true });
   await rm(skillDirectory, { recursive: true, force: true });
 }

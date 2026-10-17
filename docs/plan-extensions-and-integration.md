@@ -1,6 +1,6 @@
 # SiAgent 扩展体系与对外集成 API 计划
 
-> 状态：方向已确认，待进入任务拆解。  
+> 状态：M1–M5 已实施并验证，见 `docs/progress.md`。  
 > 范围：扩展包体系、模型生态复用、高级工具开关、对外集成 API。  
 > 不包含：Skills/MCP 改造、公开 Web 问答页、外部文档系统连接器、Pi extension 兼容。  
 > 关联计划：知识效果专项（另行编写；本计划中的 embedder/reranker/parser 阶段契约以其为准）。
