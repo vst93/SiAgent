@@ -52,6 +52,11 @@ func (p *LocalProvider) Search(ctx context.Context, scope Scope, request SearchR
 	// Rule-based expansion adds synonyms without calling a model. The original
 	// query always ranks first, so a weak variant cannot outrank a direct hit.
 	queries := expandQueries(request.Query)
+	if request.Baseline {
+		// Baseline mode keeps the pre-K2 behaviour: one query, no structural or
+		// type weighting. Evaluation uses it to measure the improvement.
+		queries = []string{request.Query}
+	}
 	if request.Trace {
 		trace.Stages = append(trace.Stages, TraceStage{Name: "expand", Detail: strings.Join(queries, " | "), Hits: len(queries), Duration: time.Since(started)})
 	}
@@ -100,7 +105,9 @@ func (p *LocalProvider) Search(ctx context.Context, scope Scope, request SearchR
 	fused := fuseResults(lists)
 	if len(fused) > 0 {
 		boostStart := time.Now()
-		structureBoost(request.Query, fused, sections, blockTypes, queryType)
+		if !request.Baseline {
+			structureBoost(request.Query, fused, sections, blockTypes, queryType)
+		}
 		if request.Trace {
 			trace.Stages = append(trace.Stages, TraceStage{Name: "rrf_and_boost", Detail: queryType + " · " + strconv.Itoa(len(lists)) + " ranked lists", Hits: len(fused), Duration: time.Since(boostStart)})
 		}
@@ -193,7 +200,11 @@ func (p *LocalProvider) ftsQuery(ctx context.Context, scope Scope, query string,
 			hit.Score = &score
 			sections[hit.SourceID] = section
 			kinds[hit.SourceID] = blockType
-			hit.Text = excerpt(hit.Text, excerptTerms, excerptLimit)
+			if blockType == blockTable {
+				hit.Text = tableExcerpt(hit.Text, excerptTerms, 5)
+			} else {
+				hit.Text = excerpt(hit.Text, excerptTerms, excerptLimit)
+			}
 			hits = append(hits, hit)
 		}
 		err = rows.Err()

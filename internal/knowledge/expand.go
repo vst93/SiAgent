@@ -172,3 +172,39 @@ func structureBoost(query string, hits []Hit, sections map[string]string, blockT
 		return *hits[i].Score > *hits[j].Score
 	})
 }
+
+// tableExcerpt keeps a table readable: the header row plus the rows that match
+// the query. Generic windowing would cut rows in half and drop the header.
+func tableExcerpt(text string, terms []string, maxRows int) string {
+	rows := strings.Split(strings.TrimSpace(text), "\n")
+	if len(rows) <= 1 {
+		return text
+	}
+	header := rows[0]
+	selected := []string{}
+	for _, row := range rows[1:] {
+		lower := strings.ToLower(row)
+		for _, term := range terms {
+			if strings.Contains(lower, strings.ToLower(term)) {
+				selected = append(selected, row)
+				break
+			}
+		}
+		if len(selected) >= maxRows {
+			break
+		}
+	}
+	if len(selected) == 0 {
+		limit := maxRows
+		if limit > len(rows)-1 {
+			limit = len(rows) - 1
+		}
+		selected = rows[1 : 1+limit]
+	}
+	out := []string{header}
+	out = append(out, selected...)
+	if len(rows)-1 > len(selected) {
+		out = append(out, "…")
+	}
+	return strings.Join(out, "\n")
+}

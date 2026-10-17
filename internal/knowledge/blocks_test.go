@@ -186,3 +186,21 @@ func TestUploadAcceptsDOCXAndIndexes(t *testing.T) {
 		t.Fatal("invalid docx accepted")
 	}
 }
+
+func TestTableQueryReturnsHeaderAndMatchingRow(t *testing.T) {
+	c := fixture(t)
+	b := base(t, c, "table rows")
+	upload(t, c, b.ID, "", "levels.md", "# 住宿标准\n\n| 职级 | 标准 |\n| --- | --- |\n| P5 | 400 |\n| P6 | 500 |\n| P7 | 600 |\n")
+	process(t, c)
+	got := search(t, c, []string{b.ID}, "P6 住宿标准是多少")
+	if len(got.Hits) == 0 {
+		t.Fatal("table query returned nothing")
+	}
+	text := got.Hits[0].Text
+	if !strings.Contains(text, "职级 | 标准") || !strings.Contains(text, "P6 | 500") {
+		t.Fatalf("table hit lost header or matching row: %q", text)
+	}
+	if strings.Contains(text, "P7 | 600") {
+		t.Fatalf("unrelated row should be dropped: %q", text)
+	}
+}

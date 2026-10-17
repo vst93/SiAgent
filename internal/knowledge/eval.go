@@ -34,13 +34,15 @@ type EvalQuestion struct {
 
 // EvalMetrics is the reproducible retrieval baseline for one run.
 type EvalMetrics struct {
-	Questions    int     `json:"questions"`
-	RecallAt1    float64 `json:"recall_at_1"`
-	RecallAt3    float64 `json:"recall_at_3"`
-	RecallAt5    float64 `json:"recall_at_5"`
-	MRR          float64 `json:"mrr"`
-	NoResultRate float64 `json:"no_result_rate"`
-	AvgLatencyMS float64 `json:"avg_latency_ms"`
+	Questions         int     `json:"questions"`
+	RecallAt1         float64 `json:"recall_at_1"`
+	RecallAt3         float64 `json:"recall_at_3"`
+	RecallAt5         float64 `json:"recall_at_5"`
+	MRR               float64 `json:"mrr"`
+	NoResultRate      float64 `json:"no_result_rate"`
+	AvgLatencyMS      float64 `json:"avg_latency_ms"`
+	BaselineRecallAt5 float64 `json:"baseline_recall_at_5"`
+	BaselineMRR       float64 `json:"baseline_mrr"`
 }
 
 // EvalCaseResult keeps the ranked document ids so a regression can be read
@@ -192,19 +194,43 @@ func (c *Core) RunEval(ctx context.Context, baseID string) (EvalRun, error) {
 		return EvalRun{}, invalid("请先添加至少一个评测问题。")
 	}
 	scope := Scope{KnowledgeIDs: []string{baseID}}
-	run := EvalRun{ID: rand.Text(), KnowledgeID: baseID, Created: time.Now().UnixMilli(), Cases: make([]EvalCaseResult, 0, len(questions))}
+	metrics, cases, err := c.scoreQuestions(ctx, scope, questions, false)
+	if err != nil {
+		return EvalRun{}, err
+	}
+	// The baseline replays single-query BM25 without expansion or weighting so
+	// an improvement is measured against the pre-K2 behaviour, not assumed.
+	baseline, _, err := c.scoreQuestions(ctx, scope, questions, true)
+	if err != nil {
+		return EvalRun{}, err
+	}
+	metrics.BaselineRecallAt5 = baseline.RecallAt5
+	metrics.BaselineMRR = baseline.MRR
+	run := EvalRun{ID: rand.Text(), KnowledgeID: baseID, Created: time.Now().UnixMilli(), Metrics: metrics, Cases: cases}
+	rawMetrics, _ := json.Marshal(run.Metrics)
+	rawCases, _ := json.Marshal(run.Cases)
+	if _, err := c.db.ExecContext(ctx, "INSERT INTO knowledge_eval_runs(id,knowledge_id,created,metrics,cases) VALUES(?,?,?,?,?)", run.ID, baseID, run.Created, string(rawMetrics), string(rawCases)); err != nil {
+		return EvalRun{}, err
+	}
+	return run, nil
+}
+
+// scoreQuestions runs one evaluation pass. baseline disables expansion and
+// structural weighting; everything else stays identical.
+func (c *Core) scoreQuestions(ctx context.Context, scope Scope, questions []EvalQuestion, baseline bool) (EvalMetrics, []EvalCaseResult, error) {
+	cases := make([]EvalCaseResult, 0, len(questions))
 	var recall1, recall3, recall5, mrr, empty, latency float64
 	for _, question := range questions {
 		started := time.Now()
-		result, err := c.Search(ctx, scope, SearchRequest{Query: question.Question, Limit: 5})
+		result, err := c.Search(ctx, scope, SearchRequest{Query: question.Question, Limit: 5, Baseline: baseline})
 		latency += float64(time.Since(started).Microseconds()) / 1000
 		if err != nil {
 			var fault *Fault
 			if errors.As(err, &fault) && fault.Kind == "invalid" {
-				run.Cases = append(run.Cases, EvalCaseResult{QuestionID: question.ID, Question: question.Question, Expected: question.ExpectedDocumentIDs, Ranked: []string{}, FirstRank: 0, Pass: false})
+				cases = append(cases, EvalCaseResult{QuestionID: question.ID, Question: question.Question, Expected: question.ExpectedDocumentIDs, Ranked: []string{}, FirstRank: 0, Pass: false})
 				continue
 			}
-			return EvalRun{}, err
+			return EvalMetrics{}, nil, err
 		}
 		ranked := make([]string, 0, len(result.Hits))
 		firstRank := 0
@@ -229,10 +255,10 @@ func (c *Core) RunEval(ctx context.Context, baseID string) (EvalRun, error) {
 				recall5++
 			}
 		}
-		run.Cases = append(run.Cases, EvalCaseResult{QuestionID: question.ID, Question: question.Question, Expected: question.ExpectedDocumentIDs, Ranked: ranked, FirstRank: firstRank, Pass: firstRank > 0 && firstRank <= 5})
+		cases = append(cases, EvalCaseResult{QuestionID: question.ID, Question: question.Question, Expected: question.ExpectedDocumentIDs, Ranked: ranked, FirstRank: firstRank, Pass: firstRank > 0 && firstRank <= 5})
 	}
 	total := float64(len(questions))
-	run.Metrics = EvalMetrics{
+	return EvalMetrics{
 		Questions:    len(questions),
 		RecallAt1:    round(recall1 / total),
 		RecallAt3:    round(recall3 / total),
@@ -240,13 +266,7 @@ func (c *Core) RunEval(ctx context.Context, baseID string) (EvalRun, error) {
 		MRR:          round(mrr / total),
 		NoResultRate: round(empty / total),
 		AvgLatencyMS: round(latency / total),
-	}
-	rawMetrics, _ := json.Marshal(run.Metrics)
-	rawCases, _ := json.Marshal(run.Cases)
-	if _, err := c.db.ExecContext(ctx, "INSERT INTO knowledge_eval_runs(id,knowledge_id,created,metrics,cases) VALUES(?,?,?,?,?)", run.ID, baseID, run.Created, string(rawMetrics), string(rawCases)); err != nil {
-		return EvalRun{}, err
-	}
-	return run, nil
+	}, cases, nil
 }
 
 // EvalRuns lists recent runs, newest first, without per-case payloads.

@@ -307,6 +307,12 @@ func TestKnowledgeTraceAndEvaluationAPI(t *testing.T) {
 	if run.Metrics.Questions != 1 || run.Metrics.RecallAt5 != 1 {
 		t.Fatalf("unexpected metrics: %s", response.Body.String())
 	}
+	if run.Metrics.BaselineRecallAt5 > run.Metrics.RecallAt5 || run.Metrics.BaselineMRR > run.Metrics.MRR {
+		t.Fatalf("baseline should not beat the current pipeline: %+v", run.Metrics)
+	}
+	if !strings.Contains(response.Body.String(), `"baseline_recall_at_5"`) {
+		t.Fatalf("baseline metrics missing from response: %s", response.Body.String())
+	}
 	requireStatus(t, f.request(t, "GET", "/api/knowledge/bases/"+base.ID+"/eval/runs", nil, true, nil), 200)
 	requireStatus(t, f.request(t, "GET", "/api/knowledge/eval/runs/"+run.ID, nil, true, nil), 200)
 	requireStatus(t, f.request(t, "GET", "/api/knowledge/eval/runs/missing", nil, true, nil), 404)

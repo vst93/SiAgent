@@ -135,3 +135,58 @@ func TestStructureTermsAreIndexedWithHigherWeight(t *testing.T) {
 		t.Fatal("heading terms not indexed")
 	}
 }
+
+func TestTableExcerptKeepsHeaderAndMatchingRows(t *testing.T) {
+	table := "职级 | 标准\nP5 | 400\nP6 | 500\nP7 | 600"
+	got := tableExcerpt(table, []string{"p6"}, 5)
+	if !strings.Contains(got, "职级 | 标准") || !strings.Contains(got, "P6 | 500") {
+		t.Fatalf("header or matching row missing: %q", got)
+	}
+	if strings.Contains(got, "P7 | 600") {
+		t.Fatalf("unrelated row should be dropped: %q", got)
+	}
+	if !strings.Contains(got, "…") {
+		t.Fatalf("truncation marker missing: %q", got)
+	}
+}
+
+func TestBaselineModeDisablesExpansionAndWeighting(t *testing.T) {
+	c := fixture(t)
+	b := base(t, c, "baseline")
+	upload(t, c, b.ID, "", "travel.txt", "差旅住宿费上限为每晚 500 元。")
+	process(t, c)
+	baseline, err := c.Search(context.Background(), Scope{KnowledgeIDs: []string{b.ID}}, SearchRequest{Query: "酒店开销限制", Limit: 5, Baseline: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(baseline.Hits) != 0 {
+		t.Fatalf("baseline should not expand synonyms: %+v", baseline.Hits)
+	}
+	current, err := c.Search(context.Background(), Scope{KnowledgeIDs: []string{b.ID}}, SearchRequest{Query: "酒店开销限制", Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(current.Hits) == 0 {
+		t.Fatal("current pipeline should recover the synonym match")
+	}
+}
+
+func TestEvalReportsBaselineForComparison(t *testing.T) {
+	c := fixture(t)
+	b := base(t, c, "compare")
+	doc := upload(t, c, b.ID, "", "travel.txt", "差旅住宿费上限为每晚 500 元。")
+	process(t, c)
+	if _, err := c.SaveEvalQuestion(context.Background(), "", b.ID, "酒店开销限制", []string{doc.ID}, nil); err != nil {
+		t.Fatal(err)
+	}
+	run, err := c.RunEval(context.Background(), b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Metrics.RecallAt5 != 1 {
+		t.Fatalf("current pipeline should hit: %+v", run.Metrics)
+	}
+	if run.Metrics.BaselineRecallAt5 != 0 {
+		t.Fatalf("baseline should miss the synonym query: %+v", run.Metrics)
+	}
+}

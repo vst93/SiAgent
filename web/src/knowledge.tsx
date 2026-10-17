@@ -90,6 +90,8 @@ type EvalMetrics = {
   mrr: number;
   no_result_rate: number;
   avg_latency_ms: number;
+  baseline_recall_at_5?: number;
+  baseline_mrr?: number;
 };
 type EvalCase = {
   question_id: string;
@@ -1533,6 +1535,17 @@ function KnowledgeEval({
               <strong>{run.metrics.avg_latency_ms.toFixed(1)}</strong>
               <span>平均毫秒</span>
             </div>
+            {run.metrics.baseline_recall_at_5 !== undefined && (
+              <div>
+                <strong>{percent(run.metrics.baseline_recall_at_5)}</strong>
+                <span>
+                  基线 R@5
+                  {run.metrics.recall_at_5 >= run.metrics.baseline_recall_at_5
+                    ? ` (+${((run.metrics.recall_at_5 - run.metrics.baseline_recall_at_5) * 100).toFixed(1)})`
+                    : ` (${((run.metrics.recall_at_5 - run.metrics.baseline_recall_at_5) * 100).toFixed(1)})`}
+                </span>
+              </div>
+            )}
           </div>
           <ul className="kb-eval-cases">
             {run.cases.map((item) => (
