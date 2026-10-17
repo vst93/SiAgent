@@ -108,7 +108,10 @@ func TestUpdateChild(t *testing.T) {
 func TestWorkerSuccessfulBootAndMigrationRollback(t *testing.T) {
 	for _, mode := range []string{"success", "fail"} {
 		t.Run(mode, func(t *testing.T) {
-			root := t.TempDir()
+			root, err := filepath.EvalSymlinks(t.TempDir()) // macOS /var/folders is a symlink to /private/var/folders
+			if err != nil {
+				t.Fatal(err)
+			}
 			data := filepath.Join(root, "data")
 			work := filepath.Join(root, ".update-work")
 			old := filepath.Join(root, "versions", "old")
@@ -257,7 +260,7 @@ func TestManagerChecksStagesCancelsAndRecoversPreparedUpdate(t *testing.T) {
 	old := filepath.Join(root, "versions", "old")
 	os.MkdirAll(old, 0700)
 	os.Symlink(old, filepath.Join(root, "current"))
-	recovered.config.Executable = "/bin/true"
+	recovered.config.Executable = "true"
 	if err := recovered.StartWorker(); err == nil || !strings.Contains(err.Error(), "未就绪") {
 		t.Fatal("exited update helper was accepted", err)
 	}

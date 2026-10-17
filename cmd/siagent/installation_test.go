@@ -7,7 +7,10 @@ import (
 )
 
 func TestLocateInstallation(t *testing.T) {
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir()) // macOS /var/folders is a symlink to /private/var/folders
+	if err != nil {
+		t.Fatal(err)
+	}
 	executable := filepath.Join(root, "siagent")
 	if err := os.WriteFile(executable, nil, 0700); err != nil {
 		t.Fatal(err)
