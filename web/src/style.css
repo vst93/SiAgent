@@ -450,13 +450,7 @@ textarea {
   position: relative;
 }
 .message.assistant:not(:last-child):before {
-  content: "";
-  position: absolute;
-  left: 16px;
-  top: 44px;
-  bottom: 8px;
-  width: 1px;
-  background: var(--line);
+  content: none;
 }
 .message-avatar {
   width: 26px;
@@ -504,10 +498,22 @@ textarea {
   line-height: 1.8;
   font-size: 14px;
 }
+.message.user {
+  flex-direction: row-reverse;
+}
+.message.user .message-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.message.user .message-meta {
+  flex-direction: row-reverse;
+}
 .user .message-text {
-  background: var(--surface);
+  max-width: min(78%, 620px);
+  background: var(--teal-soft);
   padding: 9px 13px;
-  border-radius: 3px 10px 10px 10px;
+  border-radius: 10px 3px 10px 10px;
   display: inline-block;
 }
 .run-result {
@@ -1034,16 +1040,19 @@ summary {
   line-height: 1.8;
 }
 .answer-sources {
-  border-left: 2px solid #b6ced0;
+  border-top: 1px solid var(--line);
   display: grid;
   gap: 5px;
-  margin: 14px 0;
-  padding-left: 12px;
+  margin: 14px 0 0;
+  padding-top: 10px;
   font-size: 12px;
 }
 .answer-sources > strong {
+  font-family: var(--font-mono);
+  font-size: 10px;
   font-weight: 500;
-  color: var(--muted);
+  letter-spacing: 0.04em;
+  color: var(--faint);
 }
 .answer-sources a {
   color: var(--teal);
@@ -1615,6 +1624,15 @@ summary {
   white-space: nowrap;
   letter-spacing: -0.2px;
 }
+.chat-subtitle {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--faint);
+}
 .chat-header-actions {
   display: flex;
   align-items: center;
@@ -1692,10 +1710,21 @@ summary {
   text-overflow: ellipsis;
 }
 .chat-main .composer-area {
-  border-top: 0;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+  padding: 12px 24px 14px;
 }
 .chat-main .composer {
-  box-shadow: 0 2px 10px #163d3007;
+  box-shadow: var(--shadow-1);
+}
+.chat-main .composer-note {
+  margin-top: 7px;
+}
+.chat-empty {
+  max-width: 420px;
+}
+.chat-empty .assistant-symbol {
+  margin-bottom: 18px;
 }
 @media (min-width: 1500px) {
   .configuration-heading {

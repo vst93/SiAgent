@@ -138,6 +138,10 @@ export function ChatWorkspace({
       <header className="chat-header">
         <div className="chat-heading">
           <h1>{conversation?.title ?? "开始一段对话"}</h1>
+          <p className="chat-subtitle">
+            {agent?.name ?? "尚未选择 Agent"}
+            {model ? ` · ${model.name}` : ""}
+          </p>
           {channelConversation && (
             <span className="channel-view-label">
               <Icon name="channels" size={14} />渠道对话 · 只读
@@ -282,11 +286,10 @@ export function ChatWorkspace({
               }}
             >
               {!snapshot?.messages.length ? (
-                <div className="empty-view">
+                <div className="empty-view chat-empty">
                   <span className="assistant-symbol" aria-hidden="true">
                     S·
                   </span>
-                  <p className="eyebrow">{agent?.name}</p>
                   <h2>从一个问题开始</h2>
                   <p className="muted">
                     写下你的问题，或告诉助手你想完成什么。
