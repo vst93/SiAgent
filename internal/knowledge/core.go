@@ -636,17 +636,19 @@ func (c *Core) build(ctx context.Context, id string, version int) error {
 	if err != nil {
 		return err
 	}
-	titleTokens, err := tokenize(title)
-	if err != nil {
-		return err
-	}
+	// Structure terms live in the weighted title column; body terms stay in the
+	// body column. This gives headings and clause labels a stable boost without
+	// duplicating the body text in the index.
+	structureTokens := make([]string, len(chunks))
 	for index := range chunks {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		// Section path and clause labels are indexed with the body so structural
-		// queries can reach the right chunk even when the words live in a heading.
-		chunks[index].Tokens, err = tokenize(strings.Join([]string{chunks[index].SectionPath, chunks[index].Clause, chunks[index].Text}, "\n"))
+		chunks[index].Tokens, err = tokenize(chunks[index].Text)
+		if err != nil {
+			return err
+		}
+		structureTokens[index], err = tokenize(strings.Join([]string{title, chunks[index].SectionPath, chunks[index].Clause}, "\n"))
 		if err != nil {
 			return err
 		}
@@ -687,12 +689,12 @@ func (c *Core) build(ctx context.Context, id string, version int) error {
 		return err
 	}
 	defer insertIndex.Close()
-	for _, chunk := range chunks {
+	for index, chunk := range chunks {
 		location, _ := json.Marshal(chunk.Location)
 		if _, err := insertChunk.ExecContext(ctx, chunk.ID, id, baseID, version, chunk.Position, chunk.Text, string(location), chunk.ParentID, chunk.BlockType, chunk.SectionPath, chunk.Clause, chunk.ContentHash); err != nil {
 			return err
 		}
-		if _, err := insertIndex.ExecContext(ctx, chunk.ID, titleTokens, chunk.Tokens); err != nil {
+		if _, err := insertIndex.ExecContext(ctx, chunk.ID, structureTokens[index], chunk.Tokens); err != nil {
 			return err
 		}
 	}

@@ -48,63 +48,70 @@ func (p *LocalProvider) Search(ctx context.Context, scope Scope, request SearchR
 			excerptLimit = 220
 		}
 	}
-	quoted := make([]string, len(terms))
-	for index, term := range terms {
-		quoted[index] = `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
+	// Rule-based expansion adds synonyms without calling a model. The original
+	// query always ranks first, so a weak variant cannot outrank a direct hit.
+	queries := expandQueries(request.Query)
+	if request.Trace {
+		trace.Stages = append(trace.Stages, TraceStage{Name: "expand", Detail: strings.Join(queries, " | "), Hits: len(queries), Duration: time.Since(started)})
 	}
-	result := SearchResult{Hits: []Hit{}, MatchMode: "any_terms"}
-	for _, mode := range []struct{ name, operator string }{{"all_terms", " AND "}, {"any_terms", " OR "}} {
+	lists := [][]Hit{}
+	sections := map[string]string{}
+	matchMode := "all_terms"
+	for index, query := range queries {
 		stageStart := time.Now()
-		result = SearchResult{Hits: []Hit{}, MatchMode: mode.name}
-		placeholders := make([]string, len(scope.KnowledgeIDs))
-		args := []any{strings.Join(quoted, mode.operator)}
-		for index, id := range scope.KnowledgeIDs {
-			placeholders[index] = "?"
-			args = append(args, id)
-		}
-		args = append(args, request.Limit)
-		rows, err := p.db.QueryContext(ctx, `SELECT c.id,c.knowledge_id,c.document_id,c.version,c.position,d.title,c.text,c.location,bm25(knowledge_fts,0,3,1) FROM knowledge_fts JOIN knowledge_chunks c ON c.id=knowledge_fts.chunk_id JOIN knowledge_documents d ON d.id=c.document_id JOIN knowledge_bases k ON k.id=c.knowledge_id WHERE knowledge_fts MATCH ? AND d.deleted=0 AND k.deleted=0 AND c.version=d.active_version AND c.knowledge_id IN (`+strings.Join(placeholders, ",")+`) ORDER BY bm25(knowledge_fts,0,3,1),c.id LIMIT ?`, args...)
+		hits, mode, secs, err := p.ftsQuery(ctx, scope, query, request.Limit, terms, excerptLimit)
 		if err != nil {
-			return SearchResult{}, err
+			if index == 0 {
+				return SearchResult{}, err
+			}
+			if request.Trace {
+				trace.Stages = append(trace.Stages, TraceStage{Name: "fts_failed", Detail: query, Duration: time.Since(stageStart)})
+			}
+			continue
 		}
-		for rows.Next() {
-			var hit Hit
-			var raw string
-			var score float64
-			var position int
-			if err := rows.Scan(&hit.SourceID, &hit.KnowledgeID, &hit.DocumentID, &hit.Version, &position, &hit.Title, &hit.Text, &raw, &score); err != nil {
-				rows.Close()
-				return result, err
-			}
-			if err := json.Unmarshal([]byte(raw), &hit.Location); err != nil {
-				rows.Close()
-				return result, err
-			}
-			hit.SourceURL = sourceURL(hit.SourceID)
-			hit.Score = &score
-			hit.Text = excerpt(hit.Text, terms, excerptLimit)
-			result.Hits = append(result.Hits, hit)
-			if request.Trace && len(trace.Candidates) < 50 {
-				trace.Candidates = append(trace.Candidates, TraceHit{SourceID: hit.SourceID, DocumentID: hit.DocumentID, Title: hit.Title, Position: position, Score: score, MatchedTerm: matchedTerms(hit.Text, terms)})
-			}
+		if index == 0 {
+			matchMode = mode
 		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return result, err
+		for id, section := range secs {
+			sections[id] = section
 		}
 		if request.Trace {
-			trace.Stages = append(trace.Stages, TraceStage{Name: "fts_" + mode.name, Detail: strings.Join(terms, " "), Hits: len(result.Hits), Duration: time.Since(stageStart)})
+			trace.Stages = append(trace.Stages, TraceStage{Name: "fts_" + mode, Detail: query, Hits: len(hits), Duration: time.Since(stageStart)})
+			for _, hit := range hits {
+				if len(trace.Candidates) >= 50 {
+					break
+				}
+				entry := TraceHit{SourceID: hit.SourceID, DocumentID: hit.DocumentID, Title: hit.Title, MatchedTerm: matchedTerms(hit.Text, terms)}
+				if hit.Score != nil {
+					entry.Score = *hit.Score
+				}
+				trace.Candidates = append(trace.Candidates, entry)
+			}
 		}
-		if len(result.Hits) > 0 || mode.name == "any_terms" {
-			break
+		if len(hits) > 0 {
+			lists = append(lists, hits)
 		}
 	}
+	fused := fuseResults(lists)
+	if len(fused) > 0 {
+		boostStart := time.Now()
+		structureBoost(request.Query, fused, sections)
+		if request.Trace {
+			trace.Stages = append(trace.Stages, TraceStage{Name: "rrf_and_boost", Detail: strconv.Itoa(len(lists)) + " ranked lists", Hits: len(fused), Duration: time.Since(boostStart)})
+		}
+	}
+	if len(fused) > request.Limit {
+		fused = fused[:request.Limit]
+	}
+	if fused == nil {
+		fused = []Hit{}
+	}
+	result := SearchResult{Hits: fused, MatchMode: matchMode}
 	if request.Trace {
-		trace.MatchMode = result.MatchMode
-		trace.Total = len(result.Hits)
-		trace.Selected = make([]TraceHit, 0, len(result.Hits))
-		for index, hit := range result.Hits {
+		trace.MatchMode = matchMode
+		trace.Total = len(fused)
+		trace.Selected = make([]TraceHit, 0, len(fused))
+		for index, hit := range fused {
 			entry := TraceHit{SourceID: hit.SourceID, DocumentID: hit.DocumentID, Title: hit.Title, Rank: index + 1, MatchedTerm: matchedTerms(hit.Text, terms)}
 			if hit.Score != nil {
 				entry.Score = *hit.Score
@@ -112,10 +119,86 @@ func (p *LocalProvider) Search(ctx context.Context, scope Scope, request SearchR
 			trace.Selected = append(trace.Selected, entry)
 		}
 		trace.Duration = time.Since(started)
-		trace.Stages = append(trace.Stages, TraceStage{Name: "total", Hits: len(result.Hits), Duration: trace.Duration})
+		trace.Stages = append(trace.Stages, TraceStage{Name: "total", Hits: len(fused), Duration: trace.Duration})
 		result.Trace = trace
 	}
 	return result, nil
+}
+
+// ftsQuery runs one FTS5 query, trying all terms first and falling back to any
+// term. It returns the hits, the match mode actually used and the section path
+// of each returned chunk.
+func (p *LocalProvider) ftsQuery(ctx context.Context, scope Scope, query string, limit int, excerptTerms []string, excerptLimit int) ([]Hit, string, map[string]string, error) {
+	tokens, err := tokenize(query)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	terms := []string{}
+	for _, term := range strings.Fields(tokens) {
+		if !slices.Contains(terms, term) {
+			terms = append(terms, term)
+		}
+	}
+	if len(terms) == 0 {
+		return nil, "", nil, nil
+	}
+	if len(terms) > 32 {
+		terms = terms[:32]
+	}
+	quoted := make([]string, len(terms))
+	for index, term := range terms {
+		quoted[index] = `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
+	}
+	budget := limit * 4
+	if budget < 10 {
+		budget = 10
+	}
+	if budget > 40 {
+		budget = 40
+	}
+	sections := map[string]string{}
+	for _, mode := range []struct{ name, operator string }{{"all_terms", " AND "}, {"any_terms", " OR "}} {
+		hits := []Hit{}
+		placeholders := make([]string, len(scope.KnowledgeIDs))
+		args := []any{strings.Join(quoted, mode.operator)}
+		for index, id := range scope.KnowledgeIDs {
+			placeholders[index] = "?"
+			args = append(args, id)
+		}
+		args = append(args, budget)
+		rows, err := p.db.QueryContext(ctx, `SELECT c.id,c.knowledge_id,c.document_id,c.version,c.position,d.title,c.text,c.location,c.section_path,bm25(knowledge_fts,0,3,1) FROM knowledge_fts JOIN knowledge_chunks c ON c.id=knowledge_fts.chunk_id JOIN knowledge_documents d ON d.id=c.document_id JOIN knowledge_bases k ON k.id=c.knowledge_id WHERE knowledge_fts MATCH ? AND d.deleted=0 AND k.deleted=0 AND c.version=d.active_version AND c.knowledge_id IN (`+strings.Join(placeholders, ",")+`) ORDER BY bm25(knowledge_fts,0,3,1),c.id LIMIT ?`, args...)
+		if err != nil {
+			return nil, "", nil, err
+		}
+		for rows.Next() {
+			var hit Hit
+			var raw, section string
+			var score float64
+			var position int
+			if err := rows.Scan(&hit.SourceID, &hit.KnowledgeID, &hit.DocumentID, &hit.Version, &position, &hit.Title, &hit.Text, &raw, &section, &score); err != nil {
+				rows.Close()
+				return nil, "", nil, err
+			}
+			if err := json.Unmarshal([]byte(raw), &hit.Location); err != nil {
+				rows.Close()
+				return nil, "", nil, err
+			}
+			hit.SourceURL = sourceURL(hit.SourceID)
+			hit.Score = &score
+			sections[hit.SourceID] = section
+			hit.Text = excerpt(hit.Text, excerptTerms, excerptLimit)
+			hits = append(hits, hit)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, "", nil, err
+		}
+		if len(hits) > 0 || mode.name == "any_terms" {
+			return hits, mode.name, sections, nil
+		}
+	}
+	return nil, "any_terms", sections, nil
 }
 
 // matchedTerms reports which query terms appear in the returned excerpt. It is
