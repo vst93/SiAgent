@@ -1,3 +1,4 @@
+import { ApplicationUpdates } from "./updates";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { ToolCallDetails } from "./capabilities";
@@ -209,6 +210,7 @@ export function ExecutionSettings({ request }: { request: Api }) {
   return (
     <section className="system-settings">
       <div className="execution-settings">
+        <ApplicationUpdates request={request} />
         <p className="muted">
           {ready ? "对话服务已就绪" : "对话服务正在恢复"} · 执行中{" "}
           {counts.running ?? 0} · 取消中 {counts.cancelling ?? 0} · 等待{" "}

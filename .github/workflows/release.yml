@@ -138,12 +138,13 @@ jobs:
           cp scripts/install.sh scripts/install.ps1 release-assets/
           cd release-assets
           test "$(find . -maxdepth 1 -name '*.tar.xz' | wc -l)" -eq 4
-          sha256sum ./*.tar.xz install.sh install.ps1 > SHA256SUMS
+          printf '%s\n' "$RELEASE_TAG" > VERSION
+          sha256sum ./*.tar.xz install.sh install.ps1 VERSION > SHA256SUMS
           extra=()
           if [[ "$RELEASE_TAG" == *-* ]]; then
             extra+=(--prerelease)
           fi
-          gh release create "$RELEASE_TAG" ./*.tar.xz install.sh install.ps1 SHA256SUMS \
+          gh release create "$RELEASE_TAG" ./*.tar.xz install.sh install.ps1 VERSION SHA256SUMS \
             --verify-tag --generate-notes --title "$RELEASE_TAG" --draft "${extra[@]}"
           if [[ "$KEEP_DRAFT" != 'true' ]]; then
             gh release edit "$RELEASE_TAG" --draft=false

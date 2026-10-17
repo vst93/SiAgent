@@ -16,10 +16,20 @@ import (
 
 	"siagent/internal/platform"
 	agentruntime "siagent/internal/runtime"
+	"siagent/internal/selfupdate"
 	"siagent/web"
 )
 
+var buildVersion = "dev"
+
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "-update-worker" {
+		if err := selfupdate.RunWorker(os.Args[2]); err != nil {
+			slog.Error("update worker failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("siagent stopped", "error", err)
 		os.Exit(1)
@@ -118,6 +128,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	api.ConfigureUpdates(selfupdate.New(selfupdate.Config{Executable: executable, Data: directory, Listen: *listen, Version: buildVersion, Args: os.Args[1:]}), stop)
 	if err := api.ConfigureChannelAdapters(*node, *channelWorker); err != nil {
 		return err
 	}
@@ -184,7 +195,7 @@ func run() error {
 			fmt.Fprintln(w, `{"status":"starting"}`)
 			return
 		}
-		fmt.Fprintln(w, `{"status":"ready"}`)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ready", "version": buildVersion, "update_boot": os.Getenv("SIAGENT_UPDATE_BOOT")})
 	})
 	mux.Handle("/api/", api.Handler())
 	mux.Handle("/callbacks/", api.CallbackHandler())

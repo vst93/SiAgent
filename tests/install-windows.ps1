@@ -48,20 +48,26 @@ public class FakeWSL {
     $env:SIAGENT_WSL_TEST_LOG = Join-Path $root 'wsl.log'
     # Inherit the fixture flag; $script: in the invoked installer is a different scope.
     $badChecksum = $false
+    $downloadAttempts = New-Object System.Collections.Generic.List[string]
     function Invoke-RestMethod { param($Uri, $Headers); return @{ tag_name = 'v1.2.3' } }
     function Invoke-WebRequest {
-        param([switch]$UseBasicParsing, $Uri, $OutFile)
-        if ($Uri -like '*/install.sh') {
+        param([switch]$UseBasicParsing, $Uri, $OutFile, $TimeoutSec)
+        $downloadAttempts.Add($Uri)
+        if ($Uri.StartsWith('https://github.com/')) { throw 'Simulated GitHub timeout' }
+        if ($Uri -like '*/VERSION') { [IO.File]::WriteAllText($OutFile, 'v1.2.3') }
+        elseif ($Uri -like '*/install.sh') {
             Copy-Item (Join-Path $project 'scripts/install.sh') $OutFile
         }
         elseif ($Uri -like '*/SHA256SUMS') {
             $hash = (Get-FileHash (Join-Path $project 'scripts/install.sh') -Algorithm SHA256).Hash
             if ($badChecksum) { $hash = '0' * 64 }
-            return @{ Content = "$hash  ./install.sh`n" }
+            [IO.File]::WriteAllText($OutFile, "$hash  ./install.sh`n")
         }
         else { throw "Unexpected download: $Uri" }
     }
     & (Join-Path $project 'scripts/install.ps1') -NoModifyPath
+    if (@($downloadAttempts | Where-Object { $_.StartsWith('https://github.com/') }).Count -ne 9) { throw 'Official downloads did not retry three times before fallback' }
+    if (@($downloadAttempts | Where-Object { $_.StartsWith('https://ghproxy.net/') }).Count -ne 3) { throw 'Mirror fallback was not used for version, installer and checksum' }
     $shim = Join-Path $env:LOCALAPPDATA 'SiAgent/bin/siagent.cmd'
     $before = Get-Content -LiteralPath $shim -Raw
     if (-not $before.Contains('"/home/test-user/.local/bin/siagent" %*')) { throw 'Wrong Windows command shim' }

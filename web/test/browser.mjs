@@ -408,6 +408,33 @@ try {
   await page.getByText("连接成功，模型已返回文本响应。").waitFor();
   assert.equal(await page.getByLabel("API 密钥").inputValue(), "");
   await config("运行与维护");
+  await page.getByRole("heading", { name: "应用更新", exact: true }).waitFor();
+  const updateState = await page.evaluate(() =>
+    fetch("/api/updates").then((response) => response.json()),
+  );
+  assert.equal(updateState.supported, false);
+  assert(["source", "docker"].includes(updateState.mode));
+  assert.equal(
+    await page
+      .getByRole("button", { name: "安装更新并重启", exact: true })
+      .count(),
+    0,
+  );
+  await page.screenshot({
+    path: join(artifacts, "updates-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 320, height: 844 });
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await page.screenshot({
+    path: join(artifacts, "updates-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   assert.equal(
     await page.getByLabel("上下文保守上限（字节）", { exact: true }).count(),
     0,

@@ -12,8 +12,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"siagent/internal/selfupdate"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -25,6 +27,10 @@ import (
 
 type Runtime interface{ Send(any) error }
 type Server struct {
+	updater            *selfupdate.Manager
+	updateStop         func()
+	updateGate         sync.RWMutex
+	updating           atomic.Bool
 	maintenanceWork    sync.Mutex
 	channelConfigMu    sync.Mutex
 	wecomClient        *wecom.Client
@@ -99,6 +105,11 @@ func New(store *Store, runtime Runtime, ready func() bool, publicURL string) (*S
 func (s *Server) SetupToken() string { return s.token }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.Handle("GET /api/updates", s.authorize(http.HandlerFunc(s.updateStatus)))
+	mux.Handle("POST /api/updates/check", s.authorize(http.HandlerFunc(s.checkUpdate)))
+	mux.Handle("POST /api/updates/prepare", s.authorize(http.HandlerFunc(s.prepareUpdate)))
+	mux.Handle("POST /api/updates/cancel", s.authorize(http.HandlerFunc(s.cancelUpdate)))
+	mux.Handle("POST /api/updates/apply", s.authorize(http.HandlerFunc(s.applyUpdate)))
 	mux.HandleFunc("GET /api/auth/status", s.authStatus)
 	mux.HandleFunc("POST /api/auth/setup", s.setup)
 	mux.HandleFunc("POST /api/auth/login", s.login)
@@ -176,6 +187,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/agent/knowledge", s.authorize(http.HandlerFunc(s.saveKnowledgeBindings)))
 	mux.Handle("GET /api/limits", s.authorize(http.HandlerFunc(s.getLimits)))
 	mux.Handle("PUT /api/limits", s.authorize(http.HandlerFunc(s.saveLimits)))
+	guarded := s.updateBarrier(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -183,7 +195,7 @@ func (s *Server) Handler() http.Handler {
 			fail(w, 403, "请求来源不匹配，请从配置的管理地址访问。")
 			return
 		}
-		mux.ServeHTTP(w, r)
+		guarded.ServeHTTP(w, r)
 	})
 }
 func (s *Server) sameOrigin(r *http.Request) bool {

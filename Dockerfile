@@ -13,12 +13,13 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
+COPY scripts/ scripts/
 COPY web/embed.go web/embed.go
 COPY --from=node-build /build/web/dist web/dist
 RUN CGO_ENABLED=0 go build -trimpath -o /siagent ./cmd/siagent
 
 FROM node:24.22.0-bookworm-slim
-ENV NODE_ENV=production SIAGENT_DATA_DIR=/data SIAGENT_LISTEN=0.0.0.0:8080
+ENV NODE_ENV=production SIAGENT_DATA_DIR=/data SIAGENT_LISTEN=0.0.0.0:8080 SIAGENT_DEPLOYMENT=docker
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
 COPY --from=go-build /siagent /app/siagent

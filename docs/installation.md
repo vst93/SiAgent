@@ -1,6 +1,6 @@
 # 一键安装
 
-安装脚本从 GitHub Release 下载对应平台的独立发布包，并校验 SHA-256。发布包自带 Node.js，用户无需安装 Node、npm 或 Go。
+安装脚本从 GitHub Release 下载对应平台的独立发布包，并校验 SHA-256。先尝试官方地址（最多 3 次），失败或超时后依次切换镜像（每个最多 2 次）；可通过 `SIAGENT_GITHUB_MIRRORS` 配置或禁用镜像，详见 [网络回退](application-updates.md#github-官方优先与镜像回退)。发布包自带 Node.js，用户无需安装 Node、npm 或 Go。
 
 需先将项目变更提交并推送、发布至少一个包含安装脚本的版本，下面的 `latest/download` 地址才可使用。`latest` 选择最近的正式版；预发布版通过版本参数指定。
 
@@ -87,7 +87,9 @@ siagent -data-dir /srv/siagent-data
 
 Linux/macOS 还可用 `SIAGENT_DATA_DIR=/srv/siagent-data siagent` 指定数据目录。安装命令提供的默认数据目录位于版本目录之外，升级不会换到新的空数据目录。
 
-升级前停止完整服务并备份数据，然后重新执行安装脚本，最后手动启动。旧版本目录会保留，已运行的进程不会被安装脚本重启。数据库迁移后的回退仍需恢复升级前完整备份，不能仅切换旧程序。备份与恢复见 [deployment.md](deployment.md)。
+优先使用“配置 → 运行与维护 → 应用更新”：后台下载校验后，确认停机备份，自动切换并重启；新版本失败会恢复旧程序与完整数据。Docker 与外部服务管理器显示相应操作指引，详见 [应用更新、网络回退和恢复](application-updates.md)。
+
+手动升级时，停止完整服务并备份数据，然后重新执行安装脚本，最后手动启动。旧版本目录会保留，已运行的进程不会被安装脚本重启。数据库迁移后的回退仍需恢复升级前完整备份，不能仅切换旧程序。备份与恢复见 [deployment.md](deployment.md)。
 
 PDF 处理另需 Poppler；外部 MCP 命令和 Skill 脚本仍需各自环境。Windows 通过 WSL 使用这些依赖时，应安装在对应的 Linux 发行版内。
 

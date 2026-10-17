@@ -3880,3 +3880,34 @@ details[open] > summary > .disclosure-icon {
     grid-template-columns: 1fr;
   }
 }
+
+.application-updates {
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.application-updates h2 {
+  margin-bottom: 8px;
+}
+.application-updates p {
+  margin: 8px 0;
+}
+.application-updates .form-actions {
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.application-updates small {
+  color: var(--muted);
+}
+.update-confirmation {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+}
+.update-confirmation button {
+  justify-self: start;
+}

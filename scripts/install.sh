@@ -47,11 +47,33 @@ if command -v sha256sum >/dev/null 2>&1; then hash_tool=sha256sum
 elif command -v shasum >/dev/null 2>&1; then hash_tool=shasum
 else fail 'Install sha256sum or shasum to verify the release.'
 fi
+# Official GitHub first, then bounded attempts through public mirror prefixes.
+# Set SIAGENT_GITHUB_MIRRORS='' to disable fallback, or use comma-separated HTTPS prefixes.
+mirrors=${SIAGENT_GITHUB_MIRRORS-'https://ghproxy.net/,https://gh-proxy.com/'}
+fetch() {
+  fetch_url=$1
+  fetch_output=$2
+  fetch_timeout=$3
+  printf 'Downloading from GitHub: %s\n' "$fetch_url" >&2
+  if curl -fsSL --retry 2 --retry-all-errors --retry-delay 1 --retry-max-time 380 --connect-timeout 5 --max-time "$fetch_timeout" "$fetch_url" -o "$fetch_output"; then return 0; fi
+  case "$fetch_url" in https://github.com/*) ;; *) return 1 ;; esac
+  remaining=$mirrors
+  while [ -n "$remaining" ]; do
+    mirror=${remaining%%,*}
+    case "$remaining" in *,*) remaining=${remaining#*,} ;; *) remaining= ;; esac
+    case "$mirror" in https://*) ;; *) continue ;; esac
+    printf 'GitHub unavailable; trying mirror: %s\n' "$mirror" >&2
+    if curl -fsSL --retry 1 --retry-all-errors --retry-delay 1 --retry-max-time 250 --connect-timeout 5 --max-time "$fetch_timeout" "${mirror%/}/$fetch_url" -o "$fetch_output"; then return 0; fi
+  done
+  return 1
+}
 release_base=${SIAGENT_RELEASE_BASE_URL:-https://github.com/$repository/releases}
 release_base=${release_base%/}
 if [ "$version" = latest ]; then
-  resolved=$(curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 -o /dev/null -w '%{url_effective}' "$release_base/latest")
-  version=${resolved##*/}
+  version_file=$(mktemp)
+  if ! fetch "$release_base/latest/download/VERSION" "$version_file" 12; then rm -f "$version_file"; fail 'Cannot resolve latest release via GitHub or mirrors.'; fi
+  version=$(cat "$version_file")
+  rm -f "$version_file"
 fi
 printf '%s\n' "$version" | awk 'BEGIN {ok=1} NR != 1 || $0 !~ /^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/ {ok=0} END {exit !ok}' || fail 'Version must be a release tag, such as v0.1.0.'
 
@@ -81,8 +103,8 @@ name=siagent-$platform-$architecture
 asset=$name.tar.xz
 url=$release_base/download/$version
 printf 'Installing SiAgent %s (%s/%s)\n' "$version" "$platform" "$architecture"
-curl -fsSL --retry 3 --connect-timeout 15 --max-time 600 "$url/$asset" -o "$work_dir/$asset"
-curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 "$url/SHA256SUMS" -o "$work_dir/SHA256SUMS"
+fetch "$url/$asset" "$work_dir/$asset" 120 || fail 'Cannot download release via GitHub or mirrors.'
+fetch "$url/SHA256SUMS" "$work_dir/SHA256SUMS" 12 || fail 'Cannot download SHA256SUMS via GitHub or mirrors.'
 expected=$(awk -v file="$asset" '$2 == file || $2 == "./" file {print $1}' "$work_dir/SHA256SUMS")
 [ "${#expected}" -eq 64 ] || fail "Missing or ambiguous checksum for $asset"
 case "$expected" in *[!0-9a-fA-F]*) fail 'Invalid SHA-256 checksum' ;; esac
@@ -118,6 +140,7 @@ LAUNCHER
 chmod 755 "$work_dir/siagent"
 mv -f "$work_dir/siagent" "$prefix/siagent"
 : > "$prefix/.siagent-install"
+printf '%s\n' "$repository" > "$prefix/.siagent-repository"
 ln -sfn "$destination" "$prefix/current"
 ln -sfn "$prefix/siagent" "$bin_dir/siagent"
 

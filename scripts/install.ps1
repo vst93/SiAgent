@@ -28,24 +28,55 @@ if ($LASTEXITCODE -ne 0 -or -not $linuxHome.StartsWith('/')) {
 if ($linuxHome -match '["%\r\n]') { throw 'Unsupported WSL home path for the Windows command shim.' }
 # PS 5.1 may otherwise negotiate an obsolete TLS version.
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-if ($Version -eq 'latest') {
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/latest" -Headers @{ 'User-Agent' = 'SiAgent-Installer' }
-    $Version = $release.tag_name
+function Get-ReleaseFile {
+    param([string]$Uri, [string]$Destination)
+    $prefixes = @('')
+    $mirrorValue = $env:SIAGENT_GITHUB_MIRRORS
+    if (-not (Test-Path Env:SIAGENT_GITHUB_MIRRORS)) { $mirrorValue = 'https://ghproxy.net/,https://gh-proxy.com/' }
+    foreach ($mirror in ($mirrorValue -split ',')) {
+        $mirror = $mirror.Trim()
+        if ($mirror -match '^https://[^/?#]+[^?#]*$') { $prefixes += $mirror.TrimEnd('/') + '/' }
+    }
+    foreach ($prefix in $prefixes) {
+        $attempts = 2
+        if ($prefix -eq '') { $attempts = 3 }
+        for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+            try {
+                $source = $prefix + $Uri
+                Write-Host "Downloading from $(([Uri]$source).Host), attempt $attempt/$attempts"
+                Invoke-WebRequest -UseBasicParsing -Uri $source -OutFile $Destination -TimeoutSec 15
+                return
+            }
+            catch { if ($attempt -eq $attempts) { Write-Host 'Source failed or timed out; trying the next configured source.' } }
+        }
+    }
+    throw 'GitHub and all configured mirrors failed or timed out.'
 }
-if ($Version -notmatch '\Av[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?\z') { throw 'Version must be a release tag, such as v0.1.0.' }
-$url = "https://github.com/$Repository/releases/download/$Version"
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ('siagent-install-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temporary | Out-Null
 try {
+    if ($Version -eq 'latest') {
+        $versionFile = Join-Path $temporary 'VERSION'
+        Get-ReleaseFile "https://github.com/$Repository/releases/latest/download/VERSION" $versionFile
+        $Version = ([IO.File]::ReadAllText($versionFile)).Trim()
+    }
+    if ($Version -notmatch '\Av[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?\z') { throw 'Version must be a release tag, such as v0.1.0.' }
+    $url = "https://github.com/$Repository/releases/download/$Version"
     $installer = Join-Path $temporary 'install.sh'
-    Invoke-WebRequest -UseBasicParsing -Uri "$url/install.sh" -OutFile $installer
-    $manifest = (Invoke-WebRequest -UseBasicParsing -Uri "$url/SHA256SUMS").Content
+    Get-ReleaseFile "$url/install.sh" $installer
+    $manifestFile = Join-Path $temporary 'SHA256SUMS'
+    Get-ReleaseFile "$url/SHA256SUMS" $manifestFile
+    $manifest = [IO.File]::ReadAllText($manifestFile)
     $matchesForScript = @($manifest -split "`n" | Where-Object { $_ -match '^[0-9a-fA-F]{64}\s+\*?(\./)?install\.sh\s*$' })
     if ($matchesForScript.Count -ne 1) { throw 'Missing or ambiguous SHA-256 for install.sh.' }
     $expected = ($matchesForScript[0] -split '\s+')[0]
     if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ne $expected) { throw 'SHA-256 mismatch for install.sh.' }
     # Write UTF-8/LF directly: Windows PowerShell's native pipeline adds CRLF.
     $scriptText = [IO.File]::ReadAllText($installer).Replace("`r`n", "`n")
+    if (Test-Path Env:SIAGENT_GITHUB_MIRRORS) {
+        $quotedMirrors = $env:SIAGENT_GITHUB_MIRRORS.Replace("'", "'\''")
+        $scriptText = $scriptText.Replace("#!/bin/sh`n", "#!/bin/sh`nexport SIAGENT_GITHUB_MIRRORS='$quotedMirrors'`n")
+    }
     $start = New-Object System.Diagnostics.ProcessStartInfo
     $start.FileName = $wsl
     $start.Arguments = '-d "{0}" --exec sh -s -- --version "{1}" --repo "{2}" --no-modify-path' -f $Distribution, $Version, $Repository

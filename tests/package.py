@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check a trusted local release with no system Node or tools on PATH."""
 import os
+import json
 from pathlib import Path
 import socket
 import subprocess
@@ -29,6 +30,11 @@ def check_service(executable, arguments, working_dir, env, data_dir, log_path):
                 try:
                     with http.open(url + "/health/ready", timeout=1) as response:
                         if response.status == 200:
+                            ready = json.load(response)
+                            metadata = executable.resolve().parent / "VERSION"
+                            if not metadata.is_file():
+                                metadata = executable.resolve().parent / "current/VERSION"
+                            assert ready["version"] == metadata.read_text().strip(), ready
                             break
                 except (urllib.error.URLError, TimeoutError):
                     pass
@@ -65,6 +71,7 @@ def main():
         release = next(path for path in root.iterdir() if path.is_dir())
         executable = release / "siagent"
         node = release / "libexec/node"
+        assert (release / "VERSION").read_text().strip()
         assert (release / "runtime/node_modules").is_dir()
         assert not (release / "runtime/node_modules/typescript").exists()
         assert not any((release / "runtime/node_modules").rglob("*.d.ts"))

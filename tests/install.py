@@ -50,6 +50,9 @@ def main():
         latest = web / "releases/tag/v1.1.0"
         latest.parent.mkdir(parents=True)
         latest.write_text("latest release")
+        metadata = web / "releases/latest/download/VERSION"
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text("v1.1.0\n")
 
         class Handler(SimpleHTTPRequestHandler):
             def __init__(self, *args, **kwargs):
@@ -130,6 +133,34 @@ def main():
             assert piped.returncode == 0, piped.stdout + piped.stderr
             assert (home / ".local/bin/siagent").is_symlink()
             assert profile.read_text() == before_profile
+            # Exercise GitHub-first fallback without accessing any public host.
+            wrappers = root / "network wrappers"
+            wrappers.mkdir()
+            real_curl = shutil.which("curl")
+            curl_wrapper = wrappers / "curl"
+            curl_wrapper.write_text("#!/usr/bin/env python3\n" +
+                "import os, subprocess, sys\n" +
+                "args=sys.argv[1:]\n" +
+                "for i,arg in enumerate(args):\n" +
+                " if arg.startswith('https://github.com/'):\n" +
+                "  open(os.environ['SIAGENT_CURL_LOG'],'a').write('official\\n');sys.exit(22)\n" +
+                " if arg.startswith('https://mirror.test/https://github.com/vst93/SiAgent/releases'):\n" +
+                "  open(os.environ['SIAGENT_CURL_LOG'],'a').write('mirror\\n')\n" +
+                "  args[i]=os.environ['SIAGENT_FIXTURE_RELEASES']+arg.split('/SiAgent/releases',1)[1]\n" +
+                "sys.exit(subprocess.call([os.environ['SIAGENT_REAL_CURL'],*args]))\n")
+            curl_wrapper.chmod(0o755)
+            mirror_env = {**env, "PATH": str(wrappers) + os.pathsep + env["PATH"],
+                          "SIAGENT_RELEASE_BASE_URL": "https://github.com/vst93/SiAgent/releases",
+                          "SIAGENT_GITHUB_MIRRORS": "https://mirror.test/",
+                          "SIAGENT_FIXTURE_RELEASES": env["SIAGENT_RELEASE_BASE_URL"],
+                          "SIAGENT_REAL_CURL": real_curl,
+                          "SIAGENT_CURL_LOG": str(root / "curl.log")}
+            mirror_result = subprocess.run(["sh", str(INSTALLER), "--prefix", str(root / "mirror-app"),
+                                            "--bin-dir", str(root / "mirror-bin"), "--no-modify-path"],
+                                           env=mirror_env, capture_output=True, text=True, timeout=20)
+            assert mirror_result.returncode == 0, mirror_result.stdout + mirror_result.stderr
+            attempts = (root / "curl.log").read_text().splitlines()
+            assert attempts == ["official", "mirror"] * 3, attempts
             if len(sys.argv) > 1:
                 from package import check_service
                 actual = Path(sys.argv[1]).resolve()

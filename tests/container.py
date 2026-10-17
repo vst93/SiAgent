@@ -225,6 +225,17 @@ def journey(deployment):
             time.sleep(.5)
     assert not api.request('/api/auth/status')['initialized']
     api.csrf = api.request('/api/auth/setup', 'POST', {'password': PASSWORD, 'token': deployment.setup_token('source')})['csrf']
+    updates = api.request('/api/updates')
+    assert updates['supported'] is False
+    if not deployment.local:
+        assert updates['mode'] == 'docker', updates
+        assert 'docker compose' in updates['message'], updates
+        try:
+            api.request('/api/updates/prepare', 'POST')
+        except urllib.error.HTTPError as error:
+            assert error.code == 409
+        else:
+            raise AssertionError('Docker accepted an in-container package update')
     api.request('/api/model', 'PUT', {'base_url': deployment.model_base + '/v1', 'name': 'container-fixture', 'api_key': 'container-fixture-key'})
     api.request('/api/model/test', 'POST')
     conversation = api.request('/api/conversations', 'POST')

@@ -352,6 +352,9 @@ func (s *Server) prepareChannelReplies(ctx context.Context, now time.Time) error
 	return nil
 }
 func (s *Server) ChannelTick(ctx context.Context, now time.Time) error {
+	if s.updating.Load() {
+		return nil
+	}
 	s.channelWork.Lock()
 	defer s.channelWork.Unlock()
 	if err := s.syncChannelConnections(ctx); err != nil {

@@ -61,7 +61,9 @@ siagent
 
 Linux/macOS 设置 `XDG_DATA_HOME` 时，程序与数据根目录改为 `$XDG_DATA_HOME/siagent`。通过 `siagent -data-dir /path/to/data` 可指定其他数据目录。
 
-升级前停止完整服务并备份数据，然后重新执行安装脚本，最后手动启动。脚本保留旧版本和独立数据目录；数据库迁移后的回退需恢复升级前完整备份。PDF 处理另需 Poppler，外部 MCP 命令和 Skill 脚本需要各自环境；Windows 下这些依赖安装在 WSL 内。
+安装器部署可在“配置 → 运行与维护 → 应用更新”检查版本、后台下载校验，并确认停机备份后自动重启；新版本启动失败会恢复旧程序与完整数据。也可手动升级：停止完整服务并备份数据，然后重新执行安装脚本，最后手动启动。脚本保留旧版本和独立数据目录；数据库迁移后的回退需恢复升级前完整备份。PDF 处理另需 Poppler，外部 MCP 命令和 Skill 脚本需要各自环境；Windows 下这些依赖安装在 WSL 内。
+
+应用更新和安装脚本先尝试 GitHub 官方地址并重试，失败或超时后切换国内可用的镜像；可用 `SIAGENT_GITHUB_MIRRORS` 自定义或禁用回退。Docker 显示镜像拉取/重建指引。重启、备份与失败恢复详见 [应用内更新](docs/application-updates.md)。
 
 自定义安装目录、指定 Windows 发行版与版本、WSL 引导参数等见 [完整安装说明](docs/installation.md)。
 
@@ -107,6 +109,8 @@ docker compose logs siagent
 
 | 配置 | 默认值 | 作用 |
 | --- | --- | --- |
+| `SIAGENT_GITHUB_MIRRORS` | `https://ghproxy.net/,https://gh-proxy.com/` | 更新/安装下载的 HTTPS 镜像前缀，逗号分隔；空值关闭回退 |
+| `SIAGENT_DEPLOYMENT` | 自动识别 | `docker` 显示容器更新指引；`managed` 交由外部服务管理器重启 |
 | `SIAGENT_DATA_DIR` / `-data-dir` | 安装脚本：`~/.local/share/siagent/data`（可由 XDG 调整）；手动解压：`<安装目录>/data`；源码：`data` | 唯一持久化目录 |
 | `SIAGENT_LISTEN` / `-listen` | `127.0.0.1:8080` | Go HTTP 监听地址 |
 | `SIAGENT_PUBLIC_URL` / `-public-url` | 空 | 浏览器源地址；HTTPS 时启用 Secure Cookie |

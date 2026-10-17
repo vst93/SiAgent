@@ -344,6 +344,11 @@ func (s *Server) testGenericChannel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) receiveChannel(ctx context.Context, channelID string, version int, in channels.Incoming) error {
+	s.updateGate.RLock()
+	defer s.updateGate.RUnlock()
+	if s.updating.Load() {
+		return errors.New("server updating")
+	}
 	if err := normalizeIncoming(&in); err != nil {
 		return err
 	}

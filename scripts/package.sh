@@ -23,7 +23,10 @@ trap 'rm -rf "$staging"' EXIT HUP INT TERM
 name="siagent-$platform-$architecture"
 release_dir="$staging/$name"
 mkdir -p "$release_dir/runtime"
-CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$release_dir/siagent" ./cmd/siagent
+release_version=${RELEASE_TAG:-dev}
+printf '%s\n' "$release_version" | awk 'NR != 1 || $0 !~ /^(dev|v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$/ {exit 1}' || { echo 'Invalid release version' >&2; exit 1; }
+printf '%s\n' "$release_version" > "$release_dir/VERSION"
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.buildVersion=$release_version" -o "$release_dir/siagent" ./cmd/siagent
 cp -R runtime/dist "$release_dir/runtime/dist"
 cp runtime/package.json runtime/package-lock.json "$release_dir/runtime/"
 python3 scripts/fetch-node.py "$platform" "$architecture" "$release_dir"
