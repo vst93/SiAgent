@@ -390,10 +390,7 @@ export function ChannelsWorkspace({
     setEditor({
       id: "",
       name: "",
-      provider:
-        providers.find((value) => value.id === "wecom-bot")?.id ??
-        providers[0]?.id ??
-        "",
+      provider: providers[0]?.id ?? "",
       config: {},
       agent_id:
         agents.find((agent) => agent.enabled && !agent.archived)?.id ?? "",
@@ -460,11 +457,8 @@ export function ChannelsWorkspace({
       ) : !current ? (
         <div className="plugin-empty">
           <h3>让 Agent 在聊天中回复</h3>
-          <p>
-            企微智能机器人推荐使用 API 长连接模式。准备 BotID 和
-            Secret，即可连接；无需公网回调地址。
-          </p>
-          <p>已安装的其他适配器也会出现在“新增渠道”中。</p>
+          <p>在“新增渠道”中选择已安装的渠道插件，填写连接信息并绑定 Agent。</p>
+          <p>不同插件需要的凭据和连接方式，请查看对应的配置说明。</p>
         </div>
       ) : (
         <div className="channel-layout">

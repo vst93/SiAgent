@@ -8,71 +8,31 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 
+	"siagent/internal/channelplugins"
 	"siagent/internal/channels"
-	"siagent/internal/wecom"
 )
-
-type applicationProvider struct{ client *wecom.Client }
-
-func (p *applicationProvider) Descriptor() channels.Descriptor {
-	return channels.Descriptor{ID: "wecom-app", Name: "企业微信 · 自建应用", Description: "兼容原有企业内部应用。需要公网 HTTPS 回调及应用凭据，与智能机器人不同。", Documentation: "https://developer.work.weixin.qq.com/document/path/90239", Transport: "webhook", Legacy: true, MaxTextBytes: 1800, IdentityFields: []string{"corp_id", "app_id"}, Fields: []channels.Field{
-		{Key: "corp_id", Label: "企业 CorpID", Required: true}, {Key: "app_id", Label: "应用 AgentID", Required: true, Type: "number"}, {Key: "secret", Label: "应用 Secret", Secret: true, Required: true}, {Key: "token", Label: "回调 Token", Secret: true, Required: true}, {Key: "aes_key", Label: "EncodingAESKey", Secret: true, Required: true},
-	}}
-}
-func (p *applicationProvider) Validate(c channels.Config) error {
-	app, err := strconv.ParseInt(c.Values["app_id"], 10, 64)
-	if err != nil || app < 1 || app > 2147483647 || len(c.Values["corp_id"]) > 128 {
-		return errors.New("请填写有效的 CorpID 和应用 AgentID。")
-	}
-	_, err = wecom.NewCryptor(c.Secrets["token"], c.Secrets["aes_key"], c.Values["corp_id"])
-	if err != nil {
-		return errors.New("回调 Token 或 EncodingAESKey 无效，AES Key 须为 43 位 Base64 字符。")
-	}
-	return nil
-}
-func (p *applicationProvider) CallbackPath(id string) string { return "/callbacks/wecom/" + id }
-func (p *applicationProvider) Test(ctx context.Context, c channels.Config) channels.Result {
-	app, _ := strconv.ParseInt(c.Values["app_id"], 10, 64)
-	r := p.client.Test(ctx, wecom.Application{ID: c.ID, CorpID: c.Values["corp_id"], AppID: app, Secret: c.Secrets["secret"]})
-	return channels.Result{State: r.State, Code: r.Code, Message: r.Message}
-}
-func (p *applicationProvider) Open(_ context.Context, c channels.Config, _ channels.Receive) (channels.Connection, error) {
-	app, _ := strconv.ParseInt(c.Values["app_id"], 10, 64)
-	return &applicationConnection{p.client, wecom.Application{ID: c.ID, CorpID: c.Values["corp_id"], AppID: app, Secret: c.Secrets["secret"]}}, nil
-}
-
-type applicationConnection struct {
-	client *wecom.Client
-	app    wecom.Application
-}
-
-func (c *applicationConnection) Send(ctx context.Context, d channels.Delivery) channels.Result {
-	r := c.client.Send(ctx, c.app, d.Target, d.Text)
-	return channels.Result{State: r.State, Code: r.Code, Message: r.Message}
-}
-func (c *applicationConnection) Status() channels.Status {
-	return channels.Status{State: "webhook", Message: "使用签名加密回调接收消息。"}
-}
-func (c *applicationConnection) Close() {}
-func botDescriptor() channels.Descriptor {
-	return channels.Descriptor{ID: "wecom-bot", Name: "企业微信 · 智能机器人", Description: "推荐：API 长连接模式，仅需 BotID 与 Secret，无需公网回调地址。支持文本单聊和群内 @ 消息。", Documentation: "https://developer.work.weixin.qq.com/document/path/101463", Transport: "websocket", MaxTextBytes: 20000, IdentityFields: []string{"bot_id"}, Fields: []channels.Field{{Key: "bot_id", Label: "BotID", Required: true, Help: "在企微智能机器人中启用 API 模式并选择长连接。"}, {Key: "secret", Label: "机器人 Secret", Secret: true, Required: true, Help: "长连接专用密钥，不是应用 Secret 或回调 Token。"}}}
-}
 
 // ConfigureChannelAdapters is called before starting workers. Additional trusted
 // Node packages can implement channel protocol v1 without changes to this core.
 func (s *Server) ConfigureChannelAdapters(node, workerScript string) error {
+	return s.ConfigureChannelPlugins(node, workerScript, channelplugins.Bundled())
+}
+
+// ConfigureChannelPlugins installs the selected bundled plugins and discovers
+// trusted process plugins. Call before starting workers.
+func (s *Server) ConfigureChannelPlugins(node, workerScript string, plugins []channels.Plugin) error {
 	registry := channels.NewRegistry()
-	_ = registry.Register(&applicationProvider{s.wecomClient})
-	script, err := filepath.Abs(workerScript)
-	if err != nil {
-		return err
-	}
-	if err := registry.Register(&channels.ProcessProvider{Spec: botDescriptor(), Node: node, Script: script}); err != nil {
-		return err
+	for _, plugin := range plugins {
+		provider, err := plugin(channels.PluginOptions{Node: node, WorkerScript: workerScript})
+		if err != nil {
+			return err
+		}
+		if err := registry.Register(provider); err != nil {
+			return err
+		}
 	}
 	root := filepath.Join(s.store.directory, "channel-adapters")
 	entries, err := os.ReadDir(root)

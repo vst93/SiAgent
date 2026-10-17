@@ -22,7 +22,6 @@ import (
 	"siagent/internal/channels"
 	"siagent/internal/knowledge"
 	agentruntime "siagent/internal/runtime"
-	"siagent/internal/wecom"
 )
 
 type Runtime interface{ Send(any) error }
@@ -33,7 +32,6 @@ type Server struct {
 	updating           atomic.Bool
 	maintenanceWork    sync.Mutex
 	channelConfigMu    sync.Mutex
-	wecomClient        *wecom.Client
 	channelProviders   *channels.Registry
 	channelTests       map[string]bool
 	channelConnections channelConnections
@@ -59,7 +57,7 @@ type Server struct {
 }
 
 func New(store *Store, runtime Runtime, ready func() bool, publicURL string) (*Server, error) {
-	s := &Server{wecomClient: wecom.NewClient(), pendingTests: make(map[string]chan agentruntime.Event), schedulerCtx: context.Background(), store: store, runtime: runtime, ready: ready, publicURL: strings.TrimRight(publicURL, "/")}
+	s := &Server{pendingTests: make(map[string]chan agentruntime.Event), schedulerCtx: context.Background(), store: store, runtime: runtime, ready: ready, publicURL: strings.TrimRight(publicURL, "/")}
 	s.channelConnections.values = make(map[string]channelConnection)
 	s.channelTests = make(map[string]bool)
 	if err := s.ConfigureChannelAdapters("node", "runtime/dist/channel-wecom.js"); err != nil {

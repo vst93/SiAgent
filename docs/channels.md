@@ -11,6 +11,8 @@
 
 两者是不同产品入口。用户提供的[接收消息文档](https://developer.work.weixin.qq.com/document/path/100719)属于智能机器人；旧的自建应用字段不能用于机器人配置。智能机器人还支持 URL 回调模式，本实现选择[官方长连接模式](https://developer.work.weixin.qq.com/document/path/101463)。当前不提供智能机器人 URL 回调适配器。
 
+两种企微实现均作为随系统分发的渠道插件注册，核心通过统一接口管理配置、任务和投递。插件结构、Webhook 扩展和外部插件安装见 [渠道插件开发](channel-adapters.md)。已有渠道配置及回调 URL 无需调整。
+
 ## 连接企微智能机器人
 
 1. 在企微智能机器人配置中开启 API 模式，选择“长连接”，取得 BotID 和该模式专用的 Secret。

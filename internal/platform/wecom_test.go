@@ -18,8 +18,9 @@ import (
 	"testing"
 	"time"
 
+	"siagent/internal/channelplugins/wecomapp"
+	wecom "siagent/internal/channelplugins/wecomapp/protocol"
 	agentruntime "siagent/internal/runtime"
-	"siagent/internal/wecom"
 )
 
 const callbackKey = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc"
@@ -101,7 +102,7 @@ func wecomAPI(t *testing.T, f *fixture) (chan string, chan map[string]any) {
 	}))
 	t.Cleanup(server.Close)
 	endpoint, _ := url.Parse(server.URL)
-	f.server.wecomClient.HTTP.Transport = wecomTransport{endpoint}
+	applicationClient(t, f).HTTP.Transport = wecomTransport{endpoint}
 	return modes, sent
 }
 func tickChannel(t *testing.T, f *fixture, now time.Time) {
@@ -251,7 +252,7 @@ func TestWecomHintRetryUnknownAndRecoveryNeverReplay(t *testing.T) {
 	}
 	f.server = restarted
 	endpointClient := wecom.NewClient()
-	endpointClient.HTTP.Transport = f.server.wecomClient.HTTP.Transport
+	endpointClient.HTTP.Transport = applicationClient(t, f).HTTP.Transport
 	_ = endpointClient
 	if err := f.store.db.QueryRow("SELECT count(*) FROM channel_outbox WHERE state='unknown'").Scan(&unknown); err != nil || unknown != 1 {
 		t.Fatal("sending recovered as retryable")
@@ -345,4 +346,13 @@ func TestWecomRetryLimitAndDisabledDelivery(t *testing.T) {
 	if failed != 1 {
 		t.Fatal("retry exhaustion not marked failed")
 	}
+}
+
+func applicationClient(t *testing.T, f *fixture) *wecom.Client {
+	t.Helper()
+	provider, ok := f.server.channelProviders.Get("wecom-app")
+	if !ok {
+		t.Fatal("application plugin missing")
+	}
+	return provider.(*wecomapp.Provider).Client
 }

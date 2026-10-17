@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
+	wecom "siagent/internal/channelplugins/wecomapp/protocol"
 	agentruntime "siagent/internal/runtime"
-	"siagent/internal/wecom"
 )
 
 func TestWecomCompleteLocalRuntimePath(t *testing.T) {

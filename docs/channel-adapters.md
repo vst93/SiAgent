@@ -1,6 +1,6 @@
 # 渠道适配器开发与安装
 
-平台渠道底座只处理标准化入站、会话、Agent 任务和出站状态。每个适配器负责厂商 SDK、连接维护、消息格式和回执分类。内置企微机器人运行在独立 Node 进程，与模型 Runtime 分开。
+平台渠道底座只处理标准化入站、会话、Agent 任务和出站状态。每个适配器负责厂商 SDK、连接维护、消息格式和回执分类。随系统分发的企微智能机器人与自建应用均以渠道插件注册。机器人运行在独立 Node 进程，自建应用使用宿主内的 Webhook 插件；两者都通过同一 `Provider` 接口接入，与模型 Runtime 分开。
 
 ```mermaid
 flowchart LR
@@ -12,6 +12,36 @@ flowchart LR
 ```
 
 `internal/channels` 定义 `Provider`、`Connection`、`Incoming`、`Delivery` 和注册表；`internal/platform/channel_core.go` 复用业务队列与持久化；`channels.go` 提供统一管理 API。适配器不需要接触平台数据库或实现 Agent 引擎。
+
+## 随系统分发的插件
+
+`internal/channels` 提供 `Plugin` 工厂、`Provider` 收发接口和可选的 `WebhookProvider` / `CredentialTester` 接口。`internal/channelplugins/bundled.go` 是默认插件清单，负责组装以下两个插件：
+
+| 插件 | 位置 | 职责 |
+| --- | --- | --- |
+| `wecom-bot` | `internal/channelplugins/wecombot/`、`runtime/src/plugins/wecom-bot/worker.ts` | 字段声明、官方 SDK 长连接、消息标准化、流式回复与回执 |
+| `wecom-app` | `internal/channelplugins/wecomapp/` | 字段声明、凭据测试、回调签名/AES 校验、消息解析、访问凭据缓存与发送 |
+
+平台启动通过 `ConfigureChannelAdapters` 加载默认清单和数据目录的外部进程插件。自定义宿主可以在启动工作线程前调用 `ConfigureChannelPlugins(node, workerScript, plugins)` 选择其他插件集合；传入空集合可只加载外部进程插件。宿主内插件编译时随程序分发，新增此类插件需重新构建；外部 Node 进程插件按下节安装，无需修改平台代码或重新编译。
+
+核心仅保存渠道配置、密钥、验证状态和消息，不直接引用企微 SDK、加解密或客户端。旧 `/api/wecom/*` 仅保留为通用管理接口的兼容转换层；历史迁移中仍保留旧表定义。`runtime/src/channel-wecom.ts` 仅作为既有启动路径的兼容入口，实际实现位于机器人插件目录。插件 ID、字段、旧回调 URL 和数据库结构保持兼容，无需重新录入渠道。
+
+移除插件后，已有配置和历史仍保留，渠道显示“适配器未安装”，不能启用；恢复同 ID 插件后可继续使用原配置与去重记录。插件集合在启动前确定，运行中不支持热替换。
+
+### Webhook 插件
+
+宿主内插件实现 `WebhookProvider`：
+
+```go
+type WebhookProvider interface {
+    CallbackPath(string) string
+    ServeCallback(http.ResponseWriter, *http.Request, Config, Receive, func(context.Context) error)
+}
+```
+
+`CallbackPath` 返回 `/callbacks/<namespace>/<channel-id>`。平台按渠道 ID 查找插件，并要求请求路径与该插件声明的路径完全一致；只开放 GET/POST。插件在 `ServeCallback` 中先验证厂商身份，再调用 `Receive` 保存标准化消息，或调用最后一个参数保存 URL 验证结果。接收成功后才能向厂商确认；保存失败必须返回失败状态。平台为整个请求设置 3 秒期限，消息入队与 URL 验证均绑定接收时的配置版本，旧配置不能覆盖新配置的验证状态。插件负责请求体上限与自己的协议校验。
+
+平台不为缺失插件处理回调，也不将已归档渠道转交给插件。自建应用插件继续声明 `/callbacks/wecom/{id}`，既有公网 URL 不变。
 
 ## 安装包
 
@@ -125,8 +155,10 @@ stdin/stdout 使用一行一个 JSON 对象，每帧 `v:1`，最多 256 KiB。st
 
 ## 内置实现与验证
 
-`runtime/src/channel-wecom.ts` 是官方 SDK 的薄封装，包含认证、消息标准化、`replyStream` 调用、回执分类、背压上限和 EOF 清理。它不导入 Pi 模型或 Agent API。SDK 的网络重连与平台的业务重试相互独立。
+`runtime/src/plugins/wecom-bot/worker.ts` 是官方 SDK 的薄封装，包含认证、消息标准化、`replyStream` 调用、回执分类、背压上限和 EOF 清理。它不导入 Pi 模型或 Agent API。SDK 的网络重连与平台的业务重试相互独立。
 
 `runtime/test/channel-wecom.test.mjs` 使用真实 SDK 与本地 WebSocket 协议服务验证订阅、回复、重连不重放。`TestInstalledProcessAdapterUsesCoreWithoutVendorSpecificRoutes` 安装一个独立清单及进程入口，通过同一管理 API、会话隔离、调度和投递流程运行，验证新增渠道不需要增加数据库表或专属配置页面。
 
 OpenClaw、Pi Coding Agent 等工具的宿主插件接口与本协议不同。可复用其独立连接器或 SDK，另加薄协议封装；不能承诺直接安装任意宿主插件即可运行。
+
+`TestWebhookPluginUsesGenericCoreAndVersionedVerification` 使用独立 Webhook 插件验证认证、路径分发、验证状态、去重、任务与出站，以及配置变更时拒绝过期验证。`TestBundledChannelPluginsCanBeOmittedAndRestored` 验证默认插件可不加载、缺失时保留配置和历史、恢复后不重复接收旧消息。

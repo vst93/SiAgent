@@ -10,6 +10,12 @@ Release workflow 的版本输入可留空，按最高有效版本标签递增补
 
 本地已通过完整 Go 竞态、进程 E2E、Chromium 桌面/320px/390px 回归、发布包私有 Node/版本/重定位/安装验证、macOS arm64 交叉编译、go vet 与 workflow 静态检查。新增真实子进程测试覆盖失败迁移后的完整恢复，HTTP fixtures 验证重试、超时、镜像、校验、准备/取消与重启恢复。真实程序还通过本地 HTTPS Release fixture 完成双版本下载、停机、完整备份和自动重启，保留登录、模型密钥、会话和数据，已加入 CI；浏览器补充准备完成/确认重启状态验证。[本轮 Linux/macOS/Windows 安装器云端验证已通过](https://github.com/vst93/SiAgent/actions/runs/38987073602)。官方 Dockerfile 验证以完整 checks 结果为准；第三方镜像持续可用性和真实 Windows/WSL 重启不由本地 fixture 证明。详见 [application-updates.md](application-updates.md)。
 
+## 企业微信接入插件化
+
+两种企微实现已迁入 `internal/channelplugins`，由默认插件清单注册。智能机器人的官方 SDK worker 位于 `runtime/src/plugins/wecom-bot`；自建应用插件持有凭据客户端、签名/AES 校验和回调解析。平台通过通用 `WebhookProvider` 分发回调，负责按配置版本保存验证状态与消息；旧管理 API 仅作兼容转换，旧 URL、配置、密文和历史 ID 保留。
+
+新增独立 Webhook 插件链路测试，覆盖认证、路径隔离、验证、去重、任务、投递及过期配置验证拒绝；另验证不加载默认插件时保留渠道配置和历史、恢复插件后继续去重。插件集合在启动前选择，宿主内插件随程序编译分发，外部 Node 插件继续通过可信目录安装。37 项 Runtime 测试、全量 Go 竞态、go vet、前端构建及 Chromium 桌面/320px/390px 回归通过；真实企微收发仍需企业环境验收。开发与安装说明见 [channel-adapters.md](channel-adapters.md)。
+
 ## 可插拔聊天渠道重构
 
 - [x] 统一 `internal/channels` Provider/Connection/消息/回执接口，配置字段由适配器声明，平台保留去重、Agent 路由、队列、会话和投递状态所有权。

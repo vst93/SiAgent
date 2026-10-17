@@ -15,11 +15,6 @@ import (
 
 const API = "https://qyapi.weixin.qq.com/cgi-bin"
 
-type Credentials struct {
-	Secret string `json:"secret"`
-	Token  string `json:"token"`
-	AESKey string `json:"aes_key"`
-}
 type Application struct {
 	ID, CorpID string
 	AppID      int64

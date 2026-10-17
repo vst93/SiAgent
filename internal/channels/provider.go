@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
@@ -78,7 +79,22 @@ type Provider interface {
 	Validate(Config) error
 	Open(context.Context, Config, Receive) (Connection, error)
 }
+
+// Plugin creates a bundled provider without access to platform storage or runtime.
+type Plugin func(PluginOptions) (Provider, error)
+type PluginOptions struct {
+	Node         string
+	WorkerScript string
+}
+
 type CallbackProvider interface{ CallbackPath(string) string }
+
+// WebhookProvider authenticates vendor callbacks before invoking receive or
+// verified. The host persists messages and verification with the config version.
+type WebhookProvider interface {
+	CallbackProvider
+	ServeCallback(http.ResponseWriter, *http.Request, Config, Receive, func(context.Context) error)
+}
 type CredentialTester interface {
 	Test(context.Context, Config) Result
 }
