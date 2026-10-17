@@ -65,6 +65,35 @@ GET    /v1/knowledge/sources/{source_id}
 - 检索返回真实片段、来源链接与定位；无结果时同时记录内容缺口。
 - 删除立即退出新检索，历史来源显示删除标记。
 
+## Webhook
+
+在“集成接口”页配置地址、签名密钥与订阅事件（`run.completed`、`run.failed`、`run.cancelled`、`run.interrupted`）。任务进入终态时推送：
+
+```http
+POST <your-url>
+X-SiAgent-Event: run.completed
+X-SiAgent-Event-Id: <run_id>:run.completed
+X-SiAgent-Timestamp: 1700000000
+X-SiAgent-Signature: sha256=<hex hmac>
+Content-Type: application/json
+```
+
+签名内容为 `HMAC-SHA256(secret, event_id + "." + event + "." + timestamp + "." + body)`。每个订阅与事件只投递一次，失败按 0/2/5 秒重试 3 次后标记失败；可在“最近投递”查看状态。接收方应按 `event_id` 幂等处理。
+
+## MCP Server
+
+`POST /mcp` 提供最小 MCP（JSON-RPC 2.0 over HTTP）服务，使用同一套 API Key（需 `knowledge:search` 或 `agent:run`）：
+
+- `initialize`、`notifications/initialized`
+- `tools/list`：`knowledge_search`、`knowledge_read`、`agent_chat`
+- `tools/call`
+
+`agent_chat` 同步等待最多 60 秒；超时返回错误并提示改用 `/v1` 异步接口。工具只返回文本内容，不返回图片或二进制。
+
+## OpenAI 兼容门面
+
+`POST /v1/chat/completions` 把最后一条 user 消息映射为一次 Agent 任务，`model` 使用 `agent:<id>`（省略时用默认 Agent）。只支持非流式基础问答；流式、工具调用与多模态返回 400。该门面不暴露来源、取消或异步语义，生产集成优先使用 `/v1/agents/{id}/runs`。
+
 ## 错误与限制
 
 统一错误体：`{"error":"说明"}`，HTTP 状态区分 400/401/403/404/409/413/429/503。429 带 `Retry-After`。所有写操作写入审计，不记录正文与密钥。

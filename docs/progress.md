@@ -60,6 +60,16 @@
 - [x] 单元测试覆盖 Markdown 层级/表格/列表、纯文本章节与条款、DOCX 标题/表格/列表、损坏 DOCX、长节父子片段、结构元数据入库与标题检索；平台与浏览器测试回归。
 - [ ] 复杂版式 PDF、合并单元格与嵌套表格仍需按真实资料验证。
 
+## 扩展与集成 M5：Webhook、MCP Server 与兼容门面
+
+- [x] schema 19 增加 `webhook_subscriptions` 与 `webhook_deliveries`；签名密钥加密保存、不回显。
+- [x] 终态事件按订阅推送，带 `X-SiAgent-Event/Event-Id/Timestamp/Signature`，HMAC-SHA256 覆盖事件 ID、事件、时间戳与正文；失败 0/2/5 秒重试 3 次后标记失败，事件 ID 去重。
+- [x] 管理端“集成接口”页配置 Webhook、订阅事件、查看与删除；保存/删除写入审计。
+- [x] `POST /mcp` 提供最小 MCP 服务：initialize、tools/list、tools/call，暴露 knowledge_search、knowledge_read、agent_chat，使用 API Key 认证与限流。
+- [x] `POST /v1/chat/completions` 兼容门面：`agent:<id>` 映射一次同步任务，仅非流式基础问答，其他情况明确拒绝。
+- [x] 平台测试覆盖签名与重试、校验与鉴权、MCP 初始化/工具列表/检索/未知工具/未认证、兼容门面映射与流式拒绝、schema 迁移。
+- [ ] Webhook 消费方签名校验与 MCP 客户端兼容性需在真实系统中验收。
+
 ## 扩展与集成 M4：/v1 集成 API
 
 - [x] schema 18 增加 `api_keys`、`api_idempotency`、`api_conversations`、`knowledge_external`，以及 `agents.revision`、`runs.agent_revision/source`。

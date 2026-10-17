@@ -347,6 +347,9 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	if terminal(status) && event.Type != "run_released" {
+		s.enqueueWebhooks(runID, status)
+	}
 	return s.dispatch()
 }
 func (s *Server) reconcile(runID string, data json.RawMessage) error {

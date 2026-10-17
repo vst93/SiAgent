@@ -23,5 +23,8 @@ func (s *Store) migrateIntegration() error {
 	if _, err := tx.Exec(integrationSchema); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateWebhooks()
 }
