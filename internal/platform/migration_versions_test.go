@@ -45,7 +45,7 @@ func downgradeTo(t *testing.T, db *sql.DB, target int) {
 }
 
 func TestUpgradeFromEveryRecentVersionPreservesData(t *testing.T) {
-	for target := 10; target <= 18; target++ {
+	for target := 10; target <= 21; target++ {
 		t.Run(fmt.Sprintf("from-v%d", target), func(t *testing.T) {
 			f := newFixture(t)
 			f.setup(t)

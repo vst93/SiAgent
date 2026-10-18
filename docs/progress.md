@@ -4,7 +4,7 @@
 
 ## 本轮交付总结（知识效果 K0–K6、扩展与集成 M1–M5、界面打磨）
 
-数据库 schema 从 10 升到 **19**，全部为增量迁移。已完成：
+数据库 schema 从 10 升到 **22**，全部为增量迁移。已完成：
 
 | 范围 | 内容 |
 | --- | --- |
@@ -32,8 +32,8 @@
 - M1：增加 `pi-providers-heavy` 单独包（Bedrock/Vertex 预设），说明其不内置厂商 SDK。
 - M3：扩展包支持 ZIP 上传、配置字段与密钥、健康检查；渠道插件登记为随系统分发并跳转配置。
 - M4：发布机器可读的 `openapi.yaml`。
-- 迁移：新增从 schema 10–18 每个版本升级到 21 的测试，逐版本验证管理员、模型密钥与知识库保留。
-- 文档：schema 版本统一为 21，历史迁移说明保留。
+- 迁移：新增从 schema 10–21 每个版本升级到 22 的测试，逐版本验证管理员、模型密钥与知识库保留。
+- 文档：当前 schema 版本统一为 22，历史迁移说明保留。
 
 已知边界：真实模型供应商、第三方 MCP、企业微信真实企业环境、Webhook 消费方与 MCP 客户端兼容性仍需外部验收；Embedding/向量检索、OCR、公开 Web 问答页不在本轮范围。
 
@@ -97,7 +97,7 @@
 
 ## 扩展与集成 M5：Webhook、MCP Server 与兼容门面
 
-- [x] schema 19 增加 `webhook_subscriptions` 与 `webhook_deliveries`；签名密钥加密保存、不回显。
+- [x] schema 19 增加 `webhook_subscriptions` 与 `webhook_deliveries`；后续迁移已推进到 22；签名密钥加密保存、不回显。
 - [x] 终态事件按订阅推送，带 `X-SiAgent-Event/Event-Id/Timestamp/Signature`，HMAC-SHA256 覆盖事件 ID、事件、时间戳与正文；失败 0/2/5 秒重试 3 次后标记失败，事件 ID 去重。
 - [x] 管理端“集成接口”页配置 Webhook、订阅事件、查看与删除；保存/删除写入审计。
 - [x] `POST /mcp` 提供最小 MCP 服务：initialize、tools/list、tools/call，暴露 knowledge_search、knowledge_read、agent_chat，使用 API Key 认证与限流。

@@ -25,6 +25,7 @@ export type ModelOptions = {
   max_tokens_field?: "" | "max_tokens" | "max_completion_tokens";
 };
 export type ModelConfig = {
+  provider?: string;
   base_url: string;
   name: string;
   api_key: string;
@@ -121,7 +122,7 @@ export function configuredModels(
   const models = createModels();
   models.setProvider(
     createProvider({
-      id: "siagent",
+      id: config.provider || "siagent",
       baseUrl,
       auth: {
         apiKey: {
@@ -134,7 +135,7 @@ export function configuredModels(
         {
           id: config.name,
           name: o.display_name || config.name,
-          provider: "siagent",
+          provider: config.provider || "siagent",
           api: o.api,
           baseUrl,
           reasoning: o.reasoning ?? false,

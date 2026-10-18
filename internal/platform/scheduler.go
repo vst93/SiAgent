@@ -84,6 +84,7 @@ type runConfig struct {
 	ModelID      int64         `json:"model_id,omitempty"`
 	KnowledgeIDs []string      `json:"knowledge_ids,omitempty"`
 	ModelVersion int           `json:"model_version"`
+	Provider     string        `json:"provider"`
 	BaseURL      string        `json:"base_url"`
 	Model        string        `json:"model"`
 	Agent        Agent         `json:"agent"`
@@ -146,7 +147,7 @@ func (s *Server) dispatch() error {
 		if err != nil {
 			return err
 		}
-		request := map[string]any{"v": 1, "type": "start", "request_id": runID, "run_id": runID, "conversation_id": conversationID, "input": input, "instructions": snapshot.Agent.Instructions, "model": map[string]any{"base_url": snapshot.BaseURL, "name": snapshot.Model, "api_key": key, "options": snapshot.ModelOptions}, "limits": map[string]int{"run_timeout_ms": snapshot.Limits.RunTimeout * 1000, "tool_timeout_ms": snapshot.Limits.ToolTimeout * 1000, "tool_rounds": snapshot.Limits.ToolRounds}}
+		request := map[string]any{"v": 1, "type": "start", "request_id": runID, "run_id": runID, "conversation_id": conversationID, "input": input, "instructions": snapshot.Agent.Instructions, "model": map[string]any{"provider": snapshot.Provider, "base_url": snapshot.BaseURL, "name": snapshot.Model, "api_key": key, "options": snapshot.ModelOptions}, "limits": map[string]int{"run_timeout_ms": snapshot.Limits.RunTimeout * 1000, "tool_timeout_ms": snapshot.Limits.ToolTimeout * 1000, "tool_rounds": snapshot.Limits.ToolRounds}}
 		if snapshot.TimeContext != nil {
 			request["time_context"] = snapshot.TimeContext
 		}

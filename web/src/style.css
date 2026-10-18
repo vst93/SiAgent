@@ -4912,3 +4912,46 @@ details[open] > summary > .disclosure-icon {
   background: transparent;
   padding: 0;
 }
+
+/* Alignment pass: inline controls, labels and action groups share one baseline. */
+.form-actions,
+.extension-actions,
+.apikey-actions,
+.kb-gap-actions,
+.kb-eval-io,
+.extension-upload,
+.model-pack,
+.apikey-row,
+.extension-card > header,
+.channel-detail-actions,
+.channel-controls {
+  align-items: center;
+}
+.checkbox-label {
+  align-items: flex-start;
+}
+.checkbox-label input[type="checkbox"] {
+  margin-top: 3px;
+}
+.apikey-actions .apikey-revealed {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+}
+.extension-card .badge,
+.model-pack-state,
+.model-save-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.model-pack > div:first-child {
+  min-width: 0;
+}
+.model-pack button {
+  align-self: center;
+}
+.extension-config button {
+  align-self: flex-start;
+}

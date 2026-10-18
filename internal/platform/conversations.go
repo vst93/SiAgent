@@ -398,7 +398,7 @@ func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, r
 		timezone = defaultAgentPolicy().Timezone
 	}
 	turnTime := &TurnTime{ReceivedAt: time.UnixMilli(receivedAt).UTC().Format(time.RFC3339Nano), Timezone: timezone}
-	config, _ := json.Marshal(runConfig{TimeContext: turnTime, ModelOptions: model.Options, ModelID: model.ID, ModelVersion: model.Version, BaseURL: model.BaseURL, Model: model.Name, Agent: agent, Limits: s.limits, Capabilities: &capabilities, KnowledgeIDs: knowledgeIDs})
+	config, _ := json.Marshal(runConfig{TimeContext: turnTime, ModelOptions: model.Options, ModelID: model.ID, ModelVersion: model.Version, Provider: model.Provider, BaseURL: model.BaseURL, Model: model.Name, Agent: agent, Limits: s.limits, Capabilities: &capabilities, KnowledgeIDs: knowledgeIDs})
 	credentials, _ := json.Marshal(RunCredentials{ModelKey: model.APIKey, MCPs: toolSecrets})
 	tx, err := s.store.db.Begin()
 	if err != nil {
