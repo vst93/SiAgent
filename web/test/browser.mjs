@@ -201,24 +201,36 @@ try {
       errors.push(message.text());
   });
   const config = async (name) => {
-    await page
-      .getByRole("navigation", { name: "主模块" })
-      .getByRole("button", { name: "配置", exact: true })
-      .click();
-    await page
-      .getByRole("navigation", { name: "配置导航" })
-      .getByRole("link", { name, exact: true })
-      .click();
+    const modules = page.getByRole("navigation", { name: "主模块" });
+    if (await modules.isVisible()) {
+      await modules.getByRole("button", { name: "配置", exact: true }).click();
+      await page
+        .getByRole("navigation", { name: "配置导航" })
+        .getByRole("link", { name, exact: true })
+        .click();
+    } else {
+      await page.getByRole("button", { name: "打开导航", exact: true }).click();
+      await page
+        .getByRole("navigation", { name: "移动导航" })
+        .getByRole("button", { name, exact: true })
+        .click();
+    }
     await page
       .locator(".configuration-heading")
       .getByRole("heading", { name, exact: true })
       .waitFor();
   };
   const chat = async () => {
-    await page
-      .getByRole("navigation", { name: "主模块" })
-      .getByRole("button", { name: "Agent 对话", exact: true })
-      .click();
+    const modules = page.getByRole("navigation", { name: "主模块" });
+    if (await modules.isVisible()) {
+      await modules.getByRole("button", { name: "Agent 对话", exact: true }).click();
+    } else {
+      await page.getByRole("button", { name: "打开导航", exact: true }).click();
+      await page
+        .getByRole("navigation", { name: "移动导航" })
+        .getByRole("button", { name: "Agent 对话", exact: true })
+        .click();
+    }
     await page.getByLabel("发送给助手的消息").waitFor();
   };
   const agentTab = async (agent, tab) => {
@@ -1871,9 +1883,18 @@ try {
   await page.getByRole("heading", { name: "欢迎回来" }).waitFor();
   await page.getByLabel("管理员密码").fill("browser-long-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await page.getByRole("navigation", { name: "主模块" }).waitFor();
-  await page.getByRole("button", { name: "退出登录", exact: true }).click();
-  await page.getByRole("heading", { name: "欢迎回来" }).waitFor();
+  await page.getByRole("button", { name: "打开导航", exact: true }).waitFor();
+  await page.getByRole("button", { name: "打开导航", exact: true }).click();
+  assert(
+    await page
+      .locator(".mobile-menu")
+      .getByRole("button", { name: "退出登录", exact: true })
+      .isVisible(),
+  );
+  await page
+    .locator(".mobile-menu")
+    .getByRole("button", { name: "关闭导航", exact: true })
+    .click();
   assert.deepEqual(errors, []);
   console.log(
     "Browser passed: Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, no JS errors.",

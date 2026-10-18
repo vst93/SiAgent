@@ -9,6 +9,7 @@ import {
 } from "./chat";
 import { Configuration } from "./configuration";
 import {
+  configSections,
   ModuleSwitch,
   pageName,
   useNavigation,
@@ -166,6 +167,7 @@ function AuthScreen({
 const sourceID = new URLSearchParams(window.location.search).get("source");
 function App() {
   const [maintenanceFeedback, setMaintenanceFeedback] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
   const navigation = useNavigation();
   const [auth, setAuth] = useState<Auth | null>(null);
   const [models, setModels] = useState<Model[]>([]);
@@ -419,6 +421,7 @@ function App() {
           <Mark />
           <span>SiAgent</span>
         </a>
+        <span className="mobile-title">{pageName(navigation.page)}</span>
         <ModuleSwitch {...navigation} />
         <div className="app-account">
           <span
@@ -436,7 +439,80 @@ function App() {
             <span>退出登录</span>
           </button>
         </div>
+        <button
+          className="mobile-menu-button"
+          aria-label="打开导航"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen(true)}
+        >
+          <Icon name="more" />
+        </button>
       </header>
+      <div
+        className={`mobile-menu-backdrop ${menuOpen ? "open" : ""}`}
+        onClick={() => setMenuOpen(false)}
+      />
+      <aside
+        className={`mobile-menu ${menuOpen ? "open" : ""}`}
+        aria-label="导航菜单"
+        aria-hidden={!menuOpen}
+      >
+        <header>
+          <span className="brand">
+            <Mark />
+            SiAgent
+          </span>
+          <button
+            className="icon-button"
+            aria-label="关闭导航"
+            onClick={() => setMenuOpen(false)}
+          >
+            <Icon name="close" />
+          </button>
+        </header>
+        <nav aria-label="移动导航">
+          <button
+            className={navigation.page === "chat" ? "selected" : ""}
+            onClick={() => {
+              navigation.navigate("chat");
+              setMenuOpen(false);
+            }}
+          >
+            <Icon name="chat" size={18} /> Agent 对话
+          </button>
+          <p className="mobile-menu-label">配置</p>
+          {configSections.map((item) => (
+            <button
+              key={item.id}
+              className={
+                navigation.page === `settings/${item.id}` ? "selected" : ""
+              }
+              onClick={() => {
+                navigation.navigate(`settings/${item.id}`);
+                setMenuOpen(false);
+              }}
+            >
+              <Icon name={item.icon} size={18} /> {item.title}
+            </button>
+          ))}
+        </nav>
+        <div className="mobile-menu-footer">
+          <p>
+            默认页面：{pageName(navigation.defaultPage)}
+            <button
+              onClick={() => {
+                navigation.pin(navigation.page);
+                setMenuOpen(false);
+              }}
+            >
+              固定当前页
+            </button>
+          </p>
+          <button className="mobile-logout" onClick={() => void logout()}>
+            <Icon name="logout" size={16} /> 退出登录
+          </button>
+        </div>
+      </aside>
       {navigation.preferenceError && (
         <p className="workspace-alert" role="alert">
           {navigation.preferenceError}

@@ -271,6 +271,15 @@ export function ChatWorkspace({
   maintenanceFeedback: string;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [mobile, setMobile] = useState(() =>
+    window.matchMedia("(max-width: 760px)").matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 760px)");
+    const handler = () => setMobile(query.matches);
+    query.addEventListener("change", handler);
+    return () => query.removeEventListener("change", handler);
+  }, []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const nearBottom = useRef(true);
@@ -303,6 +312,65 @@ export function ChatWorkspace({
     if (nearBottom.current && scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [snapshot]);
+  const actions = (
+    <>
+      <label className="chat-agent-select">
+        <span className="sr-only">当前 Agent</span>
+        <select
+          disabled={loading || pending}
+          aria-label="选择助手"
+          value={agentID}
+          onChange={(event) => selectAgent(event.target.value)}
+        >
+          {!agents.length && (
+            <option value="default">尚未创建 Agent</option>
+          )}
+          {agents.map((value) => (
+            <option value={value.id} key={value.id}>
+              {value.name}
+              {value.archived
+                ? "（已归档）"
+                : !value.enabled
+                  ? "（已停用）"
+                  : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        className="new-chat"
+        onClick={newConversation}
+        disabled={
+          !model ||
+          loading ||
+          pending ||
+          !agent?.enabled ||
+          agent.archived ||
+          agent.policy.session.types === "group"
+        }
+      >
+        <Icon name="plus" size={16} />
+        <span>新对话</span>
+      </button>
+      {snapshot && (
+        <ConversationMaintenance
+          key={snapshot.conversation.id}
+          request={request}
+          id={snapshot.conversation.id}
+          onDeleted={onDeleted}
+        />
+      )}
+      <button
+        className="history-toggle"
+        aria-expanded={historyOpen}
+        aria-controls="chat-history"
+        onClick={() => setHistoryOpen(!historyOpen)}
+      >
+        <Icon name="history" size={16} />
+        <span>对话记录</span>
+      </button>
+    </>
+  );
   return (
     <section className="chat-workspace" aria-label="Agent 对话工作区">
       <header className="chat-header">
@@ -318,63 +386,7 @@ export function ChatWorkspace({
             </span>
           )}
         </div>
-        <div className="chat-header-actions">
-          <label className="chat-agent-select">
-            <span className="sr-only">当前 Agent</span>
-            <select
-              disabled={loading || pending}
-              aria-label="选择助手"
-              value={agentID}
-              onChange={(event) => selectAgent(event.target.value)}
-            >
-              {!agents.length && (
-                <option value="default">尚未创建 Agent</option>
-              )}
-              {agents.map((value) => (
-                <option value={value.id} key={value.id}>
-                  {value.name}
-                  {value.archived
-                    ? "（已归档）"
-                    : !value.enabled
-                      ? "（已停用）"
-                      : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="new-chat"
-            onClick={newConversation}
-            disabled={
-              !model ||
-              loading ||
-              pending ||
-              !agent?.enabled ||
-              agent.archived ||
-              agent.policy.session.types === "group"
-            }
-          >
-            <Icon name="plus" size={16} />
-            新对话
-          </button>
-          {snapshot && (
-            <ConversationMaintenance
-              key={snapshot.conversation.id}
-              request={request}
-              id={snapshot.conversation.id}
-              onDeleted={onDeleted}
-            />
-          )}
-          <button
-            className="history-toggle"
-            aria-expanded={historyOpen}
-            aria-controls="chat-history"
-            onClick={() => setHistoryOpen(!historyOpen)}
-          >
-            <Icon name="history" size={16} />
-            <span>对话记录</span>
-          </button>
-        </div>
+        {!mobile && <div className="chat-header-actions">{actions}</div>}
       </header>
       <aside
         id="chat-history"
@@ -661,6 +673,7 @@ export function ChatWorkspace({
                 </div>
               )}
             </div>
+            {mobile && <div className="chat-mobile-actions">{actions}</div>}
             {channelConversation ? (
               <div className="channel-conversation-notice">
                 <p>

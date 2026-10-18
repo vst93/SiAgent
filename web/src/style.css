@@ -4955,3 +4955,220 @@ details[open] > summary > .disclosure-icon {
 .extension-config button {
   align-self: flex-start;
 }
+
+/* Mobile navigation: one compact top bar, primary actions near the composer. */
+.mobile-title,
+.mobile-menu-button,
+.mobile-menu,
+.mobile-menu-backdrop,
+.chat-mobile-actions {
+  display: none;
+}
+@media (max-width: 760px) {
+  .app-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "brand title menu";
+    padding: 6px 12px;
+    min-height: 48px;
+    gap: 8px;
+  }
+  .mobile-title {
+    display: block;
+    grid-area: title;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    font-weight: 650;
+    color: var(--ink-strong);
+  }
+  .mobile-menu-button {
+    display: inline-flex;
+    grid-area: menu;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+  }
+  .module-switch,
+  .app-account {
+    display: none;
+  }
+  .configuration-workspace {
+    display: block;
+    height: 100%;
+  }
+  .configuration-sidebar {
+    display: none;
+  }
+  .configuration-main {
+    height: 100%;
+  }
+  .configuration-heading {
+    padding: 12px 16px;
+  }
+  .configuration-heading h1 {
+    font-size: 21px;
+  }
+  .configuration-content {
+    padding-top: 14px;
+  }
+  .chat-header {
+    display: none;
+  }
+  .chat-main {
+    flex: 1;
+    min-height: 0;
+  }
+  .chat-mobile-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-top: 1px solid var(--line);
+    background: var(--paper);
+    flex-shrink: 0;
+  }
+  .chat-mobile-actions .chat-agent-select {
+    flex: 1;
+    min-width: 0;
+  }
+  .chat-mobile-actions .chat-agent-select select {
+    width: 100%;
+    max-width: none;
+    min-height: 32px;
+    font-size: 13px;
+    padding: 5px 24px 5px 8px;
+  }
+  .chat-mobile-actions .new-chat,
+  .chat-mobile-actions .history-toggle,
+  .chat-mobile-actions .delete-conversation-button {
+    width: 32px;
+    min-height: 32px;
+    padding: 0;
+    font-size: 0;
+    gap: 0;
+    flex-shrink: 0;
+  }
+  .chat-mobile-actions .new-chat span,
+  .chat-mobile-actions .history-toggle span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .chat-mobile-actions .delete-conversation-button {
+    display: grid;
+  }
+  .mobile-menu-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(16, 35, 31, 0.42);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s var(--ease);
+  }
+  .mobile-menu-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .mobile-menu {
+    display: flex;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 41;
+    width: min(86vw, 340px);
+    padding: 14px 12px;
+    flex-direction: column;
+    background: var(--paper);
+    border-left: 1px solid var(--line);
+    box-shadow: var(--shadow-2);
+    transform: translateX(100%);
+    transition: transform 0.18s var(--ease);
+  }
+  .mobile-menu.open {
+    transform: translateX(0);
+  }
+  .mobile-menu > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 4px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .mobile-menu > header .brand {
+    font-size: 16px;
+    gap: 8px;
+  }
+  .mobile-menu > header .mark {
+    width: 28px;
+    height: 28px;
+    font-size: 19px;
+    border-radius: 8px;
+  }
+  .mobile-menu nav {
+    display: grid;
+    gap: 2px;
+    padding-top: 10px;
+  }
+  .mobile-menu nav button {
+    justify-content: flex-start;
+    border: 0;
+    background: transparent;
+    padding: 9px 10px;
+    min-height: 38px;
+    font-size: 13px;
+    border-radius: var(--radius-sm);
+  }
+  .mobile-menu nav button.selected {
+    background: var(--teal-soft);
+    color: var(--teal-strong);
+    box-shadow: inset 2px 0 0 var(--teal);
+  }
+  .mobile-menu-label {
+    margin: 14px 10px 4px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--faint);
+  }
+  .mobile-menu-footer {
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .mobile-menu-footer p {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0 0 10px;
+  }
+  .mobile-menu-footer p button {
+    font-size: 10.5px;
+    padding: 4px 8px;
+  }
+  .mobile-menu-footer .mobile-logout {
+    width: 100%;
+    justify-content: flex-start;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 8px 6px;
+  }
+}
