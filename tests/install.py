@@ -82,7 +82,8 @@ def main():
                 env.pop(key, None)
 
             def install(*arguments, success=True):
-                result = subprocess.run(["sh", str(INSTALLER), "--prefix", str(prefix),
+                result = subprocess.run(["sh", str(INSTALLER), "--no-service",
+                                         "--prefix", str(prefix),
                                          "--bin-dir", str(bin_dir), *arguments],
                                         env=env, capture_output=True, text=True, timeout=20)
                 assert (result.returncode == 0) == success, result.stdout + result.stderr
