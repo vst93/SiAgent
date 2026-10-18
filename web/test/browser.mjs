@@ -383,7 +383,7 @@ try {
   await page.getByLabel("发送给助手的消息").fill("");
   await config("模型连接");
   await page
-    .getByRole("button", { name: "设当前配置页为默认页面", exact: true })
+    .getByRole("button", { name: "将当前页设为默认页", exact: true })
     .click();
   await config("知识库");
   await page.goto(base);
@@ -393,7 +393,7 @@ try {
     .waitFor();
   assert.equal(
     await page
-      .getByRole("button", { name: "设当前配置页为默认页面", exact: true })
+      .getByRole("button", { name: "当前页已是默认页", exact: true })
       .getAttribute("aria-pressed"),
     "true",
   );
@@ -411,7 +411,7 @@ try {
     .waitFor();
   await chat();
   await page
-    .getByRole("button", { name: "设 Agent 对话为默认页面", exact: true })
+    .getByRole("button", { name: "将当前页设为默认页", exact: true })
     .click();
   await config("模型连接");
   await page.goto(base);
@@ -421,10 +421,21 @@ try {
   other.on("pageerror", (error) => errors.push(error.message));
   await other.goto(base + "#/settings/knowledge");
   await other
-    .getByRole("button", { name: "设当前配置页为默认页面", exact: true })
+    .getByRole("button", { name: "将当前页设为默认页", exact: true })
     .click();
-  await page.getByText("默认：配置 · 知识库", { exact: true }).waitFor();
+  assert.match(
+    (await page
+      .getByRole("button", { name: "将当前页设为默认页", exact: true })
+      .getAttribute("title")) ?? "",
+    /配置 · 知识库/,
+  );
   await other.goto(base);
+  await other
+    .locator(".configuration-heading h1")
+    .filter({ hasText: "知识库" })
+    .waitFor();
+  await other.goto(base + "#/settings/agents");
+  await other.getByRole("link", { name: "打开默认页面", exact: true }).click();
   await other
     .locator(".configuration-heading h1")
     .filter({ hasText: "知识库" })
@@ -445,7 +456,7 @@ try {
   await other.goto(base + "#/settings/system");
   await other.reload();
   await other
-    .getByRole("button", { name: "设当前配置页为默认页面", exact: true })
+    .getByRole("button", { name: "将当前页设为默认页", exact: true })
     .click();
   await other
     .getByRole("alert")
@@ -456,9 +467,6 @@ try {
     .filter({ hasText: "运行与维护" })
     .waitFor();
   await other.close();
-  await page
-    .getByRole("button", { name: "设 Agent 对话为默认页面", exact: true })
-    .click();
   await page.getByRole("button", { name: "测试模型连接", exact: true }).click();
   await page.getByText("连接成功，模型已返回文本响应。").waitFor();
   assert.equal(await page.getByLabel("API 密钥").inputValue(), "");

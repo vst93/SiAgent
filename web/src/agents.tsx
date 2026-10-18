@@ -156,7 +156,12 @@ export function AgentWorkspace({
                   "模型不可用"}
               </small>
             </button>
-            <button disabled={pending} onClick={() => onSelect(agent.id)}>
+            <button
+              className="agent-card-action"
+              disabled={pending}
+              onClick={() => onSelect(agent.id)}
+            >
+              <Icon name={agent.archived ? "history" : "chat"} size={14} />
               {agent.archived ? "查看历史" : "进入对话"}
             </button>
           </div>

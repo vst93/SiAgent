@@ -47,8 +47,9 @@ export function Configuration({
         <nav ref={navRef} aria-label="配置导航">
           {configSections.map((item, index) => (
             <div key={item.id}>
-              {index === 0 && <p className="nav-group-label">Agent 与能力</p>}
-              {index === 5 && <p className="nav-group-label">服务与维护</p>}
+              {(index === 0 || configSections[index - 1].group !== item.group) && (
+                <p className="nav-group-label">{item.group}</p>
+              )}
               <a
                 href={`#/settings/${item.id}`}
                 onClick={(event) => {

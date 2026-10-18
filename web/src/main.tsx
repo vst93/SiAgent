@@ -15,7 +15,7 @@ import {
   useNavigation,
   type ConfigSection,
 } from "./navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, Fragment, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
@@ -417,19 +417,43 @@ function App() {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <a className="brand" href="#/chat" aria-label="SiAgent 对话首页">
+        <a
+          className="brand"
+          href={`#/${navigation.defaultPage}`}
+          aria-label="打开默认页面"
+        >
           <Mark />
           <span>SiAgent</span>
         </a>
         <span className="mobile-title">{pageName(navigation.page)}</span>
-        <ModuleSwitch {...navigation} />
+        <ModuleSwitch
+          page={navigation.page}
+          lastConfig={navigation.lastConfig}
+          navigate={navigation.navigate}
+        />
         <div className="app-account">
-          <span
-            className="default-page-label"
-            title="默认页面只保存在当前浏览器"
+          <button
+            className="default-page-control"
+            aria-pressed={navigation.defaultPage === navigation.page}
+            aria-label={
+              navigation.defaultPage === navigation.page
+                ? "当前页已是默认页"
+                : "将当前页设为默认页"
+            }
+            title={`当前默认：${pageName(navigation.defaultPage)}（只保存在当前浏览器）`}
+            onClick={() => navigation.pin(navigation.page)}
           >
-            默认：{pageName(navigation.defaultPage)}
-          </span>
+            <Icon
+              name="star"
+              size={16}
+              filled={navigation.defaultPage === navigation.page}
+            />
+            <span>
+              {navigation.defaultPage === navigation.page
+                ? "默认页"
+                : "设为默认"}
+            </span>
+          </button>
           <button
             className="logout"
             aria-label="退出登录"
@@ -481,19 +505,23 @@ function App() {
             <Icon name="chat" size={18} /> Agent 对话
           </button>
           <p className="mobile-menu-label">配置</p>
-          {configSections.map((item) => (
-            <button
-              key={item.id}
-              className={
-                navigation.page === `settings/${item.id}` ? "selected" : ""
-              }
-              onClick={() => {
-                navigation.navigate(`settings/${item.id}`);
-                setMenuOpen(false);
-              }}
-            >
-              <Icon name={item.icon} size={18} /> {item.title}
-            </button>
+          {configSections.map((item, index) => (
+            <Fragment key={item.id}>
+              {(index === 0 || configSections[index - 1].group !== item.group) && (
+                <p className="mobile-menu-label">{item.group}</p>
+              )}
+              <button
+                className={
+                  navigation.page === `settings/${item.id}` ? "selected" : ""
+                }
+                onClick={() => {
+                  navigation.navigate(`settings/${item.id}`);
+                  setMenuOpen(false);
+                }}
+              >
+                <Icon name={item.icon} size={18} /> {item.title}
+              </button>
+            </Fragment>
           ))}
         </nav>
         <div className="mobile-menu-footer">
@@ -505,7 +533,7 @@ function App() {
                 setMenuOpen(false);
               }}
             >
-              固定当前页
+              设为默认页
             </button>
           </p>
           <button className="mobile-logout" onClick={() => void logout()}>

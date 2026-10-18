@@ -5172,3 +5172,107 @@ details[open] > summary > .disclosure-icon {
     padding: 8px 6px;
   }
 }
+
+/* Header/navigation, agent list, conversation alignment and select controls. */
+@media (min-width: 761px) {
+  .app-header {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    gap: 14px;
+  }
+}
+.module-switch {
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.module-switch button.module-link {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+.module-switch button.module-link:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+.module-switch button.module-link.active {
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+  font-weight: 650;
+}
+.default-page-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+}
+.default-page-control[aria-pressed="true"] {
+  color: var(--teal-strong);
+  background: var(--teal-soft);
+}
+.default-page-control:hover:not(:disabled) {
+  background: var(--surface);
+}
+.conversation {
+  justify-content: flex-start;
+}
+.agent-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.agent-card-select {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 0;
+}
+.agent-card-action {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-color: var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.agent-card-action:hover:not(:disabled) {
+  color: var(--teal-strong);
+  border-color: var(--line-strong);
+}
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) calc(50% + 2px),
+    calc(100% - 10px) calc(50% + 2px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+}
+select:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+select option {
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+select option:disabled {
+  color: var(--faint);
+}
