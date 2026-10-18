@@ -2,6 +2,7 @@ import { createCipheriv, createHash, randomBytes } from "node:crypto";
 import { chromium } from "playwright";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -168,8 +169,18 @@ const child = spawn(
 );
 let setupToken = "";
 child.stderr.on("data", (chunk) => {
-  const match = String(chunk).match(/令牌.*?: (\S+)/);
+  const text = String(chunk);
+  if (process.env.SIAGENT_BROWSER_SERVER_LOG)
+    appendFileSync(process.env.SIAGENT_BROWSER_SERVER_LOG, text);
+  const match = text.match(/令牌.*?: (\S+)/);
   if (match) setupToken = match[1];
+});
+child.on("exit", (code, signal) => {
+  if (process.env.SIAGENT_BROWSER_SERVER_LOG)
+    appendFileSync(
+      process.env.SIAGENT_BROWSER_SERVER_LOG,
+      `\nSERVER EXIT code=${code} signal=${signal}\n`,
+    );
 });
 let browser;
 try {
@@ -1910,9 +1921,46 @@ try {
     .locator(".mobile-menu")
     .getByRole("button", { name: "关闭导航", exact: true })
     .click();
+  await page.getByRole("button", { name: "打开导航", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Switch to English", exact: true })
+    .click();
+  await page
+    .locator(".mobile-menu")
+    .getByRole("button", { name: "Agent chat", exact: true })
+    .waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.lang), "en");
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("siagent.language")),
+    "en",
+  );
+  await page.getByRole("button", { name: "Close navigation", exact: true }).click();
+  await page.reload();
+  await page.getByRole("button", { name: "Open navigation", exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.lang), "en");
+  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+  await page
+    .locator(".mobile-menu")
+    .getByRole("button", { name: "Agent chat", exact: true })
+    .waitFor();
+  await page
+    .getByRole("button", { name: "Switch to Chinese", exact: true })
+    .click();
+  await page
+    .locator(".mobile-menu")
+    .getByRole("button", { name: "Agent 对话", exact: true })
+    .waitFor();
+  assert.equal(
+    await page.evaluate(() => document.documentElement.lang),
+    "zh-CN",
+  );
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("siagent.language")),
+    "zh",
+  );
   assert.deepEqual(errors, []);
   console.log(
-    "Browser passed: Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, no JS errors.",
+    "Browser passed: Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, Chinese/English switch with reload persistence, no JS errors.",
   );
 } finally {
   releaseHold();

@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"path/filepath"
@@ -109,7 +110,7 @@ func (s *Server) MaintenanceTick(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, table := range []string{"run_sources", "run_events", "tool_calls"} {
+	for _, table := range []string{"run_sources", "run_events", "tool_calls", "answer_feedback"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE run_id IN (SELECT id FROM runs WHERE conversation_id=?)", conversation); err != nil {
 			return err
 		}
@@ -124,7 +125,7 @@ func (s *Server) MaintenanceTick(ctx context.Context) error {
 		"DELETE FROM conversation_cleanup WHERE conversation_id=?",
 	} {
 		if _, err := tx.ExecContext(ctx, query, conversation); err != nil {
-			return err
+			return fmt.Errorf("cleanup conversation %s: %w", query, err)
 		}
 	}
 	return tx.Commit()

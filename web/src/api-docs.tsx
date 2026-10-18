@@ -1,10 +1,11 @@
 import { MessageMarkdown } from "./message-markdown";
 import { appURL } from "./urls";
+import type { Language } from "./i18n";
 
 const GITHUB_DOC =
   "https://github.com/vst93/SiAgent/blob/main/docs/integration-api.md";
 
-const content = `# SiAgent 集成接口
+const zhContent = `# SiAgent 集成接口
 
 面向业务系统的机器对机器接口。使用 \`Authorization: Bearer <key>\`，与管理员后台的 Cookie 登录完全分离。
 
@@ -78,10 +79,84 @@ curl -sS ${appURL("/v1/agents/default/runs")} \\
 
 > 密钥默认隐藏；查看会记录审计。吊销后仍可删除；未吊销的密钥需先吊销再删除。`;
 
-export function ApiDocsWorkspace() {
+const enContent = `# SiAgent Integration API
+
+Machine-to-machine APIs for business systems. Use \`Authorization: Bearer <key>\`; this is completely separate from the administrator Cookie session.
+
+## Quick start
+
+1. Create a key in “Integration API” and choose its scopes.
+2. Restrict it to the required Agent or knowledge base by default.
+3. Call the \`/v1\` API, or generate a client from OpenAPI.
+
+\`\`\`bash
+curl -sS ${appURL("/v1/agents/default/runs")} \\
+  -H "Authorization: Bearer siagent_xxx" \\
+  -H "Content-Type: application/json" \\
+  -H "Idempotency-Key: ticket-1001" \\
+  -d '{"input":"What is the accommodation limit for travel?","external_conversation_id":"user-42"}'
+\`\`\`
+
+## Scopes
+
+| Scope | Capability |
+| --- | --- |
+| \`agent:run\` | Start and cancel tasks |
+| \`agent:read\` | Read tasks and SSE events |
+| \`knowledge:write\` | Push, replace and delete documents |
+| \`knowledge:search\` | List knowledge bases, search and read sources |
+| \`webhook:manage\` | Manage Webhooks |
+
+Keys can be restricted to one Agent or knowledge base, with a per-minute rate limit and expiry. Full keys are stored encrypted and hidden by default. Administrators can reveal a key from the list, and the action is audited.
+
+## Agent tasks
+
+- \`POST /v1/agents/{agent_id}/runs\`: create asynchronously and return a \`run_id\`;
+- \`GET /v1/runs/{run_id}\`: read state, answer, sources and evidence status;
+- \`GET /v1/runs/{run_id}/events\`: SSE stream with \`run.state\`, \`message.delta\` and \`run.settled\`;
+- \`POST /v1/runs/{run_id}/cancel\`: cancel a queued or running task.
+
+Supports \`Idempotency-Key\`, \`external_conversation_id\` and \`agent_revision\`. Repeating the same key with the same content returns the existing task; different content returns 409.
+
+## Knowledge
+
+- \`GET /v1/knowledge/bases\`
+- \`POST /v1/knowledge/{base_id}/documents?external_id=...\`: multipart with a \`file\` field
+- \`GET /v1/knowledge/documents/{document_id}\`
+- \`DELETE /v1/knowledge/documents/{document_id}\`
+- \`POST /v1/knowledge/{base_id}/search\`
+- \`GET /v1/knowledge/sources/{source_id}\`
+
+\`external_id\` is unique within a knowledge base. Re-pushing creates a new version and switches atomically.
+
+## Webhooks
+
+Terminal events \`run.completed\`, \`run.failed\`, \`run.cancelled\` and \`run.interrupted\` are delivered to the configured URL. Requests include:
+
+- \`X-SiAgent-Event\`
+- \`X-SiAgent-Event-Id\`
+- \`X-SiAgent-Timestamp\`
+- \`X-SiAgent-Signature\`: HMAC-SHA256 over \`event_id + "." + event + "." + timestamp + "." + body\`
+
+Failed deliveries retry three times after 0/2/5 seconds. Receivers should deduplicate by event ID.
+
+## MCP and other endpoints
+
+- \`POST /mcp\`: minimal MCP JSON-RPC service exposing \`knowledge_search\`, \`knowledge_read\` and \`agent_chat\`;
+- \`POST /v1/chat/completions\`: OpenAI-compatible facade using \`agent:<id>\` as the model, non-streaming basic Q&A only;
+- \`GET /v1/openapi.yaml\`: machine-readable API specification.
+
+## Documentation and source
+
+- [Full integration guide (GitHub)](${GITHUB_DOC})
+- [OpenAPI specification](${appURL("/v1/openapi.yaml")})
+
+> Keys are hidden by default; revealing one writes an audit record. Revoked keys can still be deleted; active keys must be revoked first.`;
+
+export function ApiDocsWorkspace({ language }: { language: Language }) {
   return (
-    <article className="api-docs">
-      <MessageMarkdown content={content} />
+    <article className="api-docs" data-i18n-skip>
+      <MessageMarkdown content={language === "en" ? enContent : zhContent} />
     </article>
   );
 }

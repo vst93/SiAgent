@@ -10,6 +10,7 @@ import { ExecutionSettings } from "./runtime-controls";
 import { ApiKeysWorkspace } from "./api-keys";
 import { ApiDocsWorkspace } from "./api-docs";
 import { configSections, type ConfigSection, type Page } from "./navigation";
+import type { Language } from "./i18n";
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 export function Configuration({
   section,
@@ -21,6 +22,7 @@ export function Configuration({
   onSelectAgent,
   onConversation,
   onStart,
+  language,
 }: {
   section: ConfigSection;
   navigate: (page: Page) => void;
@@ -31,6 +33,7 @@ export function Configuration({
   onSelectAgent: (id: string) => void;
   onConversation: (id: string) => Promise<void>;
   onStart: () => void;
+  language: Language;
 }) {
   const current = configSections.find((item) => item.id === section)!;
   const navRef = useRef<HTMLElement>(null);
@@ -103,7 +106,7 @@ export function Configuration({
           {section === "api" && (
             <ApiKeysWorkspace request={request} agents={agents} />
           )}
-          {section === "api-docs" && <ApiDocsWorkspace />}
+          {section === "api-docs" && <ApiDocsWorkspace language={language} />}
         </div>
       </main>
     </section>

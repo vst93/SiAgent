@@ -17,6 +17,12 @@ import {
 } from "./navigation";
 import { FormEvent, Fragment, useEffect, useState } from "react";
 import { appURL } from "./urls";
+import {
+  applyLanguage,
+  rememberLanguage,
+  storedLanguage,
+  type Language,
+} from "./i18n";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
@@ -54,6 +60,27 @@ async function api<T>(
 }
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : "无法连接服务，请检查网络后重试。";
+
+function LanguageToggle({
+  language,
+  onChange,
+}: {
+  language: Language;
+  onChange: (language: Language) => void;
+}) {
+  const next = language === "zh" ? "en" : "zh";
+  return (
+    <button
+      className="language-toggle"
+      data-i18n-skip
+      aria-label={next === "en" ? "Switch to English" : "Switch to Chinese"}
+      title={next === "en" ? "Switch to English" : "Switch to Chinese"}
+      onClick={() => onChange(next)}
+    >
+      {next === "en" ? "EN" : "中文"}
+    </button>
+  );
+}
 
 function Mark() {
   return (
@@ -169,6 +196,7 @@ const sourceID = new URLSearchParams(window.location.search).get("source");
 function App() {
   const [maintenanceFeedback, setMaintenanceFeedback] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [language, setLanguage] = useState<Language>(storedLanguage);
   const navigation = useNavigation();
   const [auth, setAuth] = useState<Auth | null>(null);
   const [models, setModels] = useState<Model[]>([]);
@@ -185,6 +213,10 @@ function App() {
   const [ready, setReady] = useState(false);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  useEffect(() => {
+    rememberLanguage(language);
+    return applyLanguage(language);
+  }, [language]);
   async function refreshAuth() {
     const state = await api<Auth>("/auth/status");
     csrf = state.csrf;
@@ -393,6 +425,9 @@ function App() {
           SiAgent
         </div>
         <div className="auth-panel">
+          <div className="auth-language">
+            <LanguageToggle language={language} onChange={setLanguage} />
+          </div>
           {error ? (
             <>
               <p role="alert" className="error">
@@ -415,7 +450,14 @@ function App() {
       </div>
     );
   if (!auth.authenticated)
-    return <AuthScreen auth={auth} onDone={refreshAuth} />;
+    return (
+      <>
+        <AuthScreen auth={auth} onDone={refreshAuth} />
+        <div className="auth-language auth-language-corner">
+          <LanguageToggle language={language} onChange={setLanguage} />
+        </div>
+      </>
+    );
   if (sourceID) return <KnowledgeSource request={api} sourceID={sourceID} />;
   return (
     <div className="app-shell">
@@ -435,6 +477,7 @@ function App() {
           navigate={navigation.navigate}
         />
         <div className="app-account">
+          <LanguageToggle language={language} onChange={setLanguage} />
           <button
             className="default-page-control"
             aria-pressed={navigation.defaultPage === navigation.page}
@@ -528,6 +571,7 @@ function App() {
           ))}
         </nav>
         <div className="mobile-menu-footer">
+          <LanguageToggle language={language} onChange={setLanguage} />
           <p>
             默认页面：{pageName(navigation.defaultPage)}
             <button
@@ -615,6 +659,7 @@ function App() {
             onStart={() => selectAgent("default")}
             onSelectAgent={selectAgent}
             onConversation={openChannelConversation}
+            language={language}
           />
         )}
       </div>

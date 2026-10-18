@@ -33,6 +33,9 @@ func TestConversationDeletionRequiresConfirmationQuiescenceAndRuntimeAck(t *test
 	run := f.start(t, conversation, "erase this")
 	requireStatus(t, f.request(t, "DELETE", path, map[string]bool{"confirm": true}, true, nil), 409)
 	emit(t, f, run, "run_completed", 1)
+	if _, err := f.store.db.Exec("INSERT INTO answer_feedback(run_id,rating,created,updated) VALUES(?,?,?,?)", run, "helpful", time.Now().UnixMilli(), time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
 	requireStatus(t, f.request(t, "DELETE", path, map[string]bool{"confirm": true}, true, nil), 409)
 	emit(t, f, run, "run_released", 2)
 	requireStatus(t, f.request(t, "DELETE", path, map[string]bool{"confirm": true}, true, nil), 202)

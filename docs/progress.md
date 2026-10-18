@@ -14,6 +14,15 @@
 
 验证：`make test`（Runtime 39 项 + Go `-race`）、`python3 tests/e2e.py`、`SIAGENT_CHROMIUM=... npm --prefix web run test:browser` 全部通过；迁移测试覆盖 schema 1–20 升级并保留既有数据。
 
+## 中英文界面（i18n）
+
+- [x] 默认中文，桌面顶栏、移动端抽屉和登录/首次设置页提供中英文切换。
+- [x] 语言写入 `localStorage["siagent.language"]`，刷新后保持；同步 `html lang`。
+- [x] 导航、对话、Agent、模型、知识库、插件、渠道、扩展、集成接口、运行维护的表单/按钮/空状态/提示均覆盖。
+- [x] 接口文档提供独立中英文 Markdown；用户内容、对话正文和服务端动态文本不强制改写。
+- [x] 浏览器测试覆盖英文切换、刷新持久化和切回中文；中文默认路径保持不变。
+- [x] 清理会话时同步删除企微会话和回答反馈，避免外键引用导致维护任务退出。
+
 ## 相对路由、子路径部署与 Agent 列表对齐
 
 - [x] 前端资源改用 Vite 相对 base，`favicon`、JS/CSS 不再写死 `/assets`。

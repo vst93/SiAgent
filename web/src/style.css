@@ -5288,3 +5288,35 @@ select option {
 select option:disabled {
   color: var(--faint);
 }
+
+.language-toggle {
+  min-width: 32px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+.language-toggle:hover {
+  color: var(--teal-strong);
+  background: var(--surface);
+}
+.auth-language {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.auth-language-corner {
+  position: fixed;
+  top: 16px;
+  right: 18px;
+  z-index: 20;
+  margin: 0;
+}
+.mobile-menu-footer > .language-toggle {
+  align-self: flex-start;
+  margin: 0 16px 4px;
+}
