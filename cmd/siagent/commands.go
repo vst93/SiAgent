@@ -19,10 +19,10 @@ import (
 )
 
 type commandOptions struct {
-	Command, DataDir, Listen, PublicURL, Runtime, Node, ChannelWorker, Probe, Conversation string
-	ServiceAction, ServiceManager                                                          string
-	ProbeTool                                                                              bool
-	ServerArgs                                                                             []string
+	Command, DataDir, Listen, PublicURL, BasePath, Runtime, Node, ChannelWorker, Probe, Conversation string
+	ServiceAction, ServiceManager                                                                    string
+	ProbeTool                                                                                        bool
+	ServerArgs                                                                                       []string
 }
 
 func parseCommand(args []string, installed installation, output io.Writer) (commandOptions, error) {
@@ -32,6 +32,7 @@ func parseCommand(args []string, installed installation, output io.Writer) (comm
 	flags.StringVar(&options.DataDir, "data-dir", env("SIAGENT_DATA_DIR", installed.DataDir), "persistent data directory")
 	flags.StringVar(&options.Listen, "listen", env("SIAGENT_LISTEN", "127.0.0.1:8080"), "HTTP address")
 	flags.StringVar(&options.PublicURL, "public-url", env("SIAGENT_PUBLIC_URL", ""), "public HTTP(S) origin; HTTPS enables Secure cookies")
+	flags.StringVar(&options.BasePath, "base-path", env("SIAGENT_BASE_PATH", ""), "URL path prefix, for example /siagent; empty means the site root")
 	flags.StringVar(&options.Runtime, "runtime", installed.Runtime, "runtime adapter entrypoint")
 	flags.StringVar(&options.Node, "node", env("SIAGENT_NODE", installed.Node), "Node.js executable")
 	flags.StringVar(&options.ChannelWorker, "channel-worker", env("SIAGENT_CHANNEL_WORKER", installed.ChannelWorker), "bundled channel plugin entrypoint")
@@ -79,6 +80,10 @@ func parseCommand(args []string, installed installation, output io.Writer) (comm
 		return options, errors.New("update 不接受 probe 选项")
 	}
 	options.ServerArgs = append([]string{"serve"}, parsedArgs...)
+	if options.BasePath != "" {
+		// Keep an environment-provided prefix across self-update restarts too.
+		options.ServerArgs = append(options.ServerArgs, "-base-path", options.BasePath)
+	}
 	return options, nil
 }
 
@@ -233,8 +238,12 @@ func runService(options commandOptions, executable string, installed installatio
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	basePath, err := normalizeBasePath(options.BasePath)
+	if err != nil {
+		return err
+	}
 	options.ServiceManager = service.Detect()
-	serviceOptions := service.Options{Launcher: launcher, DataDir: dataDir, Listen: options.Listen}
+	serviceOptions := service.Options{Launcher: launcher, DataDir: dataDir, Listen: options.Listen, BasePath: basePath}
 	var status service.Status
 	switch options.ServiceAction {
 	case "install":

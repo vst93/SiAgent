@@ -87,4 +87,4 @@ type Provider interface {
 func sourceID(documentID string, version, position int) string {
 	return fmt.Sprintf("%s.%d.%d", documentID, version, position)
 }
-func sourceURL(id string) string { return "/?source=" + id }
+func sourceURL(id string) string { return "?source=" + id }

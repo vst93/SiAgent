@@ -45,6 +45,9 @@ func plistText(options Options) string {
 	if options.Listen != "" {
 		b.WriteString("<string>-listen</string><string>" + escape(options.Listen) + "</string>")
 	}
+	if options.BasePath != "" {
+		b.WriteString("<string>-base-path</string><string>" + escape(options.BasePath) + "</string>")
+	}
 	b.WriteString("</array>\n")
 	b.WriteString("\t<key>EnvironmentVariables</key>\n\t<dict>\n")
 	b.WriteString("\t\t<key>SIAGENT_SERVICE</key><string>launchd</string>\n")

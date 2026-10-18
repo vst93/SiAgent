@@ -25,6 +25,13 @@ func TestUnitTextStartsLauncherAndKeepsUpdateWorkerAlive(t *testing.T) {
 	}
 }
 
+func TestUnitTextKeepsBasePath(t *testing.T) {
+	text := unitText(Options{Launcher: "/home/u/.local/bin/siagent", DataDir: "/home/u/.local/share/siagent/data", Listen: "127.0.0.1:8080", BasePath: "/siagent"})
+	if !strings.Contains(text, `-base-path "/siagent"`) {
+		t.Fatalf("unit missing base path:\n%s", text)
+	}
+}
+
 func TestUnitQuoteEscapesSpecifiersAndQuotes(t *testing.T) {
 	got := quote(`/tmp/a"b%c`)
 	if got != `"/tmp/a\"b%%c"` {

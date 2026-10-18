@@ -37,6 +37,10 @@ func main() {
 func runServer(options commandOptions, executable string, installed installation) error {
 	syscall.Umask(0o077)
 	dataDir, listen, publicURL := &options.DataDir, &options.Listen, &options.PublicURL
+	basePath, err := normalizeBasePath(options.BasePath)
+	if err != nil {
+		return err
+	}
 	script, node, channelWorker := &options.Runtime, &options.Node, &options.ChannelWorker
 	probe, conversation, tool := &options.Probe, &options.Conversation, &options.ProbeTool
 	if installed.Bundled {
@@ -199,6 +203,10 @@ func runServer(options commandOptions, executable string, installed installation
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		if basePath != "" {
+			mountBasePath(basePath, mux).ServeHTTP(w, r)
+			return
+		}
 		mux.ServeHTTP(w, r)
 	})
 	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}

@@ -14,6 +14,15 @@
 
 验证：`make test`（Runtime 39 项 + Go `-race`）、`python3 tests/e2e.py`、`SIAGENT_CHROMIUM=... npm --prefix web run test:browser` 全部通过；迁移测试覆盖 schema 1–20 升级并保留既有数据。
 
+## 相对路由、子路径部署与 Agent 列表对齐
+
+- [x] 前端资源改用 Vite 相对 base，`favicon`、JS/CSS 不再写死 `/assets`。
+- [x] API、SSE、健康检查、导出下载和来源链接统一按当前目录解析；知识来源 URL 改为相对查询串。
+- [x] 新增 `-base-path` / `SIAGENT_BASE_PATH`，可直接挂载到 `/siagent/`；不带斜杠的前缀 301 到带斜杠目录，根路径健康检查保留给自动更新。
+- [x] 用户服务单元和 launchd plist 保存 `-base-path`，自动更新重启后仍使用同一前缀。
+- [x] Agent 列表文字改为显式 flex 左对齐，避免继承全局按钮居中。
+- [x] 已在本机通过 `/siagent/` 直接挂载与反向代理两种方式的首次设置、静态资源、API 和 favicon 浏览测试。
+
 ## 桌面导航、Agent 列表与下拉控件打磨
 
 - [x] 顶栏模块切换改为左对齐紧邻品牌，不再居中；移除每个模块的独立星标。

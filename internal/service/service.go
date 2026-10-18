@@ -16,6 +16,7 @@ type Options struct {
 	Launcher string
 	DataDir  string
 	Listen   string
+	BasePath string
 	LogPath  string
 }
 

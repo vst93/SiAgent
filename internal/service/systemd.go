@@ -44,6 +44,9 @@ func unitText(options Options) string {
 	if options.Listen != "" {
 		b.WriteString(" -listen " + quote(options.Listen))
 	}
+	if options.BasePath != "" {
+		b.WriteString(" -base-path " + quote(options.BasePath))
+	}
 	b.WriteString("\nEnvironment=" + quote("SIAGENT_SERVICE=systemd") + "\n")
 	b.WriteString("Environment=" + quote("SIAGENT_DATA_DIR="+options.DataDir) + "\n")
 	b.WriteString("KillMode=process\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=30\n\n")

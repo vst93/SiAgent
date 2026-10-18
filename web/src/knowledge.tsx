@@ -1,4 +1,5 @@
 import { Icon } from "./icons";
+import { appURL } from "./urls";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { KnowledgeDialog } from "./knowledge-dialog";
 
@@ -1136,7 +1137,7 @@ function LibraryDocuments({
             {selectedDoc.active_version > 0 && !selectedDoc.deleted && (
               <a
                 className="kb-source-link"
-                href={`/?source=${selectedDoc.id}.${selectedDoc.active_version}.0`}
+                href={`?source=${selectedDoc.id}.${selectedDoc.active_version}.0`}
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -1781,7 +1782,7 @@ function KnowledgeEval({
       const raw = await file.text();
       const csv = /\.csv$/i.test(file.name);
       const response = await fetch(
-        `/api/knowledge/bases/${baseID}/eval/questions/import`,
+        appURL(`/api/knowledge/bases/${baseID}/eval/questions/import`),
         {
           method: "POST",
           headers: { "Content-Type": csv ? "text/csv" : "application/json" },
@@ -1928,10 +1929,20 @@ function KnowledgeEval({
               }}
             />
           </label>
-          <a href={`/api/knowledge/bases/${baseID}/eval/questions/export?format=csv`} download>
+          <a
+            href={appURL(
+              `/api/knowledge/bases/${baseID}/eval/questions/export?format=csv`,
+            )}
+            download
+          >
             导出 CSV
           </a>
-          <a href={`/api/knowledge/bases/${baseID}/eval/questions/export`} download="eval-questions.json">
+          <a
+            href={appURL(
+              `/api/knowledge/bases/${baseID}/eval/questions/export`,
+            )}
+            download="eval-questions.json"
+          >
             导出 JSON
           </a>
         </div>
@@ -2225,7 +2236,7 @@ export function KnowledgeSource({
   }, [sourceID, offset]);
   return (
     <main className="knowledge-source-page">
-      <a href="/">
+      <a href={appURL("/")}>
         <Icon name="arrow-left" size={16} /> 返回 SiAgent 工作台
       </a>
       <p className="eyebrow">知识来源 · 原文版本可追溯</p>

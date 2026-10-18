@@ -247,8 +247,8 @@ try {
   };
   await page.goto(base);
   const icon = await page.locator('link[rel="icon"]').getAttribute("href");
-  assert.equal(icon, "/favicon.svg");
-  const favicon = await page.request.get(base + icon);
+  assert.equal(icon, "./favicon.svg");
+  const favicon = await page.request.get(new URL(icon, base + "/").href);
   assert.equal(favicon.status(), 200);
   assert((await favicon.text()).includes("<svg"));
   await page.getByLabel("首次启动令牌").fill(setupToken);
@@ -1746,6 +1746,13 @@ try {
     .click();
   assert.equal(await page.locator(".conversation-list button").count(), 0);
   await config("Agent");
+  assert.equal(
+    await page
+      .locator(".agent-card-select")
+      .first()
+      .evaluate((element) => getComputedStyle(element).alignItems),
+    "flex-start",
+  );
   await page.locator(".agent-card").filter({ hasText: "财务助手" }).locator(".agent-card-select").click();
   assert.equal(await page.getByLabel("时区", { exact: true }).inputValue(), "Asia/Shanghai");
   await page.getByLabel("时区", { exact: true }).fill("America/New_York");

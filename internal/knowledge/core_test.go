@@ -84,7 +84,7 @@ func TestLocalProviderBilingualScopeAndSources(t *testing.T) {
 			t.Fatalf("no result for %q", query)
 		}
 		hit := got.Hits[0]
-		if hit.KnowledgeID != allowed.ID || hit.DocumentID != d.ID || hit.SourceURL != "/?source="+hit.SourceID || hit.Score == nil {
+		if hit.KnowledgeID != allowed.ID || hit.DocumentID != d.ID || hit.SourceURL != "?source="+hit.SourceID || hit.Score == nil {
 			t.Fatalf("invalid source: %+v", hit)
 		}
 		source, err := c.Read(context.Background(), Scope{[]string{allowed.ID}}, ReadRequest{SourceID: hit.SourceID, Limit: 20})

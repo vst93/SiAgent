@@ -16,6 +16,7 @@ import {
   type ConfigSection,
 } from "./navigation";
 import { FormEvent, Fragment, useEffect, useState } from "react";
+import { appURL } from "./urls";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
@@ -32,7 +33,7 @@ async function api<T>(
   body?: unknown,
 ): Promise<T> {
   const multipart = body instanceof FormData;
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(appURL(`/api${path}`), {
     method,
     headers: {
       ...(body !== undefined && !multipart
@@ -244,7 +245,7 @@ function App() {
   useEffect(() => {
     const controller = new AbortController();
     const check = () =>
-      fetch("/health/ready", { signal: controller.signal })
+      fetch(appURL("/health/ready"), { signal: controller.signal })
         .then((response) => setReady(response.ok))
         .catch(() => {
           if (!controller.signal.aborted) setReady(false);
@@ -261,7 +262,9 @@ function App() {
     setConnectionLost(false);
     if (!selected || !auth?.authenticated) return;
     let subscribed = true;
-    const source = new EventSource(`/api/conversations/${selected}/events`);
+    const source = new EventSource(
+      appURL(`/api/conversations/${encodeURIComponent(selected)}/events`),
+    );
     source.addEventListener("snapshot", (event) => {
       const value = JSON.parse(
         (event as MessageEvent<string>).data,

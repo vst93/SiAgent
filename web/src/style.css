@@ -5234,7 +5234,19 @@ details[open] > summary > .disclosure-icon {
 .agent-card-select {
   flex: 1;
   min-width: 0;
-  padding-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  padding: 0;
+  text-align: left;
+}
+.agent-card-select strong,
+.agent-card-select small {
+  display: block;
+  width: 100%;
+  text-align: left;
 }
 .agent-card-action {
   flex-shrink: 0;

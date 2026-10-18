@@ -42,21 +42,29 @@ docker compose logs -f siagent
 SIAGENT_PUBLIC_URL=https://agent.example.com docker compose up -d
 ```
 
-源地址不能包含子路径，HTTPS 会启用 Secure Cookie。不要把代理请求头当作这一配置的替代；修改地址后重新登录。代理同时转发网页、`/api/`、`/health/` 和 `/callbacks/`。
+`SIAGENT_PUBLIC_URL` 只填写浏览器看到的协议和主机，不包含路径；HTTPS 会启用 Secure Cookie。修改地址后重新登录。
 
-Nginx 对应 TLS server 内的示例配置：
+网页资源、API 和知识来源链接均按当前目录解析，因此可以挂在 `/siagent/` 这类子路径。二选一：
+
+- 反向代理保留前缀并转发到根路径（Nginx `proxy_pass http://127.0.0.1:8080/;`），或
+- 启动时设置 `SIAGENT_BASE_PATH=/siagent`（对应 `-base-path /siagent`），由 SiAgent 自己挂载到前缀。此时健康检查仍保留在根路径，供自动更新探测。
+
+代理需把 `/siagent/` 转到实例，并把不带斜杠的 `/siagent` 重定向到 `/siagent/`。Nginx 示例：
 
 ```nginx
 client_max_body_size 21m;
-location ^~ /callbacks/ {
+location = /siagent {
+    return 301 /siagent/;
+}
+location ^~ /siagent/callbacks/ {
     access_log off;
-    proxy_pass http://127.0.0.1:8080;
+    proxy_pass http://127.0.0.1:8080/callbacks/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_buffering off;
 }
-location / {
-    proxy_pass http://127.0.0.1:8080;
+location /siagent/ {
+    proxy_pass http://127.0.0.1:8080/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_buffering off;
@@ -64,7 +72,7 @@ location / {
 }
 ```
 
-证书和 TLS server 配置由部署环境提供。SSE 依赖关闭缓冲和持续连接。文档文件上限为 20 MiB，代理需允许 multipart 的额外大小。企微回调路径不加管理员登录或 CSRF 层，其自身验签解密；企业还需配置应用可见范围和可信 IP/域名，见 [wecom.md](wecom.md)。
+如果实例自身已用 `-base-path /siagent` 挂载，代理直接把 `/siagent/` 转发到 `http://127.0.0.1:8080/siagent/`，不要再剥掉前缀。证书和 TLS server 配置由部署环境提供。SSE 依赖关闭缓冲和持续连接。文档文件上限为 20 MiB，代理需允许 multipart 的额外大小。企微回调路径不加管理员登录或 CSRF 层，其自身验签解密；企业还需配置应用可见范围和可信 IP/域名，见 [wecom.md](wecom.md)。
 
 `/health/live` 表示 Go 存活，`/health/ready` 要求平台和 Runtime 就绪。异常重复退出应检查服务退出码、普通日志和认证诊断；不要持续无上限重放失败任务。日志不应被配置为记录请求正文、Cookie、模型密钥或回调密文/明文。
 

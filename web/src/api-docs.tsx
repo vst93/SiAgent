@@ -1,4 +1,5 @@
 import { MessageMarkdown } from "./message-markdown";
+import { appURL } from "./urls";
 
 const GITHUB_DOC =
   "https://github.com/vst93/SiAgent/blob/main/docs/integration-api.md";
@@ -14,7 +15,7 @@ const content = `# SiAgent 集成接口
 3. 调用 \`/v1\` 接口，或从 OpenAPI 生成客户端。
 
 \`\`\`bash
-curl -sS http://127.0.0.1:8080/v1/agents/default/runs \\
+curl -sS ${appURL("/v1/agents/default/runs")} \\
   -H "Authorization: Bearer siagent_xxx" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: ticket-1001" \\
@@ -73,7 +74,7 @@ curl -sS http://127.0.0.1:8080/v1/agents/default/runs \\
 ## 文档与源码
 
 - [完整接口说明（GitHub）](${GITHUB_DOC})
-- [OpenAPI 规范](/v1/openapi.yaml)
+- [OpenAPI 规范](${appURL("/v1/openapi.yaml")})
 
 > 密钥默认隐藏；查看会记录审计。吊销后仍可删除；未吊销的密钥需先吊销再删除。`;
 

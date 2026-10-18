@@ -95,6 +95,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install-siagent.ps1 -Versi
 
 Windows/WSL：如果 WSL 已启用 systemd，可在 WSL 内运行 `siagent service install`；否则保持手动启动，或由 Windows 任务计划程序在登录时执行 `wsl.exe -d <发行版> --exec <Linux 家目录>/.local/bin/siagent serve`。当前不自动创建 Windows 计划任务。
 
+需要把页面挂在子路径时，重新注册服务并带上前缀，例如 `siagent service install -base-path /siagent`；手动启动可用 `SIAGENT_BASE_PATH=/siagent siagent`。反向代理配置见 [deployment.md](deployment.md#单容器与公开访问)。
+
 运行参数与原程序相同，例如：
 
 ```sh

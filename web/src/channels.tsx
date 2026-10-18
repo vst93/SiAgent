@@ -1,4 +1,5 @@
 import { Icon } from "./icons";
+import { appURL } from "./urls";
 import { FormEvent, useEffect, useState } from "react";
 import type { Agent } from "./agents";
 import { KnowledgeDialog as SettingsDialog } from "./knowledge-dialog";
@@ -545,10 +546,7 @@ export function ChannelsWorkspace({
                   回调 URL
                   <input
                     readOnly
-                    value={
-                      new URL(current.callback_path, window.location.origin)
-                        .href
-                    }
+                    value={appURL(current.callback_path)}
                   />
                 </label>
                 <small>
