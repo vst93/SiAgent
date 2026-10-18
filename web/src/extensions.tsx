@@ -2,6 +2,12 @@ import { Icon } from "./icons";
 import { useEffect, useState } from "react";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
+type ConfigField = {
+  key: string;
+  label: string;
+  secret: boolean;
+  required: boolean;
+};
 type Plugin = {
   id: string;
   name: string;
@@ -9,6 +15,9 @@ type Plugin = {
   type: string;
   description: string;
   extensions: string[];
+  config_fields: ConfigField[];
+  values: Record<string, string>;
+  has_secret: boolean;
   enabled: boolean;
   healthy: boolean;
   state: string;
@@ -53,6 +62,8 @@ export function ExtensionsWorkspace({ request }: { request: Api }) {
   const [builtin, setBuiltin] = useState<Builtin[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({});
   const [pending, setPending] = useState("");
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -66,7 +77,14 @@ export function ExtensionsWorkspace({ request }: { request: Api }) {
       }>("/plugins"),
       request<Event[]>("/plugins/events?limit=12"),
     ]);
-    setInstalled(catalog.installed ?? []);
+    setInstalled(
+      (catalog.installed ?? []).map((plugin) => ({
+        ...plugin,
+        extensions: plugin.extensions ?? [],
+        config_fields: plugin.config_fields ?? [],
+        values: plugin.values ?? {},
+      })),
+    );
     setCandidates(catalog.candidates ?? []);
     setBuiltin(catalog.builtin ?? []);
     setEvents(log ?? []);
@@ -78,6 +96,43 @@ export function ExtensionsWorkspace({ request }: { request: Api }) {
       )
       .finally(() => setLoading(false));
   }, []);
+
+  async function upload(file: File) {
+    setUploading(true);
+    setError("");
+    setFeedback("");
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      await request("/plugins/upload", "POST", body);
+      await load();
+      setFeedback("扩展包已安装，可以配置并启用。");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "扩展包上传失败。");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function saveConfig(plugin: Plugin) {
+    const draft = drafts[plugin.id] ?? {};
+    const values: Record<string, string> = {};
+    const secrets: Record<string, string> = {};
+    for (const field of plugin.config_fields) {
+      const value = draft[field.key] ?? "";
+      if (field.secret) {
+        if (value) secrets[field.key] = value;
+      } else {
+        values[field.key] = value;
+      }
+    }
+    await act(
+      plugin.id,
+      () => request(`/plugins/${plugin.id}/config`, "PUT", { values, secrets }),
+      "扩展配置已保存。",
+    );
+    setDrafts((current) => ({ ...current, [plugin.id]: {} }));
+  }
 
   async function act(id: string, work: () => Promise<unknown>, done: string) {
     setPending(id);
@@ -96,6 +151,22 @@ export function ExtensionsWorkspace({ request }: { request: Api }) {
 
   return (
     <div className="extensions-workspace">
+      <div className="extension-upload">
+        <label>
+          {uploading ? "正在安装…" : "上传扩展包（.zip）"}
+          <input
+            type="file"
+            accept=".zip,application/zip"
+            disabled={uploading}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void upload(file);
+              event.target.value = "";
+            }}
+          />
+        </label>
+        <span>或把包放到数据目录：</span>
+      </div>
       <p className="kb-help">
         扩展包放在数据目录的 <code>plugin-packages/&lt;id&gt;/&lt;版本&gt;/</code>
         ，每个包包含 <code>plugin.json</code> 与可执行入口。安装只登记版本，不下载或执行安装脚本；扩展以服务账户运行，属于可信代码。
@@ -137,10 +208,46 @@ export function ExtensionsWorkspace({ request }: { request: Api }) {
                   </span>
                 </header>
                 <p>{plugin.message}</p>
-                {!!plugin.extensions.length && (
+                {(plugin.extensions?.length ?? 0) > 0 && (
                   <p className="extension-meta">
                     处理格式：{plugin.extensions.join(" ")}
                   </p>
+                )}
+                {(plugin.config_fields?.length ?? 0) > 0 && (
+                  <div className="extension-config">
+                    {(plugin.config_fields ?? []).map((field) => (
+                      <label key={field.key}>
+                        {field.label}
+                        {field.required ? " *" : ""}
+                        <input
+                          type={field.secret ? "password" : "text"}
+                          placeholder={
+                            field.secret
+                              ? plugin.has_secret
+                                ? "已保存，留空保留"
+                                : "必填密钥"
+                              : plugin.values?.[field.key] ?? ""
+                          }
+                          value={drafts[plugin.id]?.[field.key] ?? ""}
+                          onChange={(event) =>
+                            setDrafts((current) => ({
+                              ...current,
+                              [plugin.id]: {
+                                ...(current[plugin.id] ?? {}),
+                                [field.key]: event.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                    ))}
+                    <button
+                      disabled={pending === plugin.id}
+                      onClick={() => void saveConfig(plugin)}
+                    >
+                      保存配置
+                    </button>
+                  </div>
                 )}
                 <div className="extension-actions">
                   {plugin.enabled ? (
@@ -172,6 +279,18 @@ export function ExtensionsWorkspace({ request }: { request: Api }) {
                       启用
                     </button>
                   )}
+                  <button
+                    disabled={pending === plugin.id}
+                    onClick={() =>
+                      void act(
+                        plugin.id,
+                        () => request(`/plugins/${plugin.id}/health`, "POST"),
+                        "健康检查已执行。",
+                      )
+                    }
+                  >
+                    健康检查
+                  </button>
                   <button
                     disabled={pending === plugin.id}
                     onClick={() =>

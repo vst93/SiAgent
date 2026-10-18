@@ -48,6 +48,51 @@ const feedbackReasons: Record<string, string> = {
   other: "其他",
 };
 
+function RunEvidence({ request, runID }: { request: Api; runID: string }) {
+  const [rows, setRows] = useState<
+    { claim_index: number; source_ids: string[] }[] | null
+  >(null);
+  const [error, setError] = useState("");
+  async function load() {
+    setError("");
+    try {
+      setRows(
+        await request<{ claim_index: number; source_ids: string[] }[]>(
+          `/runs/${runID}/evidence`,
+        ),
+      );
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "证据读取失败。");
+    }
+  }
+  return (
+    <details className="run-evidence" onToggle={(event) => {
+      if ((event.currentTarget as HTMLDetailsElement).open && rows === null) void load();
+    }}>
+      <summary>
+        <Icon name="caret-right" size={14} className="disclosure-icon" />
+        答案-证据
+      </summary>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {rows && !rows.length && <p className="muted">本轮没有可映射的引用。</p>}
+      {!!rows?.length && (
+        <ul>
+          {rows.map((row) => (
+            <li key={row.claim_index}>
+              <span>结论 {row.claim_index + 1}</span>
+              <span>{row.source_ids.length} 个来源</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
+  );
+}
+
 function RunFeedback({
   request,
   runID,
@@ -595,6 +640,7 @@ export function ChatWorkspace({
                                   </ul>
                                 </details>
                               )}
+                              <RunEvidence request={request} runID={run.id} />
                               <RunFeedback
                                 request={request}
                                 runID={run.id}

@@ -4676,3 +4676,239 @@ details[open] > summary > .disclosure-icon {
     grid-template-columns: 1fr;
   }
 }
+.kb-settings {
+  margin: 14px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  padding: 0;
+}
+.kb-settings > summary {
+  padding: 10px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.kb-settings-body {
+  padding: 4px 14px 14px;
+  border-top: 1px solid var(--line);
+}
+.kb-settings-body .checkbox-label {
+  margin: 8px 0;
+  font-size: 12px;
+}
+.kb-vocab {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.kb-vocab strong {
+  font-size: 12px;
+}
+.kb-vocab ul {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+.kb-vocab li {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 11.5px;
+}
+.kb-vocab li button {
+  font-size: 10.5px;
+  padding: 2px 7px;
+}
+.kb-vocab-form {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.kb-vocab-form input {
+  margin: 0;
+  min-height: 32px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 120px;
+}
+.kb-vocab-form button {
+  font-size: 11.5px;
+  padding: 5px 10px;
+}
+.kb-eval-io {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 11.5px;
+}
+.kb-eval-import {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: var(--paper);
+}
+.kb-eval-import input {
+  display: none;
+}
+.kb-eval-io a {
+  color: var(--teal-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.extension-upload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.extension-upload label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  cursor: pointer;
+}
+.extension-upload input {
+  display: none;
+}
+.extension-config {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+.extension-config label {
+  margin: 0;
+  font-size: 11.5px;
+}
+.extension-config input {
+  margin: 4px 0 0;
+  min-height: 30px;
+  font-size: 12px;
+}
+.extension-config button {
+  justify-self: start;
+  font-size: 11px;
+  padding: 4px 9px;
+}
+.kb-subhead {
+  margin: 18px 0 8px;
+  font-size: 13px;
+}
+.kb-eval-answer {
+  margin-top: 14px;
+}
+.run-evidence {
+  margin-top: 8px;
+  border: 0;
+  padding: 0;
+  font-size: 11.5px;
+}
+.run-evidence > summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.run-evidence ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.run-evidence li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.apikey-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.apikey-actions button {
+  font-size: 11px;
+  padding: 4px 9px;
+}
+.apikey-revealed {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+  color: var(--ink-strong);
+  max-width: 320px;
+}
+.api-docs {
+  max-width: 860px;
+  font-size: 13px;
+  line-height: 1.75;
+}
+.api-docs h1 {
+  font-size: 22px;
+  margin-bottom: 12px;
+}
+.api-docs h2 {
+  font-size: 17px;
+  margin: 24px 0 10px;
+}
+.api-docs p {
+  margin: 8px 0;
+}
+.api-docs table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 12px;
+}
+.api-docs th,
+.api-docs td {
+  border: 1px solid var(--line);
+  padding: 6px 9px;
+  text-align: left;
+}
+.api-docs th {
+  background: var(--surface-raised);
+}
+.api-docs code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--surface);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.api-docs pre {
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  overflow-x: auto;
+}
+.api-docs pre code {
+  background: transparent;
+  padding: 0;
+}

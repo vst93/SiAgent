@@ -13,6 +13,18 @@ import (
 
 var citationMarker = regexp.MustCompile(`\[(\d{1,3})\]`)
 
+// splitClaims splits an answer into sentence-like claims for the evidence map.
+func splitClaims(answer string) []string {
+	parts := regexp.MustCompile(`[。！？!?\n]+`).Split(answer, -1)
+	claims := []string{}
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			claims = append(claims, part)
+		}
+	}
+	return claims
+}
+
 // recordAnswerEvidence stores whether a knowledge-backed answer had retrieved
 // sources and whether its numeric citations pointed at those sources. It never
 // rewrites the answer: the flag is shown to the administrator instead.
@@ -58,6 +70,31 @@ func recordAnswerEvidence(tx *sql.Tx, runID string) error {
 	}
 	if _, err := tx.Exec("UPDATE runs SET citation_valid=?,evidence_state=? WHERE id=?", citation, state, runID); err != nil {
 		return err
+	}
+	// Evidence map: keep which sources back each cited sentence. Only source
+	// ids are stored, never the answer text.
+	if _, err := tx.Exec("DELETE FROM run_evidence WHERE run_id=?", runID); err != nil {
+		return err
+	}
+	for index, claim := range splitClaims(answer) {
+		ids := []string{}
+		for _, match := range citationMarker.FindAllStringSubmatch(claim, -1) {
+			value, err := strconv.Atoi(match[1])
+			if err != nil || value < 1 {
+				continue
+			}
+			var sourceID string
+			if err := tx.QueryRow("SELECT source_id FROM run_sources WHERE run_id=? ORDER BY rowid LIMIT 1 OFFSET ?", runID, value-1).Scan(&sourceID); err == nil {
+				ids = append(ids, sourceID)
+			}
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		encoded, _ := json.Marshal(ids)
+		if _, err := tx.Exec("INSERT INTO run_evidence(run_id,claim_index,source_ids,created) VALUES(?,?,?,?)", runID, index, string(encoded), time.Now().UnixMilli()); err != nil {
+			return err
+		}
 	}
 	return recordEvent(tx, runID, 0, "answer_evidence", map[string]any{"evidence_state": state, "citation_valid": citation, "sources": sources, "knowledge_tool_uses": toolUses})
 }

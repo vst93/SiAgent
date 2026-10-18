@@ -121,6 +121,7 @@ func TestAgentSessionScopesRestrictionsIdleAndReset(t *testing.T) {
 	}
 	p.Session.IdleMinutes = 1
 	setTestPolicy(t, f, p)
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec("UPDATE conversations SET created=? WHERE id=?", time.Now().Add(-2*time.Minute).UnixMilli(), reset); err != nil {
 		t.Fatal(err)
 	}
@@ -144,12 +145,14 @@ func TestAgentSessionScopesRestrictionsIdleAndReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Even when the session is old, pending/running work must keep the same scope.
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec("UPDATE conversations SET created=? WHERE id=?", time.Now().Add(-2*time.Minute).UnixMilli(), fresh); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.server.enqueueRun(ctx, fresh, "pending group question", 0, nil); err != nil {
 		t.Fatal(err)
 	}
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec("UPDATE runs SET created=? WHERE conversation_id=?", time.Now().Add(-2*time.Minute).UnixMilli(), fresh); err != nil {
 		t.Fatal(err)
 	}
@@ -283,9 +286,11 @@ func TestAgentHiddenOutputKeepsPrivateAudit(t *testing.T) {
 	if err := f.server.HandleEvent(agentruntime.Event{RunID: run, Type: "thinking_delta", Sequence: 2, Data: raw}); err != nil {
 		t.Fatal(err)
 	}
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec("INSERT INTO tool_calls VALUES(?,?,?,?,?,?)", run, "hidden-call", "lookup", "completed", "{}", "private result"); err != nil {
 		t.Fatal(err)
 	}
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec("INSERT INTO run_sources VALUES(?,?,?)", run, "source", `{"source_id":"source","title":"Private source"}`); err != nil {
 		t.Fatal(err)
 	}
@@ -307,6 +312,7 @@ func TestVersionNinePolicyMigrationPreservesHistoryAndDefaults(t *testing.T) {
 	emit(t, f, run, "run_started", 1)
 	emit(t, f, run, "run_completed", 2)
 	emit(t, f, run, "run_released", 3)
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec("ALTER TABLE agents DROP COLUMN policy; ALTER TABLE runs DROP COLUMN thinking; DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type; ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause; ALTER TABLE knowledge_chunks DROP COLUMN content_hash; ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state; DROP TABLE answer_feedback; DROP TABLE knowledge_gaps; ALTER TABLE models DROP COLUMN provider; DROP TABLE provider_packs; DROP TABLE audit_log; DROP TABLE plugins; DROP TABLE plugin_events; DROP TABLE api_keys; DROP TABLE api_idempotency; DROP TABLE api_conversations; DROP TABLE knowledge_external; ALTER TABLE agents DROP COLUMN revision; ALTER TABLE runs DROP COLUMN agent_revision; ALTER TABLE runs DROP COLUMN source; DROP TABLE webhook_subscriptions; DROP TABLE webhook_deliveries; PRAGMA user_version=9;"); err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +338,7 @@ func TestVersionNinePolicyMigrationPreservesHistoryAndDefaults(t *testing.T) {
 	}
 	var version int
 	upgraded.db.QueryRow("PRAGMA user_version").Scan(&version)
-	if version != 19 {
+	if version != 22 {
 		t.Fatal("migration version", version)
 	}
 }
@@ -344,6 +350,7 @@ func TestChannelTimeUsesDurableReceiptInsteadOfDispatchTime(t *testing.T) {
 	c := createChannel(t, f, true)
 	requireStatus(t, callback(t, f, c, "2101", "member", "今天是哪天？"), 200)
 	received := time.Date(2026, 10, 17, 16, 0, 0, 0, time.UTC)
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec("UPDATE channel_inbox SET created=? WHERE channel_id=?", received.UnixMilli(), c.ID); err != nil {
 		t.Fatal(err)
 	}

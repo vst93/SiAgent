@@ -58,7 +58,7 @@ func TestVersionOneUpgradePreservesCredentialsAndHistory(t *testing.T) {
 	if err := store.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 19 {
+	if version != 22 {
 		t.Fatalf("wrong migration version: %d", version)
 	}
 	server, err := New(store, &fakeRuntime{}, func() bool { return true }, "")
@@ -96,6 +96,7 @@ func TestVersionTwoUpgradePreservesToolHistory(t *testing.T) {
 	f.setup(t)
 	f.model(t, "prior-model", "prior-secret")
 	downgradeChannelFixture(t, f.store)
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec(`
  DROP TABLE conversation_cleanup; ALTER TABLE models DROP COLUMN options; ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state;  DROP TABLE wecom_outbox; DROP TABLE wecom_inbox; DROP TABLE wecom_sessions; DROP TABLE wecom_channels; ALTER TABLE conversations DROP COLUMN channel_id; DROP INDEX conversations_agent; ALTER TABLE conversations DROP COLUMN agent_id; ALTER TABLE agents DROP COLUMN model_id; ALTER TABLE agents DROP COLUMN archived; ALTER TABLE models DROP COLUMN archived; DROP TABLE run_sources; DROP TABLE knowledge_bindings; DROP TABLE knowledge_fts; DROP TABLE knowledge_chunks; DROP TABLE knowledge_versions; DROP TABLE knowledge_documents; DROP TABLE knowledge_bases;DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; 
  DROP TABLE agent_capabilities; DROP TABLE skills; DROP TABLE mcps;
@@ -138,11 +139,13 @@ func TestVersionThreeUpgradePreservesCapabilities(t *testing.T) {
 	config := MCPConfig{ID: id(), Name: "Existing MCP", Transport: "http", URL: "https://example.com/mcp", Tools: []MCPTool{{Name: "read", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)}}}
 	raw, _ := json.Marshal(config)
 	secret, _ := json.Marshal(MCPSecret{Headers: map[string]string{"Authorization": "Bearer prior-mcp-secret"}, Env: map[string]string{}})
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec("INSERT INTO mcps(id,config,secrets,version) VALUES(?,?,?,7)", config.ID, string(raw), f.store.encrypt(string(secret))); err != nil {
 		t.Fatal(err)
 	}
 	requireStatus(t, f.request(t, "PUT", "/api/agent/capabilities", map[string]any{"skills": []string{skill.ID}, "mcps": []MCPBinding{{ID: config.ID, Tools: []string{"read"}}}, "confirm": true}, true, nil), 200)
 	downgradeChannelFixture(t, f.store)
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec(`DROP TABLE conversation_cleanup; ALTER TABLE models DROP COLUMN options; ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state;  DROP TABLE wecom_outbox; DROP TABLE wecom_inbox; DROP TABLE wecom_sessions; DROP TABLE wecom_channels; ALTER TABLE conversations DROP COLUMN channel_id; DROP INDEX conversations_agent; ALTER TABLE conversations DROP COLUMN agent_id; ALTER TABLE agents DROP COLUMN model_id; ALTER TABLE agents DROP COLUMN archived; ALTER TABLE models DROP COLUMN archived; DROP TABLE run_sources; DROP TABLE knowledge_bindings; DROP TABLE knowledge_fts; DROP TABLE knowledge_chunks; DROP TABLE knowledge_versions; DROP TABLE knowledge_documents; DROP TABLE knowledge_bases; DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; DROP TABLE answer_feedback; DROP TABLE knowledge_gaps; ALTER TABLE models DROP COLUMN provider; DROP TABLE provider_packs; DROP TABLE audit_log; DROP TABLE plugins; DROP TABLE plugin_events; DROP TABLE api_keys; DROP TABLE api_idempotency; DROP TABLE api_conversations; DROP TABLE knowledge_external; ALTER TABLE agents DROP COLUMN revision; ALTER TABLE runs DROP COLUMN agent_revision; ALTER TABLE runs DROP COLUMN source; DROP TABLE webhook_subscriptions; DROP TABLE webhook_deliveries; PRAGMA user_version=3;`); err != nil {
 		t.Fatal(err)
 	}
@@ -204,10 +207,12 @@ func TestVersionFourUpgradeKeepsNativeKnowledgeAndConversationOwnership(t *testi
 	reference.Text = ""
 	reference.Score = nil
 	raw, _ := json.Marshal(reference)
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec("INSERT INTO run_sources VALUES(?,?,?)", run, reference.SourceID, string(raw)); err != nil {
 		t.Fatal(err)
 	}
 	downgradeChannelFixture(t, f.store)
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec(`DROP TABLE conversation_cleanup; ALTER TABLE models DROP COLUMN options; ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state;  DROP TABLE wecom_outbox; DROP TABLE wecom_inbox; DROP TABLE wecom_sessions; DROP TABLE wecom_channels; ALTER TABLE conversations DROP COLUMN channel_id; DROP INDEX conversations_agent; ALTER TABLE conversations DROP COLUMN agent_id; ALTER TABLE agents DROP COLUMN model_id; ALTER TABLE agents DROP COLUMN archived; ALTER TABLE models DROP COLUMN archived; DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type; ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause; ALTER TABLE knowledge_chunks DROP COLUMN content_hash; DROP TABLE answer_feedback; DROP TABLE knowledge_gaps; ALTER TABLE models DROP COLUMN provider; DROP TABLE provider_packs; DROP TABLE audit_log; DROP TABLE plugins; DROP TABLE plugin_events; DROP TABLE api_keys; DROP TABLE api_idempotency; DROP TABLE api_conversations; DROP TABLE knowledge_external; ALTER TABLE agents DROP COLUMN revision; ALTER TABLE runs DROP COLUMN agent_revision; ALTER TABLE runs DROP COLUMN source; DROP TABLE webhook_subscriptions; DROP TABLE webhook_deliveries; PRAGMA user_version=4;`); err != nil {
 		t.Fatal(err)
 	}
@@ -250,6 +255,7 @@ func TestVersionFiveUpgradePreservesMultipleModelsAndAgents(t *testing.T) {
 	role := saveTestAgent(t, f, Agent{Name: "Second role", Enabled: true, ModelID: model.ID})
 	conversation := agentConversation(t, f, role.ID)
 	downgradeChannelFixture(t, f.store)
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec(`DROP TABLE conversation_cleanup; ALTER TABLE models DROP COLUMN options; ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state;  DROP TABLE wecom_outbox; DROP TABLE wecom_inbox; DROP TABLE wecom_sessions; DROP TABLE wecom_channels; ALTER TABLE conversations DROP COLUMN channel_id; DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type; ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause; ALTER TABLE knowledge_chunks DROP COLUMN content_hash; DROP TABLE answer_feedback; DROP TABLE knowledge_gaps; ALTER TABLE models DROP COLUMN provider; DROP TABLE provider_packs; DROP TABLE audit_log; DROP TABLE plugins; DROP TABLE plugin_events; DROP TABLE api_keys; DROP TABLE api_idempotency; DROP TABLE api_conversations; DROP TABLE knowledge_external; ALTER TABLE agents DROP COLUMN revision; ALTER TABLE runs DROP COLUMN agent_revision; ALTER TABLE runs DROP COLUMN source; DROP TABLE webhook_subscriptions; DROP TABLE webhook_deliveries; PRAGMA user_version=5;`); err != nil {
 		t.Fatal(err)
 	}
@@ -286,6 +292,7 @@ func TestVersionSixUpgradeAddsMaintenanceWithoutChangingChannelCredentials(t *te
 	channel := createChannel(t, f, false)
 	conversation := f.conversation(t)
 	downgradeChannelFixture(t, f.store)
+	dropQualityArtifacts(t, f.store.db)
 	if _, err := f.store.db.Exec("DROP TABLE conversation_cleanup; ALTER TABLE models DROP COLUMN options; ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state;  DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type; ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause; ALTER TABLE knowledge_chunks DROP COLUMN content_hash; DROP TABLE answer_feedback; DROP TABLE knowledge_gaps; ALTER TABLE models DROP COLUMN provider; DROP TABLE provider_packs; DROP TABLE audit_log; DROP TABLE plugins; DROP TABLE plugin_events; DROP TABLE api_keys; DROP TABLE api_idempotency; DROP TABLE api_conversations; DROP TABLE knowledge_external; ALTER TABLE agents DROP COLUMN revision; ALTER TABLE runs DROP COLUMN agent_revision; ALTER TABLE runs DROP COLUMN source; DROP TABLE webhook_subscriptions; DROP TABLE webhook_deliveries; PRAGMA user_version=6;"); err != nil {
 		t.Fatal(err)
 	}

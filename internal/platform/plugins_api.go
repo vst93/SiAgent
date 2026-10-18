@@ -49,6 +49,55 @@ func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, map[string]any{"installed": installed, "candidates": candidates, "builtin": s.builtinPlugins()})
 }
 
+// uploadPlugin accepts a self-contained ZIP package and installs it.
+func (s *Server) uploadPlugin(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20+(1<<20))
+	reader, err := r.MultipartReader()
+	if err != nil {
+		fail(w, 400, "请使用 multipart 上传，字段名为 file。")
+		return
+	}
+	part, err := reader.NextPart()
+	if err != nil || part.FormName() != "file" || part.FileName() == "" {
+		fail(w, 400, "上传请求必须包含一个 file 扩展包。")
+		return
+	}
+	defer part.Close()
+	value, err := s.plugins.InstallZip(r.Context(), part)
+	if err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	s.audit("plugin.upload", value.ID, value.Version)
+	respond(w, 200, value)
+}
+
+func (s *Server) savePluginConfig(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Values  map[string]string `json:"values"`
+		Secrets map[string]string `json:"secrets"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	value, err := s.plugins.SetConfig(r.Context(), r.PathValue("id"), input.Values, input.Secrets)
+	if err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	s.audit("plugin.config", value.ID, "")
+	respond(w, 200, value)
+}
+
+func (s *Server) checkPluginHealth(w http.ResponseWriter, r *http.Request) {
+	value, err := s.plugins.CheckHealth(r.Context(), r.PathValue("id"))
+	if err != nil {
+		fail(w, 404, "扩展不存在或健康检查失败。")
+		return
+	}
+	respond(w, 200, value)
+}
+
 func (s *Server) installPlugin(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Version string `json:"version"`

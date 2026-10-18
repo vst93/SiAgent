@@ -251,7 +251,10 @@ try {
     (await providerSelect.locator("option", { hasText: "DeepSeek" }).first().innerText()).includes("需启用扩展"),
     "official providers should be locked until the pack is enabled",
   );
-  await page.getByRole("button", { name: "启用供应商扩展", exact: true }).click();
+  await page
+    .getByRole("button", { name: "启用供应商扩展", exact: true })
+    .first()
+    .click();
   await page.getByText("已启用", { exact: true }).waitFor();
   assert(
     !(await providerSelect.locator("option", { hasText: "DeepSeek" }).first().innerText()).includes("需启用扩展"),
@@ -458,8 +461,24 @@ try {
   await page.locator(".apikey-token code").waitFor();
   const issued = await page.locator(".apikey-token code").innerText();
   assert(issued.startsWith("siagent_"), "token should be shown once");
+  await page.getByRole("button", { name: "查看", exact: true }).first().click();
+  await page.locator(".apikey-revealed").waitFor();
+  assert(
+    (await page.locator(".apikey-revealed").first().innerText()).startsWith(
+      "siagent_",
+    ),
+    "revealed key should be the full token",
+  );
+  await page.getByRole("button", { name: "隐藏", exact: true }).click();
   await page.getByRole("button", { name: "吊销", exact: true }).first().click();
   await page.getByText("密钥已吊销。", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "删除", exact: true }).first().click();
+  await page.getByText("密钥已删除。", { exact: false }).waitFor();
+  await config("接口文档");
+  await page.getByRole("heading", { name: "SiAgent 集成接口", exact: true }).waitFor();
+  await page
+    .getByRole("link", { name: /完整接口说明/ })
+    .waitFor();
   await config("运行与维护");
   await page.getByRole("heading", { name: "应用更新", exact: true }).waitFor();
   const updateState = await page.evaluate(() =>
@@ -1040,7 +1059,9 @@ try {
   await page.locator(".kb-eval-docs .checkbox-label").first().click();
   await page.getByRole("button", { name: "添加问题", exact: true }).click();
   await page.locator(".kb-eval-questions li").first().waitFor();
-  await page.getByRole("button", { name: "运行评测", exact: true }).click();
+  await page
+    .getByRole("button", { name: "运行检索评测", exact: true })
+    .click();
   await page.locator(".kb-eval-metrics").waitFor();
   assert(
     (await page.locator(".kb-eval-cases li").count()) > 0,

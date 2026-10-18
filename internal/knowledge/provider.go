@@ -26,13 +26,16 @@ type Location struct {
 	End       int `json:"end,omitempty"`
 }
 type SearchRequest struct {
-	Compact      bool     `json:"-"` // Management preview only; Agent retrieval retains its context budget.
-	Trace        bool     `json:"trace,omitempty"`
-	Rerank       bool     `json:"rerank,omitempty"`
-	Baseline     bool     `json:"baseline,omitempty"`
-	Query        string   `json:"query"`
-	KnowledgeIDs []string `json:"knowledge_ids,omitempty"`
-	Limit        int      `json:"limit,omitempty"`
+	Compact      bool                `json:"-"` // Management preview only; Agent retrieval retains its context budget.
+	Trace        bool                `json:"trace,omitempty"`
+	Rerank       bool                `json:"rerank,omitempty"`
+	Baseline     bool                `json:"baseline,omitempty"`
+	Expand       *bool               `json:"expand,omitempty"`
+	ExtraQueries []string            `json:"-"`
+	Synonyms     map[string][]string `json:"-"`
+	Query        string              `json:"query"`
+	KnowledgeIDs []string            `json:"knowledge_ids,omitempty"`
+	Limit        int                 `json:"limit,omitempty"`
 }
 type Scope struct{ KnowledgeIDs []string }
 type Hit struct {

@@ -236,6 +236,21 @@ func (c *Core) Search(ctx context.Context, scope Scope, request SearchRequest) (
 	if len(scope.KnowledgeIDs) == 0 {
 		return SearchResult{Hits: []Hit{}, MatchMode: "no_accessible_bases"}, nil
 	}
+	// Per-base configuration and vocabulary apply only when the scope is one
+	// knowledge base; a multi-base search keeps the platform defaults.
+	if len(scope.KnowledgeIDs) == 1 && !request.Baseline {
+		baseID := scope.KnowledgeIDs[0]
+		if cfg, err := c.BaseConfig(ctx, baseID); err == nil && !cfg.Expand {
+			disabled := false
+			request.Expand = &disabled
+		}
+		if entries, err := c.Vocabulary(ctx, baseID); err == nil && len(entries) > 0 {
+			request.Synonyms = map[string][]string{}
+			for _, entry := range entries {
+				request.Synonyms[entry.Term] = append(request.Synonyms[entry.Term], entry.Expansion)
+			}
+		}
+	}
 	result, err := c.provider.Search(ctx, scope, request)
 	if err != nil {
 		return result, err
@@ -251,6 +266,10 @@ func (c *Core) Search(ctx context.Context, scope Scope, request SearchRequest) (
 func (c *Core) SetExternalParser(parser func(context.Context, string, string) (string, error)) {
 	c.external = parser
 }
+
+// Reranker exposes the installed reranker so the platform can reuse its model
+// for optional query expansion.
+func (c *Core) Reranker() Reranker { return c.reranker }
 
 // SetReranker installs the optional model reranker. Passing nil keeps heuristic
 // ordering only.

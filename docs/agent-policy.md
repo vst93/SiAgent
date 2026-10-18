@@ -93,6 +93,6 @@
 }
 ```
 
-schema **10** 为 `agents` 增加 `policy`，为 `runs` 增加 `thinking`。自动从版本 1–9 迁移，保留认证、凭据、会话、消息、工具和渠道数据。运行快照内保存完整策略，旧格式快照仍可读取。升级前停止服务并完整备份，旧程序不能直接读取 schema 10，回退须恢复旧备份。
+schema **10** 为 `agents` 增加 `policy`，为 `runs` 增加 `thinking`；当前 schema **22**，自动从版本 1–21 迁移，保留认证、凭据、会话、消息、工具和渠道数据。运行快照内保存完整策略，旧格式快照仍可读取。升级前停止服务并完整备份，旧程序不能直接读取 schema 21，回退须恢复旧备份。
 
 渠道适配器通过 `chat_type`、`sender_id`、`group_id` 传入稳定身份，由平台决定上下文范围。兼容旧企微三元组 session；只提供不透明 session 的旧适配器按私聊处理，不能借此声明群共享，协议见 [channel-adapters.md](channel-adapters.md)。

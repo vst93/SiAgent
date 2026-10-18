@@ -50,6 +50,12 @@ export const configSections = [
     description: "为业务系统创建 API 密钥，调用 Agent 与知识库。",
     icon: "models",
   },
+  {
+    id: "api-docs",
+    title: "接口文档",
+    description: "查看认证、任务、知识库、Webhook 与 MCP 对接说明。",
+    icon: "file",
+  },
 ] as const;
 export type ConfigSection = (typeof configSections)[number]["id"];
 export type Page = "chat" | `settings/${ConfigSection}`;

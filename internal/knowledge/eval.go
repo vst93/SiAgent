@@ -29,6 +29,8 @@ type EvalQuestion struct {
 	Question            string   `json:"question"`
 	ExpectedDocumentIDs []string `json:"expected_document_ids"`
 	Tags                []string `json:"tags"`
+	Answerable          bool     `json:"answerable"`
+	ExpectedAnswer      string   `json:"expected_answer,omitempty"`
 	Created             int64    `json:"created"`
 }
 
@@ -40,6 +42,11 @@ type EvalMetrics struct {
 	RecallAt5         float64 `json:"recall_at_5"`
 	MRR               float64 `json:"mrr"`
 	NoResultRate      float64 `json:"no_result_rate"`
+	AbstentionAcc     float64 `json:"abstention_accuracy"`
+	CitationPrecision float64 `json:"citation_precision,omitempty"`
+	Faithfulness      float64 `json:"faithfulness,omitempty"`
+	PreviousRecallAt5 float64 `json:"previous_recall_at_5,omitempty"`
+	Regressed         bool    `json:"regressed,omitempty"`
 	AvgLatencyMS      float64 `json:"avg_latency_ms"`
 	BaselineRecallAt5 float64 `json:"baseline_recall_at_5"`
 	BaselineMRR       float64 `json:"baseline_mrr"`
@@ -60,6 +67,7 @@ type EvalCaseResult struct {
 type EvalRun struct {
 	ID          string           `json:"id"`
 	KnowledgeID string           `json:"knowledge_id"`
+	Kind        string           `json:"kind"`
 	Created     int64            `json:"created"`
 	Metrics     EvalMetrics      `json:"metrics"`
 	Cases       []EvalCaseResult `json:"cases"`
@@ -69,12 +77,13 @@ type EvalRun struct {
 type EvalRunSummary struct {
 	ID          string      `json:"id"`
 	KnowledgeID string      `json:"knowledge_id"`
+	Kind        string      `json:"kind"`
 	Created     int64       `json:"created"`
 	Metrics     EvalMetrics `json:"metrics"`
 }
 
 func (c *Core) EvalQuestions(ctx context.Context, baseID string) ([]EvalQuestion, error) {
-	rows, err := c.db.QueryContext(ctx, "SELECT id,knowledge_id,question,expected,tags,created FROM knowledge_eval_questions WHERE knowledge_id=? ORDER BY created,rowid", baseID)
+	rows, err := c.db.QueryContext(ctx, "SELECT id,knowledge_id,question,expected,tags,answerable,expected_answer,created FROM knowledge_eval_questions WHERE knowledge_id=? ORDER BY created,rowid", baseID)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +92,8 @@ func (c *Core) EvalQuestions(ctx context.Context, baseID string) ([]EvalQuestion
 	for rows.Next() {
 		var v EvalQuestion
 		var expected, tags string
-		if err := rows.Scan(&v.ID, &v.KnowledgeID, &v.Question, &expected, &tags, &v.Created); err != nil {
+		var answerable int
+		if err := rows.Scan(&v.ID, &v.KnowledgeID, &v.Question, &expected, &tags, &answerable, &v.ExpectedAnswer, &v.Created); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(expected), &v.ExpectedDocumentIDs); err != nil {
@@ -98,6 +108,7 @@ func (c *Core) EvalQuestions(ctx context.Context, baseID string) ([]EvalQuestion
 		if v.Tags == nil {
 			v.Tags = []string{}
 		}
+		v.Answerable = answerable == 1
 		values = append(values, v)
 	}
 	return values, rows.Err()
@@ -106,12 +117,25 @@ func (c *Core) EvalQuestions(ctx context.Context, baseID string) ([]EvalQuestion
 // SaveEvalQuestion creates or updates one question. Expected documents must
 // belong to the same knowledge base, so a stale id cannot silently score zero.
 func (c *Core) SaveEvalQuestion(ctx context.Context, id, baseID, question string, expected []string, tags []string) (EvalQuestion, error) {
+	return c.SaveEvalQuestionFull(ctx, id, baseID, question, expected, tags, true, "")
+}
+
+// SaveEvalQuestionFull also stores whether the question is answerable from the
+// corpus and an optional expected answer. Unanswerable questions measure
+// abstention instead of recall.
+func (c *Core) SaveEvalQuestionFull(ctx context.Context, id, baseID, question string, expected []string, tags []string, answerable bool, expectedAnswer string) (EvalQuestion, error) {
 	question = strings.TrimSpace(question)
 	if question == "" || len(question) > 2000 {
 		return EvalQuestion{}, invalid("请填写评测问题（最多 2000 字节）。")
 	}
-	if len(expected) == 0 || len(expected) > 10 {
-		return EvalQuestion{}, invalid("请选择 1–10 份期望来源文档。")
+	if answerable && (len(expected) == 0 || len(expected) > 10) {
+		return EvalQuestion{}, invalid("可回答问题需要选择 1–10 份期望来源文档。")
+	}
+	if !answerable && len(expected) > 10 {
+		return EvalQuestion{}, invalid("期望来源文档最多 10 份。")
+	}
+	if len(expectedAnswer) > 2000 {
+		return EvalQuestion{}, invalid("期望答案最多 2000 字节。")
 	}
 	var exists int
 	if err := c.db.QueryRowContext(ctx, "SELECT count(*) FROM knowledge_bases WHERE id=? AND deleted=0", baseID).Scan(&exists); err != nil {
@@ -150,13 +174,13 @@ func (c *Core) SaveEvalQuestion(ctx context.Context, id, baseID, question string
 	}
 	rawExpected, _ := json.Marshal(expected)
 	rawTags, _ := json.Marshal(clean)
-	value := EvalQuestion{KnowledgeID: baseID, Question: question, ExpectedDocumentIDs: expected, Tags: clean, Created: time.Now().UnixMilli()}
+	value := EvalQuestion{KnowledgeID: baseID, Question: question, ExpectedDocumentIDs: expected, Tags: clean, Answerable: answerable, ExpectedAnswer: strings.TrimSpace(expectedAnswer), Created: time.Now().UnixMilli()}
 	if id == "" {
 		value.ID = rand.Text()
-		_, err := c.db.ExecContext(ctx, "INSERT INTO knowledge_eval_questions(id,knowledge_id,question,expected,tags,created) VALUES(?,?,?,?,?,?)", value.ID, baseID, question, string(rawExpected), string(rawTags), value.Created)
+		_, err := c.db.ExecContext(ctx, "INSERT INTO knowledge_eval_questions(id,knowledge_id,question,expected,tags,answerable,expected_answer,created) VALUES(?,?,?,?,?,?,?,?)", value.ID, baseID, question, string(rawExpected), string(rawTags), boolFlag(answerable), value.ExpectedAnswer, value.Created)
 		return value, err
 	}
-	result, err := c.db.ExecContext(ctx, "UPDATE knowledge_eval_questions SET question=?,expected=?,tags=? WHERE id=? AND knowledge_id=?", question, string(rawExpected), string(rawTags), id, baseID)
+	result, err := c.db.ExecContext(ctx, "UPDATE knowledge_eval_questions SET question=?,expected=?,tags=?,answerable=?,expected_answer=? WHERE id=? AND knowledge_id=?", question, string(rawExpected), string(rawTags), boolFlag(answerable), value.ExpectedAnswer, id, baseID)
 	if err != nil {
 		return value, err
 	}
@@ -206,10 +230,33 @@ func (c *Core) RunEval(ctx context.Context, baseID string) (EvalRun, error) {
 	}
 	metrics.BaselineRecallAt5 = baseline.RecallAt5
 	metrics.BaselineMRR = baseline.MRR
-	run := EvalRun{ID: rand.Text(), KnowledgeID: baseID, Created: time.Now().UnixMilli(), Metrics: metrics, Cases: cases}
+	// Compare with the previous retrieval run to flag obvious regressions.
+	var previous string
+	if err := c.db.QueryRowContext(ctx, "SELECT metrics FROM knowledge_eval_runs WHERE knowledge_id=? AND kind='retrieval' ORDER BY created DESC,rowid DESC LIMIT 1", baseID).Scan(&previous); err == nil {
+		var prior EvalMetrics
+		if json.Unmarshal([]byte(previous), &prior) == nil {
+			metrics.PreviousRecallAt5 = prior.RecallAt5
+			if prior.RecallAt5-metrics.RecallAt5 >= 0.05 {
+				metrics.Regressed = true
+			}
+		}
+	}
+	run := EvalRun{ID: rand.Text(), KnowledgeID: baseID, Kind: "retrieval", Created: time.Now().UnixMilli(), Metrics: metrics, Cases: cases}
 	rawMetrics, _ := json.Marshal(run.Metrics)
 	rawCases, _ := json.Marshal(run.Cases)
-	if _, err := c.db.ExecContext(ctx, "INSERT INTO knowledge_eval_runs(id,knowledge_id,created,metrics,cases) VALUES(?,?,?,?,?)", run.ID, baseID, run.Created, string(rawMetrics), string(rawCases)); err != nil {
+	if _, err := c.db.ExecContext(ctx, "INSERT INTO knowledge_eval_runs(id,knowledge_id,created,metrics,cases,kind) VALUES(?,?,?,?,?,?)", run.ID, baseID, run.Created, string(rawMetrics), string(rawCases), run.Kind); err != nil {
+		return EvalRun{}, err
+	}
+	return run, nil
+}
+
+// SaveAnswerEvalRun stores an answer-quality evaluation (model answers scored
+// for citation precision, faithfulness and abstention).
+func (c *Core) SaveAnswerEvalRun(ctx context.Context, baseID string, metrics EvalMetrics, cases any) (EvalRun, error) {
+	rawMetrics, _ := json.Marshal(metrics)
+	rawCases, _ := json.Marshal(cases)
+	run := EvalRun{ID: rand.Text(), KnowledgeID: baseID, Kind: "answer", Created: time.Now().UnixMilli(), Metrics: metrics}
+	if _, err := c.db.ExecContext(ctx, "INSERT INTO knowledge_eval_runs(id,knowledge_id,created,metrics,cases,kind) VALUES(?,?,?,?,?,'answer')", run.ID, baseID, run.Created, string(rawMetrics), string(rawCases)); err != nil {
 		return EvalRun{}, err
 	}
 	return run, nil
@@ -219,7 +266,7 @@ func (c *Core) RunEval(ctx context.Context, baseID string) (EvalRun, error) {
 // structural weighting; everything else stays identical.
 func (c *Core) scoreQuestions(ctx context.Context, scope Scope, questions []EvalQuestion, baseline bool) (EvalMetrics, []EvalCaseResult, error) {
 	cases := make([]EvalCaseResult, 0, len(questions))
-	var recall1, recall3, recall5, mrr, empty, latency float64
+	var recall1, recall3, recall5, mrr, empty, latency, abstention float64
 	for _, question := range questions {
 		started := time.Now()
 		result, err := c.Search(ctx, scope, SearchRequest{Query: question.Question, Limit: 5, Baseline: baseline})
@@ -243,6 +290,9 @@ func (c *Core) scoreQuestions(ctx context.Context, scope Scope, questions []Eval
 		if len(ranked) == 0 {
 			empty++
 		}
+		if question.Answerable && len(ranked) > 0 {
+			abstention++
+		}
 		if firstRank > 0 {
 			mrr += 1 / float64(firstRank)
 			if firstRank <= 1 {
@@ -255,17 +305,27 @@ func (c *Core) scoreQuestions(ctx context.Context, scope Scope, questions []Eval
 				recall5++
 			}
 		}
+		if !question.Answerable {
+			// An unanswerable question passes when retrieval finds nothing; it is
+			// not scored for recall.
+			cases = append(cases, EvalCaseResult{QuestionID: question.ID, Question: question.Question, Expected: question.ExpectedDocumentIDs, Ranked: ranked, FirstRank: 0, Pass: len(ranked) == 0})
+			if len(ranked) == 0 {
+				abstention++
+			}
+			continue
+		}
 		cases = append(cases, EvalCaseResult{QuestionID: question.ID, Question: question.Question, Expected: question.ExpectedDocumentIDs, Ranked: ranked, FirstRank: firstRank, Pass: firstRank > 0 && firstRank <= 5})
 	}
 	total := float64(len(questions))
 	return EvalMetrics{
-		Questions:    len(questions),
-		RecallAt1:    round(recall1 / total),
-		RecallAt3:    round(recall3 / total),
-		RecallAt5:    round(recall5 / total),
-		MRR:          round(mrr / total),
-		NoResultRate: round(empty / total),
-		AvgLatencyMS: round(latency / total),
+		Questions:     len(questions),
+		RecallAt1:     round(recall1 / total),
+		RecallAt3:     round(recall3 / total),
+		RecallAt5:     round(recall5 / total),
+		MRR:           round(mrr / total),
+		NoResultRate:  round(empty / total),
+		AbstentionAcc: round(abstention / total),
+		AvgLatencyMS:  round(latency / total),
 	}, cases, nil
 }
 
@@ -274,7 +334,7 @@ func (c *Core) EvalRuns(ctx context.Context, baseID string, limit int) ([]EvalRu
 	if limit < 1 || limit > 50 {
 		limit = 10
 	}
-	rows, err := c.db.QueryContext(ctx, "SELECT id,knowledge_id,created,metrics FROM knowledge_eval_runs WHERE knowledge_id=? ORDER BY created DESC,rowid DESC LIMIT ?", baseID, limit)
+	rows, err := c.db.QueryContext(ctx, "SELECT id,knowledge_id,created,metrics,kind FROM knowledge_eval_runs WHERE knowledge_id=? ORDER BY created DESC,rowid DESC LIMIT ?", baseID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +343,7 @@ func (c *Core) EvalRuns(ctx context.Context, baseID string, limit int) ([]EvalRu
 	for rows.Next() {
 		var v EvalRunSummary
 		var metrics string
-		if err := rows.Scan(&v.ID, &v.KnowledgeID, &v.Created, &metrics); err != nil {
+		if err := rows.Scan(&v.ID, &v.KnowledgeID, &v.Created, &metrics, &v.Kind); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(metrics), &v.Metrics); err != nil {
@@ -298,7 +358,7 @@ func (c *Core) EvalRuns(ctx context.Context, baseID string, limit int) ([]EvalRu
 func (c *Core) EvalRun(ctx context.Context, id string) (EvalRun, error) {
 	var run EvalRun
 	var metrics, cases string
-	err := c.db.QueryRowContext(ctx, "SELECT id,knowledge_id,created,metrics,cases FROM knowledge_eval_runs WHERE id=?", id).Scan(&run.ID, &run.KnowledgeID, &run.Created, &metrics, &cases)
+	err := c.db.QueryRowContext(ctx, "SELECT id,knowledge_id,created,metrics,cases,kind FROM knowledge_eval_runs WHERE id=?", id).Scan(&run.ID, &run.KnowledgeID, &run.Created, &metrics, &cases, &run.Kind)
 	if err == sql.ErrNoRows {
 		return run, missing()
 	}
@@ -337,6 +397,13 @@ func (c *Core) PruneTraces(ctx context.Context, keep int) {
 		return
 	}
 	_, _ = c.db.ExecContext(ctx, "DELETE FROM retrieval_traces WHERE id NOT IN (SELECT id FROM retrieval_traces ORDER BY id DESC LIMIT ?)", keep)
+}
+
+func boolFlag(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func containsString(values []string, value string) bool {

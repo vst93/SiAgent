@@ -229,3 +229,33 @@ func TestIntegrationSSEStreamsStateAndDelta(t *testing.T) {
 		t.Fatalf("answer missing from settled event: %s", output)
 	}
 }
+
+func TestAPIKeyRevealRevokeAndDelete(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	id, token := createKey(t, f, map[string]any{"name": "reveal", "scopes": []string{"agent:read"}})
+
+	list := f.request(t, "GET", "/api/api-keys", nil, true, nil)
+	requireStatus(t, list, 200)
+	if strings.Contains(list.Body.String(), token) {
+		t.Fatal("list must not include the full key")
+	}
+	if !strings.Contains(list.Body.String(), `"revealable":true`) {
+		t.Fatalf("revealable flag missing: %s", list.Body.String())
+	}
+	reveal := f.request(t, "GET", "/api/api-keys/"+id+"/reveal", nil, true, nil)
+	requireStatus(t, reveal, 200)
+	var payload struct {
+		Key string `json:"key"`
+	}
+	json.Unmarshal(reveal.Body.Bytes(), &payload)
+	if payload.Key != token {
+		t.Fatal("reveal returned a different key")
+	}
+
+	requireStatus(t, f.request(t, "DELETE", "/api/api-keys/"+id+"/permanent", nil, true, nil), 409)
+	requireStatus(t, f.request(t, "DELETE", "/api/api-keys/"+id, nil, true, nil), 200)
+	requireStatus(t, f.request(t, "DELETE", "/api/api-keys/"+id+"/permanent", nil, true, nil), 200)
+	requireStatus(t, f.request(t, "GET", "/api/api-keys/"+id+"/reveal", nil, true, nil), 404)
+	requireStatus(t, integrationRequest(f, "GET", "/v1/knowledge/bases", token, nil, nil), 401)
+}

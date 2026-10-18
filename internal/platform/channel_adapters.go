@@ -59,6 +59,13 @@ func (s *Server) ConfigureChannelPlugins(node, workerScript string, plugins []ch
 		}
 	}
 	s.channelProviders = registry
+	// Built-in channel plugins are listed in the extension page as shipped
+	// capabilities; their configuration stays on the channels page.
+	if s.plugins != nil {
+		for _, descriptor := range registry.Descriptors() {
+			_ = s.plugins.RegisterBuiltin(context.Background(), "channel."+descriptor.ID, descriptor.Name, "channel", "bundled")
+		}
+	}
 	return nil
 }
 

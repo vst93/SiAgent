@@ -1,6 +1,8 @@
 # SiAgent 扩展体系与对外集成 API 计划
 
-> 状态：M1–M5 已实施并验证，见 `docs/progress.md`。  
+> 状态：M1–M5 已实施并验证，见 `docs/progress.md`。
+>
+> 交付范围说明：M1 的“Pi 供应商生态”以可选供应商预设包实现，复用 Pi AI 的 OpenAI/Anthropic 协议适配器，不内置各厂商 SDK；Bedrock/Vertex 单独成包并要求自备兼容网关。M3 的渠道插件保留既有进程宿主，在扩展页登记为随系统分发，不重复迁移到解析扩展宿主。真实厂商 SDK 目录、渠道宿主统一和插件签名/升级通道列为后续增强。  
 > 范围：扩展包体系、模型生态复用、高级工具开关、对外集成 API。  
 > 不包含：Skills/MCP 改造、公开 Web 问答页、外部文档系统连接器、Pi extension 兼容。  
 > 关联计划：知识效果专项（另行编写；本计划中的 embedder/reranker/parser 阶段契约以其为准）。
@@ -23,7 +25,7 @@
 | D12 | 高级工具管控层级 | Agent 级单开关 + 部署级 kill switch |
 | D13 | `codemode` / `tool-search` | v1 不纳入高级工具包；后续分别处理 |
 | D14 | 第三方扩展签名 | v1 不强制；SHA-256 + 管理员可信来源确认；签名可选 |
-| D15 | Integration API 认证 | v1 只做 API Key；OIDC/JWT 后置；保留 principal 抽象 |
+| D15 | Integration API 认证 | v1 只做 API Key；认证只查 SHA-256 哈希；为管理员回看另存主密钥加密副本，默认隐藏；OIDC/JWT 后置 |
 | D16 | Agent revision | 轻量版现在做：自增 revision，API 可选传入，运行快照记录 |
 | D17 | 未来 Pi extension 路线 | 暂不选；若未来需要，先 A，再 B；C 仅用于 coding/automation sidecar |
 | D18 | 知识效果优先级 | v1 轻量优先：不做 embedding/向量索引；查询扩展 + 多查询 BM25 + 启发式/可选 LLM 重排；embedder/reranker 降为可选扩展 |
@@ -412,7 +414,7 @@ read / write / edit / bash
 v1 只做 API Key：
 
 - `Authorization: Bearer <key>`；
-- 数据库只存 key hash + prefix；
+- 认证只使用 key hash + prefix；为管理员回看另存主密钥加密副本，列表默认隐藏，显式查看写审计；
 - 支持过期、吊销、轮换；
 - 作用域：`agent:run`、`agent:read`、`knowledge:write`、`knowledge:search`、`webhook:manage`；
 - 作用域资源：指定 Agent / 知识库；
@@ -501,7 +503,7 @@ GET    /v1/knowledge/sources/{source_id}
 
 - `/v1` 不使用 Cookie、不走 CSRF；
 - 当前 `sameOrigin` 需对 `/v1` 放行；
-- API Key 只存 hash；
+- API Key 认证只查 hash；加密副本仅用于管理员回看，列表不回显；
 - 请求体大小限制、上传限制；
 - 限流与并发上限；
 - Webhook 签名与幂等；
@@ -647,7 +649,7 @@ M2 高级工具 ──┘
 | Pi 供应商扩展包过大 | 启动/构建变慢 | 按 provider 懒加载，重依赖拆包 |
 | 高级工具被误开 | 文件/命令风险 | 默认关闭、风险确认、部署级 kill switch、审计 |
 | 扩展质量参差 | 知识效果下降 | 评测台、官方认证、默认实现优先 |
-| API Key 泄漏 | 越权调用 | 只存 hash、scope、限流、审计、轮换 |
+| API Key 泄漏 | 越权调用 | 认证只查 hash；加密副本只允许管理员显式查看并审计；scope、限流、轮换 |
 | 流式事件不可回放 | 断线体验差 | 实时 hub + 快照恢复，不存全量 delta |
 | 扩展配置界面膨胀 | 用户困惑 | 分组、按需加载、高级折叠 |
 | 签名强制导致冷启动难 | 生态起不来 | v1 不强制签名，企业版可开策略 |

@@ -31,6 +31,7 @@ type Key = {
   revoked: boolean;
   created: number;
   last_used: number;
+  revealable: boolean;
 };
 
 const scopes = [
@@ -55,6 +56,7 @@ export function ApiKeysWorkspace({
   const [rate, setRate] = useState(60);
   const [days, setDays] = useState(0);
   const [token, setToken] = useState("");
+  const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [hooks, setHooks] = useState<Webhook[]>([]);
   const [hookURL, setHookURL] = useState("");
   const [hookSecret, setHookSecret] = useState("");
@@ -92,7 +94,7 @@ export function ApiKeysWorkspace({
       });
       setToken(value.key);
       setName("");
-      setFeedback("密钥已创建。完整密钥只显示这一次，请立即保存。");
+      setFeedback("密钥已创建。完整密钥默认隐藏，可在列表中随时查看。");
       await load();
     } catch (error) {
       setError(error instanceof Error ? error.message : "密钥创建失败。");
@@ -118,6 +120,38 @@ export function ApiKeysWorkspace({
       await load();
     } catch (error) {
       setError(error instanceof Error ? error.message : "Webhook 保存失败。");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function reveal(id: string) {
+    setError("");
+    try {
+      const value = await request<{ key: string }>(`/api-keys/${id}/reveal`);
+      setRevealed((current) => ({ ...current, [id]: value.key }));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "密钥读取失败。");
+    }
+  }
+
+  function hide(id: string) {
+    setRevealed((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }
+
+  async function removeKey(id: string) {
+    setPending(true);
+    setError("");
+    try {
+      await request(`/api-keys/${id}/permanent`, "DELETE");
+      await load();
+      setFeedback("密钥已删除。");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "删除失败。");
     } finally {
       setPending(false);
     }
@@ -168,9 +202,9 @@ export function ApiKeysWorkspace({
       )}
       {token && (
         <div className="apikey-token">
-          <strong>新密钥（仅显示一次）</strong>
+          <strong>新密钥</strong>
           <code>{token}</code>
-          <small>关闭或刷新页面后无法再次获取；如丢失请吊销并重新创建。</small>
+          <small>已加密保存，之后可在列表中点击“查看”再次读取。</small>
         </div>
       )}
 
@@ -348,13 +382,44 @@ export function ApiKeysWorkspace({
                 {key.revoked ? " · 已吊销" : ""}
               </small>
             </div>
-            <button
-              className="danger-button"
-              disabled={pending || key.revoked}
-              onClick={() => void revoke(key.id)}
-            >
-              吊销
-            </button>
+            <div className="apikey-actions">
+              {revealed[key.id] ? (
+                <>
+                  <code className="apikey-revealed">{revealed[key.id]}</code>
+                  <button onClick={() => hide(key.id)}>隐藏</button>
+                </>
+              ) : (
+                <button
+                  disabled={!key.revealable}
+                  title={
+                    key.revealable
+                      ? "查看完整密钥（会写入审计）"
+                      : "该密钥创建较早，无法查看；请重新创建"
+                  }
+                  onClick={() => void reveal(key.id)}
+                >
+                  查看
+                </button>
+              )}
+              {!key.revoked && (
+                <button
+                  className="danger-button"
+                  disabled={pending}
+                  onClick={() => void revoke(key.id)}
+                >
+                  吊销
+                </button>
+              )}
+              {key.revoked && (
+                <button
+                  className="danger-button"
+                  disabled={pending}
+                  onClick={() => void removeKey(key.id)}
+                >
+                  删除
+                </button>
+              )}
+            </div>
           </article>
         ))}
       </section>

@@ -23,7 +23,7 @@ func fixture(t testing.TB) *Core {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
-	if _, err := db.Exec("PRAGMA foreign_keys=ON;" + Schema + EvalSchema + ChunkStructureSchema); err != nil {
+	if _, err := db.Exec("PRAGMA foreign_keys=ON;" + Schema + EvalSchema + ChunkStructureSchema + QualitySchema20 + QualitySchema21); err != nil {
 		t.Fatal(err)
 	}
 	core, err := New(db, root)

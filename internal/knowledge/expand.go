@@ -43,7 +43,7 @@ var synonymGroups = [][]string{
 // expandQueries returns the original query first, then rule-based variants.
 // It never calls a model, so a slow or unavailable provider cannot affect
 // retrieval.
-func expandQueries(query string) []string {
+func expandQueries(query string, extra []string, custom map[string][]string) []string {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil
@@ -51,6 +51,43 @@ func expandQueries(query string) []string {
 	values := []string{query}
 	lower := strings.ToLower(query)
 	seen := map[string]bool{strings.ToLower(query): true}
+	// Per-base vocabulary is applied before the built-in groups so a customer
+	// term wins over a generic synonym.
+	for term, expansions := range custom {
+		if len(values) >= maxExpandedQueries {
+			break
+		}
+		if !strings.Contains(lower, strings.ToLower(term)) {
+			continue
+		}
+		for _, expansion := range expansions {
+			if len(values) >= maxExpandedQueries {
+				break
+			}
+			variant := replaceFold(query, term, expansion)
+			key := strings.ToLower(variant)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			values = append(values, variant)
+		}
+	}
+	for _, variant := range extra {
+		if len(values) >= maxExpandedQueries+2 {
+			break
+		}
+		variant = strings.TrimSpace(variant)
+		if variant == "" || len(variant) > 500 {
+			continue
+		}
+		key := strings.ToLower(variant)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		values = append(values, variant)
+	}
 	for _, group := range synonymGroups {
 		if len(values) >= maxExpandedQueries {
 			break

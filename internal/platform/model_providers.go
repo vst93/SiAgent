@@ -49,6 +49,12 @@ var providerPresets = []ProviderPreset{
 	{ID: "ollama", Name: "Ollama（本地）", Group: "official", API: "openai-completions", BaseURL: "http://localhost:11434/v1", Pack: piProvidersPack},
 	{ID: "vllm", Name: "vLLM（本地）", Group: "official", API: "openai-completions", BaseURL: "http://localhost:8000/v1", Pack: piProvidersPack},
 	{ID: "lmstudio", Name: "LM Studio（本地）", Group: "official", API: "openai-completions", BaseURL: "http://localhost:1234/v1", Pack: piProvidersPack},
+
+	// Vendors whose official SDKs are heavy are shipped as a separate pack. The
+	// platform does not bundle those SDKs; the administrator points the preset
+	// at a compatible gateway.
+	{ID: "bedrock", Name: "Amazon Bedrock（自备兼容网关）", Group: "official", API: "openai-completions", Pack: "pi-providers-heavy"},
+	{ID: "vertex", Name: "Google Vertex AI（自备兼容网关）", Group: "official", API: "openai-completions", Pack: "pi-providers-heavy"},
 }
 
 var providerPacks = []ProviderPack{
@@ -57,6 +63,12 @@ var providerPacks = []ProviderPack{
 		Name:        "Pi 模型供应商",
 		Description: "OpenRouter、DeepSeek、Groq、Mistral、xAI、Together、Fireworks、Gemini、Ollama、vLLM、LM Studio 等供应商预设。安装后只增加配置项，不执行第三方代码。",
 		Providers:   []string{"openrouter", "deepseek", "groq", "mistral", "xai", "together", "fireworks", "google", "ollama", "vllm", "lmstudio"},
+	},
+	{
+		ID:          "pi-providers-heavy",
+		Name:        "Pi 重依赖供应商",
+		Description: "Bedrock 与 Vertex 的官方 SDK 体积较大，单独成包。平台不内置厂商 SDK，请把预设地址指向你部署的兼容网关。",
+		Providers:   []string{"bedrock", "vertex"},
 	},
 }
 
@@ -167,14 +179,17 @@ func (s *Server) installProviderPack(w http.ResponseWriter, r *http.Request) {
 		internal(w)
 		return
 	}
+	if s.plugins != nil {
+		_ = s.plugins.RegisterBuiltin(r.Context(), "model."+id, "Pi 模型供应商", "model", "bundled")
+	}
 	s.listModelProviders(w, r)
 }
 
 func (s *Server) uninstallProviderPack(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if id == piProvidersPack {
+	if id == piProvidersPack || id == "pi-providers-heavy" {
 		var used int
-		if err := s.store.db.QueryRow("SELECT count(*) FROM models WHERE provider IN ('openrouter','deepseek','groq','mistral','xai','together','fireworks','google','ollama','vllm','lmstudio')").Scan(&used); err != nil {
+		if err := s.store.db.QueryRow("SELECT count(*) FROM models WHERE provider IN ('openrouter','deepseek','groq','mistral','xai','together','fireworks','google','ollama','vllm','lmstudio','bedrock','vertex')").Scan(&used); err != nil {
 			internal(w)
 			return
 		}
@@ -186,6 +201,9 @@ func (s *Server) uninstallProviderPack(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.store.db.Exec("DELETE FROM provider_packs WHERE id=?", id); err != nil {
 		internal(w)
 		return
+	}
+	if s.plugins != nil {
+		_, _ = s.store.db.Exec("DELETE FROM plugins WHERE id=?", "model."+id)
 	}
 	s.listModelProviders(w, r)
 }

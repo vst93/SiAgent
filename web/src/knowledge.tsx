@@ -80,8 +80,12 @@ type EvalQuestion = {
   question: string;
   expected_document_ids: string[];
   tags: string[];
+  answerable: boolean;
+  expected_answer?: string;
   created: number;
 };
+type BaseConfig = { expand: boolean; llm_expand: boolean; gate: boolean };
+type VocabEntry = { term: string; expansion: string };
 type EvalMetrics = {
   questions: number;
   recall_at_1: number;
@@ -89,6 +93,9 @@ type EvalMetrics = {
   recall_at_5: number;
   mrr: number;
   no_result_rate: number;
+  abstention_accuracy: number;
+  citation_precision?: number;
+  faithfulness?: number;
   avg_latency_ms: number;
   baseline_recall_at_5?: number;
   baseline_mrr?: number;
@@ -608,9 +615,9 @@ function LibraryDocuments({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
-  const [tab, setTab] = useState<"documents" | "search" | "eval" | "gaps">(
-    "documents",
-  );
+  const [tab, setTab] = useState<
+    "documents" | "search" | "eval" | "gaps" | "conflicts"
+  >("documents");
   const [filter, setFilter] = useState("");
   const [status, setStatus] = useState("all");
   const [upload, setUpload] = useState<{ replacement: Document | null } | null>(
@@ -732,13 +739,13 @@ function LibraryDocuments({
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
               return;
             event.preventDefault();
-            const order = ["documents", "search", "eval", "gaps"] as const;
+            const order = ["documents", "search", "eval", "gaps", "conflicts"] as const;
             const index = order.indexOf(tab);
             const value =
               event.key === "Home"
                 ? "documents"
                 : event.key === "End"
-                  ? "gaps"
+                  ? "conflicts"
                   : order[
                       event.key === "ArrowLeft"
                         ? (index + order.length - 1) % order.length
@@ -789,6 +796,16 @@ function LibraryDocuments({
             onClick={() => changeTab("gaps")}
           >
             内容缺口
+          </button>
+          <button
+            role="tab"
+            id="kb-tab-conflicts"
+            aria-selected={tab === "conflicts"}
+            aria-controls="kb-conflicts"
+            tabIndex={tab === "conflicts" ? 0 : -1}
+            onClick={() => changeTab("conflicts")}
+          >
+            冲突与过期
           </button>
         </div>
         <span className="kb-status-summary">
@@ -992,6 +1009,7 @@ function LibraryDocuments({
         aria-labelledby="kb-tab-search"
         hidden={tab !== "search"}
       >
+        <KnowledgeSettings key={`cfg-${base.id}`} request={request} baseID={base.id} />
         <KnowledgeSearch
           key={base.id}
           request={request}
@@ -1025,6 +1043,19 @@ function LibraryDocuments({
           request={request}
           baseID={base.id}
           active={tab === "gaps"}
+        />
+      </div>
+      <div
+        role="tabpanel"
+        id="kb-conflicts"
+        aria-labelledby="kb-tab-conflicts"
+        hidden={tab !== "conflicts"}
+      >
+        <KnowledgeConflicts
+          key={base.id}
+          request={request}
+          baseID={base.id}
+          active={tab === "conflicts"}
         />
       </div>
       {upload && (
@@ -1119,6 +1150,329 @@ function LibraryDocuments({
         </KnowledgeDialog>
       )}
     </section>
+  );
+}
+
+type Conflict = {
+  id: number;
+  document_a: string;
+  document_b: string;
+  detail: string;
+  status: string;
+  created: number;
+};
+type Outdated = {
+  run_id: string;
+  source_id: string;
+  document_id: string;
+  title: string;
+  cited_version: number;
+  active_version: number;
+};
+
+function KnowledgeConflicts({
+  request,
+  baseID,
+  active,
+}: {
+  request: Api;
+  baseID: string;
+  active: boolean;
+}) {
+  const [conflicts, setConflicts] = useState<Conflict[]>([]);
+  const [outdated, setOutdated] = useState<Outdated[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState("");
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [items, old] = await Promise.all([
+        request<Conflict[]>(`/knowledge/bases/${baseID}/conflicts?status=open`),
+        request<Outdated[]>(`/knowledge/outdated?knowledge_id=${baseID}`),
+      ]);
+      setConflicts(items);
+      setOutdated(old);
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    if (active) void load();
+  }, [baseID, active]);
+
+  async function detect() {
+    setPending(true);
+    setError("");
+    try {
+      const value = await request<{ found: number }>(
+        `/knowledge/bases/${baseID}/conflicts/detect`,
+        "POST",
+      );
+      setFeedback(`检测完成，新增 ${value.found} 条冲突。`);
+      await load();
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function resolve(id: number, status: string) {
+    setPending(true);
+    try {
+      await request(`/knowledge/conflicts/${id}/status`, "POST", { status });
+      await load();
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section className="kb-search-content">
+      <p className="kb-help">
+        冲突检测比较“数字不同、措辞相同”的片段，用于发现两份资料说法不一致；过期引用列出仍指向旧版本的来源。
+      </p>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {feedback && (
+        <p className="kb-feedback success" role="status">
+          {feedback}
+        </p>
+      )}
+      <div className="form-actions">
+        <button disabled={pending} onClick={() => void detect()}>
+          {pending ? "正在检测…" : "检测冲突"}
+        </button>
+        <button disabled={loading} onClick={() => void load()}>
+          {loading ? "正在读取…" : "刷新"}
+        </button>
+      </div>
+      <h3 className="kb-subhead">冲突（{conflicts.length}）</h3>
+      {!loading && !conflicts.length && (
+        <p className="kb-search-placeholder">没有发现数字冲突。</p>
+      )}
+      <ul className="kb-gap-list">
+        {conflicts.map((item) => (
+          <li key={item.id}>
+            <div>
+              <strong>{item.detail}</strong>
+              <small>
+                {item.document_a} ↔ {item.document_b}
+              </small>
+            </div>
+            <div className="kb-gap-actions">
+              <button
+                disabled={pending}
+                onClick={() => void resolve(item.id, "resolved")}
+              >
+                标记已解决
+              </button>
+              <button
+                disabled={pending}
+                onClick={() => void resolve(item.id, "ignored")}
+              >
+                忽略
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <h3 className="kb-subhead">过期引用（{outdated.length}）</h3>
+      {!loading && !outdated.length && (
+        <p className="kb-search-placeholder">没有指向旧版本的引用。</p>
+      )}
+      <ul className="kb-gap-list">
+        {outdated.map((item) => (
+          <li key={`${item.run_id}-${item.source_id}`}>
+            <div>
+              <strong>{item.title}</strong>
+              <small>
+                引用 v{item.cited_version}，当前 v{item.active_version} · 运行{" "}
+                {item.run_id}
+              </small>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function KnowledgeSettings({
+  request,
+  baseID,
+}: {
+  request: Api;
+  baseID: string;
+}) {
+  const [config, setConfig] = useState<BaseConfig>({
+    expand: true,
+    llm_expand: false,
+    gate: false,
+  });
+  const [vocabulary, setVocabulary] = useState<VocabEntry[]>([]);
+  const [term, setTerm] = useState("");
+  const [expansion, setExpansion] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState("");
+
+  useEffect(() => {
+    void Promise.all([
+      request<BaseConfig>(`/knowledge/bases/${baseID}/config`),
+      request<VocabEntry[]>(`/knowledge/bases/${baseID}/vocabulary`),
+    ])
+      .then(([cfg, words]) => {
+        setConfig(cfg);
+        setVocabulary(words);
+      })
+      .catch((error) => setError(message(error)));
+  }, [baseID]);
+
+  async function save(next: BaseConfig) {
+    setPending(true);
+    setError("");
+    setFeedback("");
+    try {
+      setConfig(await request<BaseConfig>(`/knowledge/bases/${baseID}/config`, "PUT", next));
+      setFeedback("检索设置已保存，只影响之后提交的检索。");
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function addWord() {
+    setPending(true);
+    setError("");
+    try {
+      setVocabulary(
+        await request<VocabEntry[]>(`/knowledge/bases/${baseID}/vocabulary`, "POST", {
+          term,
+          expansion,
+        }),
+      );
+      setTerm("");
+      setExpansion("");
+      setFeedback("词条已保存。");
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function removeWord(value: string) {
+    setPending(true);
+    try {
+      await request(
+        `/knowledge/bases/${baseID}/vocabulary?term=${encodeURIComponent(value)}`,
+        "DELETE",
+      );
+      setVocabulary((words) => words.filter((word) => word.term !== value));
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <details className="kb-settings">
+      <summary>检索设置与领域词表</summary>
+      <div className="kb-settings-body">
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        {feedback && (
+          <p className="kb-feedback success" role="status">
+            {feedback}
+          </p>
+        )}
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={config.expand}
+            disabled={pending}
+            onChange={(event) => void save({ ...config, expand: event.target.checked })}
+          />
+          启用规则同义词扩展
+        </label>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={config.gate}
+            disabled={pending}
+            onChange={(event) => void save({ ...config, gate: event.target.checked })}
+          />
+          评测退化时阻止替换与重新索引（可在调用时用 force 覆盖）
+        </label>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={config.llm_expand}
+            disabled={pending}
+            onChange={(event) => void save({ ...config, llm_expand: event.target.checked })}
+          />
+          允许模型改写 2 条检索查询（额外一次模型调用，失败自动回退）
+        </label>
+        <div className="kb-vocab">
+          <strong>领域词表</strong>
+          {!vocabulary.length && <p className="muted">还没有自定义词条。</p>}
+          <ul>
+            {vocabulary.map((word) => (
+              <li key={word.term}>
+                <span>{word.term}</span>
+                <span>→ {word.expansion}</span>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => void removeWord(word.term)}
+                >
+                  删除
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="kb-vocab-form">
+            <input
+              aria-label="领域词条"
+              maxLength={100}
+              value={term}
+              onChange={(event) => setTerm(event.target.value)}
+              placeholder="词条，例如：报销"
+            />
+            <input
+              aria-label="扩展词"
+              maxLength={200}
+              value={expansion}
+              onChange={(event) => setExpansion(event.target.value)}
+              placeholder="扩展词，例如：费用核销"
+            />
+            <button
+              type="button"
+              disabled={pending || !term.trim() || !expansion.trim()}
+              onClick={() => void addWord()}
+            >
+              添加词条
+            </button>
+          </div>
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -1328,6 +1682,10 @@ function KnowledgeEval({
   const [run, setRun] = useState<EvalRun | null>(null);
   const [question, setQuestion] = useState("");
   const [expected, setExpected] = useState<string[]>([]);
+  const [answerable, setAnswerable] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const [answerRun, setAnswerRun] = useState<{ metrics: EvalMetrics } | null>(null);
+  const [importFeedback, setImportFeedback] = useState("");
   const [pending, setPending] = useState("");
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -1362,7 +1720,7 @@ function KnowledgeEval({
 
   async function add(event: FormEvent) {
     event.preventDefault();
-    if (!question.trim() || !expected.length) return;
+    if (!question.trim() || (answerable && !expected.length)) return;
     setPending("add");
     setError("");
     setFeedback("");
@@ -1370,6 +1728,7 @@ function KnowledgeEval({
       await request(`/knowledge/bases/${baseID}/eval/questions`, "POST", {
         question,
         expected_document_ids: expected,
+        answerable,
       });
       setQuestion("");
       setExpected([]);
@@ -1406,6 +1765,54 @@ function KnowledgeEval({
       );
       setRun(value);
       setFeedback(`评测完成：Recall@5 ${percent(value.metrics.recall_at_5)}。`);
+      await load();
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending("");
+    }
+  }
+
+  async function importFile(file: File) {
+    setImporting(true);
+    setError("");
+    setImportFeedback("");
+    try {
+      const raw = await file.text();
+      const csv = /\.csv$/i.test(file.name);
+      const response = await fetch(
+        `/api/knowledge/bases/${baseID}/eval/questions/import`,
+        {
+          method: "POST",
+          headers: { "Content-Type": csv ? "text/csv" : "application/json" },
+          body: raw,
+        },
+      );
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error ?? "导入失败。");
+      setImportFeedback(
+        `已导入 ${value.imported} 条` +
+          (value.failures?.length ? `，${value.failures.length} 条失败` : ""),
+      );
+      await load();
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function evaluateAnswers() {
+    setPending("answers");
+    setError("");
+    setFeedback("");
+    try {
+      const value = await request<{ metrics: EvalMetrics }>(
+        `/knowledge/bases/${baseID}/eval/answers`,
+        "POST",
+      );
+      setAnswerRun(value);
+      setFeedback("回答质量评测已完成。");
       await load();
     } catch (error) {
       setError(message(error));
@@ -1455,7 +1862,15 @@ function KnowledgeEval({
             placeholder="例如：出差住宿标准是多少？"
           />
         </label>
-        <fieldset className="kb-eval-docs">
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={!answerable}
+            onChange={(event) => setAnswerable(!event.target.checked)}
+          />
+          资料中无法回答（用于衡量拒答）
+        </label>
+        <fieldset className="kb-eval-docs" disabled={!answerable}>
           <legend>期望来源文档</legend>
           {!ready.length && (
             <p className="muted">先上传并等待文档变为可检索。</p>
@@ -1489,9 +1904,42 @@ function KnowledgeEval({
             disabled={!questions.length || pending === "run"}
             onClick={() => void evaluate()}
           >
-            {pending === "run" ? "正在评测…" : "运行评测"}
+            {pending === "run" ? "正在评测…" : "运行检索评测"}
+          </button>
+          <button
+            type="button"
+            disabled={!questions.length || pending === "answers"}
+            onClick={() => void evaluateAnswers()}
+          >
+            {pending === "answers" ? "正在评测…" : "评测回答质量"}
           </button>
         </div>
+        <div className="kb-eval-io">
+          <label className="kb-eval-import">
+            {importing ? "正在导入…" : "导入 CSV / JSON"}
+            <input
+              type="file"
+              accept=".csv,.json,text/csv,application/json"
+              disabled={importing}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void importFile(file);
+                event.target.value = "";
+              }}
+            />
+          </label>
+          <a href={`/api/knowledge/bases/${baseID}/eval/questions/export?format=csv`} download>
+            导出 CSV
+          </a>
+          <a href={`/api/knowledge/bases/${baseID}/eval/questions/export`} download="eval-questions.json">
+            导出 JSON
+          </a>
+        </div>
+        {importFeedback && (
+          <p className="kb-feedback success" role="status">
+            {importFeedback}
+          </p>
+        )}
       </form>
       {questions.length > 0 && (
         <ul className="kb-eval-questions">
@@ -1513,6 +1961,22 @@ function KnowledgeEval({
           ))}
         </ul>
       )}
+      {answerRun && (
+        <div className="kb-eval-metrics kb-eval-answer">
+          <div>
+            <strong>{percent(answerRun.metrics.citation_precision ?? 0)}</strong>
+            <span>引用准确率</span>
+          </div>
+          <div>
+            <strong>{percent(answerRun.metrics.faithfulness ?? 0)}</strong>
+            <span>忠实度（数字核对）</span>
+          </div>
+          <div>
+            <strong>{percent(answerRun.metrics.abstention_accuracy ?? 0)}</strong>
+            <span>拒答准确率</span>
+          </div>
+        </div>
+      )}
       {run && (
         <div className="kb-eval-run">
           <div className="kb-eval-metrics">
@@ -1530,6 +1994,10 @@ function KnowledgeEval({
             <div>
               <strong>{run.metrics.questions}</strong>
               <span>问题数</span>
+            </div>
+            <div>
+              <strong>{percent(run.metrics.abstention_accuracy ?? 0)}</strong>
+              <span>拒答准确</span>
             </div>
             <div>
               <strong>{run.metrics.avg_latency_ms.toFixed(1)}</strong>

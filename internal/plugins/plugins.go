@@ -28,33 +28,47 @@ const Schema = `
 // Manifest is plugin.json. Only declarative capabilities are accepted; nothing
 // here can grant itself permissions.
 type Manifest struct {
-	Schema      string   `json:"schema"`
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Type        string   `json:"type"`
-	APIVersion  string   `json:"api_version"`
-	Entry       string   `json:"entry"`
-	Description string   `json:"description"`
-	Extensions  []string `json:"extensions"`
-	TimeoutMS   int      `json:"timeout_ms"`
+	Schema      string        `json:"schema"`
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Version     string        `json:"version"`
+	Type        string        `json:"type"`
+	APIVersion  string        `json:"api_version"`
+	Entry       string        `json:"entry"`
+	Description string        `json:"description"`
+	Extensions  []string      `json:"extensions"`
+	Config      []ConfigField `json:"config"`
+	Health      string        `json:"health"`
+	TimeoutMS   int           `json:"timeout_ms"`
+}
+
+// ConfigField declares one plugin setting. Secret values are encrypted and
+// passed only through the environment at execution time.
+type ConfigField struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Secret   bool   `json:"secret"`
+	Required bool   `json:"required"`
 }
 
 // Plugin is one installed package version.
 type Plugin struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Type        string   `json:"type"`
-	Entry       string   `json:"entry"`
-	Description string   `json:"description"`
-	Extensions  []string `json:"extensions"`
-	Enabled     bool     `json:"enabled"`
-	Healthy     bool     `json:"healthy"`
-	State       string   `json:"state"`
-	Message     string   `json:"message"`
-	InstalledAt int64    `json:"installed_at"`
-	UpdatedAt   int64    `json:"updated_at"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Version     string            `json:"version"`
+	Type        string            `json:"type"`
+	Entry       string            `json:"entry"`
+	Description string            `json:"description"`
+	Extensions  []string          `json:"extensions"`
+	Config      []ConfigField     `json:"config_fields"`
+	Values      map[string]string `json:"values"`
+	HasSecret   bool              `json:"has_secret"`
+	Enabled     bool              `json:"enabled"`
+	Healthy     bool              `json:"healthy"`
+	State       string            `json:"state"`
+	Message     string            `json:"message"`
+	InstalledAt int64             `json:"installed_at"`
+	UpdatedAt   int64             `json:"updated_at"`
 }
 
 // Candidate is a package version discovered on disk but not installed.
@@ -78,9 +92,18 @@ type Event struct {
 }
 
 type Registry struct {
-	db    *sql.DB
-	root  string
-	types map[string]bool
+	db        *sql.DB
+	root      string
+	types     map[string]bool
+	encryptFn func(string) string
+	decryptFn func(string) (string, error)
+}
+
+// SetCipher installs the platform's credential encryption. Without it, plugin
+// secrets cannot be stored.
+func (r *Registry) SetCipher(encrypt func(string) string, decrypt func(string) (string, error)) {
+	r.encryptFn = encrypt
+	r.decryptFn = decrypt
 }
 
 var validID = regexp.MustCompile(`^[a-z][a-z0-9.-]{1,63}$`)
@@ -236,7 +259,7 @@ func (r *Registry) Uninstall(ctx context.Context, id string) error {
 }
 
 func (r *Registry) List() ([]Plugin, error) {
-	rows, err := r.db.Query("SELECT id,version,type,name,entry,extensions,enabled,installed_at,updated_at FROM plugins ORDER BY id")
+	rows, err := r.db.Query("SELECT id,version,type,name,entry,extensions,enabled,installed_at,updated_at,config,secrets FROM plugins ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -253,25 +276,38 @@ func (r *Registry) List() ([]Plugin, error) {
 }
 
 func (r *Registry) Get(id string) (Plugin, error) {
-	row := r.db.QueryRow("SELECT id,version,type,name,entry,extensions,enabled,installed_at,updated_at FROM plugins WHERE id=?", id)
+	row := r.db.QueryRow("SELECT id,version,type,name,entry,extensions,enabled,installed_at,updated_at,config,secrets FROM plugins WHERE id=?", id)
 	return r.scan(row)
 }
 
 func (r *Registry) scan(row interface{ Scan(...any) error }) (Plugin, error) {
 	var value Plugin
-	var extensions string
+	var extensions, config, secrets string
 	var enabled int
-	if err := row.Scan(&value.ID, &value.Version, &value.Type, &value.Name, &value.Entry, &extensions, &enabled, &value.InstalledAt, &value.UpdatedAt); err != nil {
+	if err := row.Scan(&value.ID, &value.Version, &value.Type, &value.Name, &value.Entry, &extensions, &enabled, &value.InstalledAt, &value.UpdatedAt, &config, &secrets); err != nil {
 		return value, err
 	}
 	_ = json.Unmarshal([]byte(extensions), &value.Extensions)
 	value.Enabled = enabled == 1
+	if manifest, err := readManifest(filepath.Join(r.root, value.ID, value.Version)); err == nil {
+		value.Config = manifest.Config
+	}
+	value.Values = map[string]string{}
+	_ = json.Unmarshal([]byte(config), &value.Values)
+	value.HasSecret = secrets != ""
 	value.Healthy, value.State, value.Message = r.health(value)
 	return value, nil
 }
 
-// health reports whether the package entry still exists on disk.
+// health reports whether the package entry still exists on disk. Built-in
+// capabilities (channels, model packs) have no local entry file.
 func (r *Registry) health(value Plugin) (bool, string, string) {
+	if value.Type == "channel" || value.Type == "model" {
+		if !value.Enabled {
+			return false, "disabled", "已安装但未启用。"
+		}
+		return true, "ready", "随系统分发。"
+	}
 	directory := filepath.Join(r.root, value.ID, value.Version)
 	if _, err := safeEntry(directory, value.Entry); err != nil {
 		return false, "missing", "插件文件缺失，请重新安装。"
@@ -349,7 +385,7 @@ func (r *Registry) Parse(ctx context.Context, value Plugin, path string) (string
 	defer cancel()
 	command := exec.CommandContext(runCtx, entry, path)
 	command.Dir = directory
-	command.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8"}
+	command.Env = append([]string{"PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8"}, r.environment(value.ID)...)
 	command.WaitDelay = 2 * time.Second
 	var output limitedBuffer
 	command.Stdout = &output
@@ -445,6 +481,29 @@ func safeEntry(directory, entry string) (string, error) {
 		return "", errors.New("插件入口必须位于包内。")
 	}
 	return resolved, nil
+}
+
+// environment exposes configured values to the plugin. Secrets are decrypted
+// only for the child process.
+func (r *Registry) environment(id string) []string {
+	var config, secrets string
+	if err := r.db.QueryRow("SELECT config,secrets FROM plugins WHERE id=?", id).Scan(&config, &secrets); err != nil {
+		return nil
+	}
+	values := map[string]string{}
+	_ = json.Unmarshal([]byte(config), &values)
+	if secrets != "" && r.decryptFn != nil {
+		decrypted, err := r.decryptFn(secrets)
+		if err == nil {
+			_ = json.Unmarshal([]byte(decrypted), &values)
+		}
+	}
+	out := []string{}
+	for key, value := range values {
+		out = append(out, "SIAGENT_PLUGIN_"+strings.ToUpper(strings.ReplaceAll(key, "-", "_"))+"="+value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (r *Registry) installed() (map[string]Plugin, error) {

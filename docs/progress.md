@@ -12,7 +12,28 @@
 | 扩展与集成 | 模型供应商目录与可选供应商扩展、高级工具一键开关与部署级 kill switch、扩展宿主（解析扩展生命周期）、`/v1` 集成 API（API Key/幂等/SSE/知识推送）、签名 Webhook、MCP Server、OpenAI 兼容门面 |
 | 界面 | Workbench 视觉体系、顶栏与侧栏、对话工作区、模型/Agent/知识库/插件/渠道/扩展/集成接口页面、状态与弹窗统一 |
 
-验证：`make test`（Runtime 39 项 + Go `-race`）、`python3 tests/e2e.py`、`SIAGENT_CHROMIUM=... npm --prefix web run test:browser` 全部通过；迁移测试覆盖 schema 1–18 升级并保留既有数据。
+验证：`make test`（Runtime 39 项 + Go `-race`）、`python3 tests/e2e.py`、`SIAGENT_CHROMIUM=... npm --prefix web run test:browser` 全部通过；迁移测试覆盖 schema 1–20 升级并保留既有数据。
+
+## 集成接口体验优化
+
+- [x] 密钥创建后不再只显示一次：认证仍只使用 SHA-256 哈希，另存主密钥加密副本；列表默认隐藏，显式“查看”才解密并写审计。
+- [x] 已吊销密钥可永久删除；未吊销密钥需先吊销，避免误删导致集成静默中断。
+- [x] 管理端“集成接口”页支持查看/隐藏、吊销、删除；新密钥提示可随时回看。
+- [x] 新增“接口文档”页，展示认证、任务、知识库、Webhook、MCP、OpenAI 兼容门面与 OpenAPI 地址，并链接 GitHub 完整文档。
+- [x] 平台测试覆盖列表不回显、显式查看、吊销后删除、未吊销拒绝删除与吊销后令牌失效；浏览器覆盖查看/隐藏/吊销/删除与文档页。
+
+## 审计补齐（第二轮）
+
+- K0：评测问题支持 CSV/JSON 导入与 CSV/JSON 导出；CSV 为表头驱动，支持 answerable 与 expected_answer；部分失败逐行报告。
+- K2：`knowledge_bases.config` 支持按库关闭规则扩展、开启可选模型改写；领域词表支持增删与候选词；配置只影响之后提交的检索。
+- K4：新增“评测回答质量”，用当前模型对评测问题作答并按 citation precision、数字忠实度、拒答准确率打分；结果单独保存为 `kind='answer'`。
+- K5：冲突检测（同措辞不同数字）、冲突状态流转、过期引用列表、评测退化门禁（替换/重新索引返回 409，可用 force 覆盖）。
+- K6：`run_evidence` 保存每条结论对应的来源 ID，对话内提供“答案-证据”展开；领域词表候选从高频词中提取。
+- M1：增加 `pi-providers-heavy` 单独包（Bedrock/Vertex 预设），说明其不内置厂商 SDK。
+- M3：扩展包支持 ZIP 上传、配置字段与密钥、健康检查；渠道插件登记为随系统分发并跳转配置。
+- M4：发布机器可读的 `openapi.yaml`。
+- 迁移：新增从 schema 10–18 每个版本升级到 21 的测试，逐版本验证管理员、模型密钥与知识库保留。
+- 文档：schema 版本统一为 21，历史迁移说明保留。
 
 已知边界：真实模型供应商、第三方 MCP、企业微信真实企业环境、Webhook 消费方与 MCP 客户端兼容性仍需外部验收；Embedding/向量检索、OCR、公开 Web 问答页不在本轮范围。
 
@@ -87,7 +108,7 @@
 ## 扩展与集成 M4：/v1 集成 API
 
 - [x] schema 18 增加 `api_keys`、`api_idempotency`、`api_conversations`、`knowledge_external`，以及 `agents.revision`、`runs.agent_revision/source`。
-- [x] API Key 只存 SHA-256 哈希与前缀，完整密钥仅创建时返回一次；支持作用域、Agent/知识库限定、每分钟限流、有效期与吊销。
+- [x] API Key 认证只查 SHA-256 哈希与前缀；为管理员回看另存主密钥加密副本，列表默认隐藏，显式查看写审计；支持作用域、Agent/知识库限定、每分钟限流、有效期、吊销与删除。
 - [x] `/v1` 使用 Bearer 认证，不复用 Cookie/CSRF；写请求不再套用浏览器来源校验。
 - [x] 异步任务：幂等键、`external_conversation_id` 映射、`agent_revision` 钉住、取消、任务视图与来源。
 - [x] SSE 增量事件：`run.state`、`message.delta`、`run.settled`，断线重连从最新文本继续。
@@ -170,7 +191,7 @@ Release workflow 的版本输入可留空，按最高有效版本标签递增补
 - [x] 直接引用官方 `@wecom/aibot-node-sdk@1.0.7`，独立传输进程处理机器人 API 长连接、认证/心跳/重连、文本单聊/群内 @、稳定流式消息及明确/未知回执。
 - [x] 通用渠道管理页，默认 BotID/Secret，兼容原自建应用；密钥不回显、连接检查、入站/出站诊断和移动布局。
 - [x] 可信本地适配包清单及版本化 NDJSON 协议，新增包无需修改核心表或增加平台专属表单；无效额外包跳过，连接失败独立显示。
-- [x] schema 1–9 → 10 保留渠道/会话/消息/任务/出站 ID 及密文，旧 API/回调保留；会话清理同时删除回复上下文中的个人标识。
+- [x] schema 9 → 10（后续继续迁移到 21）保留渠道/会话/消息/任务/出站 ID 及密文，旧 API/回调保留；会话清理同时删除回复上下文中的个人标识。
 - [x] 官方 SDK 本地 WebSocket、独立安装适配器、迁移、旧真实 Runtime 链路及浏览器回归验证；27 项 Runtime 测试、Go 全量竞态、进程 E2E、go vet 及 Linux 无 CGO 构建通过。真实企微收发仍待企业环境验收。
 
 ## 模型列表、知识库调优与 Markdown 正文
@@ -187,7 +208,7 @@ Release workflow 的版本输入可留空，按最高有效版本标签递增补
 
 模型栏目采用紧凑连接列表和分组表单，支持连接名称、三种 API 协议、上下文窗口、最大输出、推理能力/强度、Temperature、Top P 及 Chat Completions 输出长度字段覆盖。配置贯通 Go 保存/校验/迁移、排队快照、私有协议和 Pi AI 真实请求；使用已锁定 1.3.0 SDK 的原生适配器。旧客户端省略 options 时保留参数，旧数据迁移为此前实际使用的 32768/4096 默认值，密钥留空规则保持。
 
-当前 schema 10，从版本 1–9 自动迁移。旧的 24000 字节配置已停用并移除普通配置入口。Runtime 按模型窗口、最大输出预留和 SDK Token 估算检查；Go 不再混用 Token 与字节，另保留内部 8 MiB 资源保护。估算不等于供应商精确分词。现已支持 Agent 级最近轮数、时间窗口、自动摘要与完整历史策略；摘要触发、失败和重启已通过本地测试，详见 [agent-policy.md](agent-policy.md)。删除对话移到标题栏确认弹窗，支持取消、Esc 和默认聚焦取消；输入区不再展示固定删除区域。站点增加同品牌 SVG favicon。
+当前 schema 22，从版本 1–21 自动迁移。旧的 24000 字节配置已停用并移除普通配置入口。Runtime 按模型窗口、最大输出预留和 SDK Token 估算检查；Go 不再混用 Token 与字节，另保留内部 8 MiB 资源保护。估算不等于供应商精确分词。现已支持 Agent 级最近轮数、时间窗口、自动摘要与完整历史策略；摘要触发、失败和重启已通过本地测试，详见 [agent-policy.md](agent-policy.md)。删除对话移到标题栏确认弹窗，支持取消、Esc 和默认聚焦取消；输入区不再展示固定删除区域。站点增加同品牌 SVG favicon。
 
 本地验证包括协议专属探针、三种 SDK 实际 HTTP/SSE 请求、参数快照与迁移、模型 Token 预算、旧字节配置兼容、长输入及独立资源保护、浏览器完整流程与 320px/390px 布局、参数进入实际模型请求、弹窗与图标；外部供应商兼容性仍需真实环境验收。参数和限制见 [models.md](models.md)。
 

@@ -73,6 +73,7 @@ type apiKey struct {
 	Revoked     bool     `json:"revoked"`
 	Created     int64    `json:"created"`
 	LastUsed    int64    `json:"last_used"`
+	Revealable  bool     `json:"revealable"`
 }
 
 func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request) {
@@ -122,8 +123,8 @@ func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request) {
 	if input.ExpiresDays > 0 {
 		expires = time.Now().Add(time.Duration(input.ExpiresDays) * 24 * time.Hour).Unix()
 	}
-	if _, err := s.store.db.Exec("INSERT INTO api_keys(id,prefix,hash,name,scopes,agent_id,knowledge_id,rate_limit,expires,created) VALUES(?,?,?,?,?,?,?,?,?,?)",
-		id, prefix, apiKeyHash(token), input.Name, string(encoded), input.AgentID, input.KnowledgeID, input.RateLimit, expires, time.Now().UnixMilli()); err != nil {
+	if _, err := s.store.db.Exec("INSERT INTO api_keys(id,prefix,hash,name,scopes,agent_id,knowledge_id,rate_limit,expires,created,secret) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+		id, prefix, apiKeyHash(token), input.Name, string(encoded), input.AgentID, input.KnowledgeID, input.RateLimit, expires, time.Now().UnixMilli(), s.store.encrypt(token)); err != nil {
 		internal(w)
 		return
 	}
@@ -132,7 +133,7 @@ func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.db.Query("SELECT id,prefix,name,scopes,agent_id,knowledge_id,rate_limit,expires,revoked,created,last_used FROM api_keys ORDER BY created DESC")
+	rows, err := s.store.db.Query("SELECT id,prefix,name,scopes,agent_id,knowledge_id,rate_limit,expires,revoked,created,last_used,CASE WHEN secret<>'' THEN 1 ELSE 0 END FROM api_keys ORDER BY created DESC")
 	if err != nil {
 		internal(w)
 		return
@@ -143,12 +144,14 @@ func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 		var value apiKey
 		var scopes string
 		var revoked int
-		if err := rows.Scan(&value.ID, &value.Prefix, &value.Name, &scopes, &value.AgentID, &value.KnowledgeID, &value.RateLimit, &value.Expires, &revoked, &value.Created, &value.LastUsed); err != nil {
+		var revealable int
+		if err := rows.Scan(&value.ID, &value.Prefix, &value.Name, &scopes, &value.AgentID, &value.KnowledgeID, &value.RateLimit, &value.Expires, &revoked, &value.Created, &value.LastUsed, &revealable); err != nil {
 			internal(w)
 			return
 		}
 		_ = json.Unmarshal([]byte(scopes), &value.Scopes)
 		value.Revoked = revoked == 1
+		value.Revealable = revealable == 1
 		values = append(values, value)
 	}
 	respond(w, 200, values)
@@ -167,6 +170,47 @@ func (s *Server) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit("api_key.revoke", r.PathValue("id"), "")
 	respond(w, 200, map[string]bool{"revoked": true})
+}
+
+// revealAPIKey decrypts the stored copy for an explicit administrator reveal.
+// The key is never included in list responses.
+func (s *Server) revealAPIKey(w http.ResponseWriter, r *http.Request) {
+	var encrypted string
+	if err := s.store.db.QueryRow("SELECT secret FROM api_keys WHERE id=?", r.PathValue("id")).Scan(&encrypted); err != nil {
+		fail(w, 404, "密钥不存在。")
+		return
+	}
+	if encrypted == "" {
+		fail(w, 409, "该密钥创建于可查看功能之前，请重新创建后再查看。")
+		return
+	}
+	token, err := s.store.decrypt(encrypted)
+	if err != nil {
+		internal(w)
+		return
+	}
+	s.audit("api_key.reveal", r.PathValue("id"), "")
+	respond(w, 200, map[string]string{"key": token})
+}
+
+// deleteAPIKey permanently removes a revoked key. Non-revoked keys must be
+// revoked first so an accidental delete cannot silently break an integration.
+func (s *Server) deleteAPIKey(w http.ResponseWriter, r *http.Request) {
+	var revoked int
+	if err := s.store.db.QueryRow("SELECT revoked FROM api_keys WHERE id=?", r.PathValue("id")).Scan(&revoked); err != nil {
+		fail(w, 404, "密钥不存在。")
+		return
+	}
+	if revoked != 1 {
+		fail(w, 409, "请先吊销密钥，再删除。")
+		return
+	}
+	if _, err := s.store.db.Exec("DELETE FROM api_keys WHERE id=?", r.PathValue("id")); err != nil {
+		internal(w)
+		return
+	}
+	s.audit("api_key.delete", r.PathValue("id"), "")
+	respond(w, 200, map[string]bool{"deleted": true})
 }
 
 type rateWindow struct {

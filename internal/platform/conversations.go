@@ -208,6 +208,30 @@ func (s *Server) snapshot(conversationID string) (Snapshot, error) {
 	}
 	return result, rows.Err()
 }
+
+// runEvidence lists the claim-to-source map for one run.
+func (s *Server) runEvidence(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.store.db.Query("SELECT claim_index,source_ids FROM run_evidence WHERE run_id=? ORDER BY claim_index", r.PathValue("id"))
+	if err != nil {
+		internal(w)
+		return
+	}
+	defer rows.Close()
+	values := []map[string]any{}
+	for rows.Next() {
+		var index int
+		var raw string
+		if err := rows.Scan(&index, &raw); err != nil {
+			internal(w)
+			return
+		}
+		var ids []string
+		_ = json.Unmarshal([]byte(raw), &ids)
+		values = append(values, map[string]any{"claim_index": index, "source_ids": ids})
+	}
+	respond(w, 200, values)
+}
+
 func (s *Server) getConversation(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	snapshot, err := s.snapshot(r.PathValue("id"))

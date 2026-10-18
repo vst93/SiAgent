@@ -51,7 +51,14 @@ func (p *LocalProvider) Search(ctx context.Context, scope Scope, request SearchR
 	}
 	// Rule-based expansion adds synonyms without calling a model. The original
 	// query always ranks first, so a weak variant cannot outrank a direct hit.
-	queries := expandQueries(request.Query)
+	expand := true
+	if request.Expand != nil {
+		expand = *request.Expand
+	}
+	queries := expandQueries(request.Query, request.ExtraQueries, request.Synonyms)
+	if !expand {
+		queries = []string{request.Query}
+	}
 	if request.Baseline {
 		// Baseline mode keeps the pre-K2 behaviour: one query, no structural or
 		// type weighting. Evaluation uses it to measure the improvement.

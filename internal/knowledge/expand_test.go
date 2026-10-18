@@ -7,7 +7,7 @@ import (
 )
 
 func TestExpandQueriesKeepsOriginalFirstAndAddsSynonyms(t *testing.T) {
-	values := expandQueries("酒店开销怎么算")
+	values := expandQueries("酒店开销怎么算", nil, nil)
 	if len(values) < 2 || values[0] != "酒店开销怎么算" {
 		t.Fatalf("original query must rank first: %v", values)
 	}
@@ -21,7 +21,7 @@ func TestExpandQueriesKeepsOriginalFirstAndAddsSynonyms(t *testing.T) {
 }
 
 func TestExpandQueriesWithoutMatchReturnsOnlyOriginal(t *testing.T) {
-	values := expandQueries("量子纠缠")
+	values := expandQueries("量子纠缠", nil, nil)
 	if len(values) != 1 || values[0] != "量子纠缠" {
 		t.Fatalf("unexpected expansion: %v", values)
 	}

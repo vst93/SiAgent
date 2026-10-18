@@ -17,5 +17,8 @@ func (s *Store) migrateWebhooks() error {
 	if _, err := tx.Exec(m5Schema); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateQuality()
 }

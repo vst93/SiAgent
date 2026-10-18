@@ -1,0 +1,261 @@
+openapi: 3.1.0
+info:
+  title: SiAgent Integration API
+  version: "1"
+  description: 面向业务系统的机器对机器接口。使用 Bearer API Key，与管理后台 Cookie 认证分离。
+servers:
+  - url: /v1
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Run:
+      type: object
+      required: [run_id, conversation_id, status, citation_valid]
+      properties:
+        run_id: { type: string }
+        conversation_id: { type: string }
+        status:
+          type: string
+          enum: [queued, running, cancelling, completed, failed, cancelled, interrupted]
+        error: { type: string }
+        answer: { type: string }
+        evidence_state: { type: string, enum: ["", used, none] }
+        citation_valid: { type: integer, enum: [-1, 0, 1] }
+        created: { type: integer }
+        sources:
+          type: array
+          items:
+            type: object
+            properties:
+              source_id: { type: string }
+              title: { type: string }
+              version: { type: integer }
+              url: { type: string }
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+paths:
+  /agents/{agent_id}/runs:
+    post:
+      summary: 创建异步 Agent 任务
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          schema: { type: string, maxLength: 200 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input: { type: string, maxLength: 100000 }
+                external_conversation_id: { type: string, maxLength: 200 }
+                agent_revision: { type: integer }
+                metadata: { type: object }
+      responses:
+        "202":
+          description: 已接受
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  run_id: { type: string }
+                  conversation_id: { type: string }
+                  status: { type: string }
+                  agent_revision: { type: integer }
+        "200": { description: 幂等重放，返回已有任务 }
+        "401": { description: 缺少或无效密钥, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        "403": { description: 作用域或资源不允许 }
+        "409": { description: 幂等键冲突或 Agent 配置已更新 }
+        "429": { description: 超出每分钟限额 }
+  /runs/{run_id}:
+    get:
+      summary: 查询任务
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: 任务视图
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Run' }
+        "404": { description: 不存在 }
+  /runs/{run_id}/events:
+    get:
+      summary: SSE 事件流
+      description: 发送 run.state、message.delta 与 run.settled 事件；不做历史回放。
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: text/event-stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+  /runs/{run_id}/cancel:
+    post:
+      summary: 取消任务
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: 已取消（排队中） }
+        "202": { description: 取消中 }
+  /knowledge/bases:
+    get:
+      summary: 列出授权知识库
+      responses:
+        "200":
+          description: 知识库列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    name: { type: string }
+                    documents: { type: integer }
+  /knowledge/{base_id}/documents:
+    post:
+      summary: 推送或替换文档
+      parameters:
+        - name: base_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: external_id
+          in: query
+          schema: { type: string, maxLength: 200 }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "202": { description: 已接收处理 }
+        "400": { description: 格式或参数无效 }
+        "413": { description: 超过 20 MiB }
+  /knowledge/documents/{document_id}:
+    get:
+      summary: 文档处理状态
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: 状态 }
+    delete:
+      summary: 删除文档
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: 已删除 }
+  /knowledge/{base_id}/search:
+    post:
+      summary: 检索知识库
+      parameters:
+        - name: base_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: { type: string, maxLength: 500 }
+                limit: { type: integer, minimum: 1, maximum: 10 }
+      responses:
+        "200":
+          description: 检索结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hits:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        source_id: { type: string }
+                        document_id: { type: string }
+                        title: { type: string }
+                        text: { type: string }
+                        source_url: { type: string }
+                        score: { type: number }
+                  match_mode: { type: string }
+  /knowledge/sources/{source_id}:
+    get:
+      summary: 读取来源片段与原文
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: offset
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer, maximum: 4000 }
+      responses:
+        "200": { description: 来源内容 }
+  /chat/completions:
+    post:
+      summary: OpenAI 兼容门面（仅非流式基础问答）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, messages]
+              properties:
+                model: { type: string, description: "agent:<id>" }
+                stream: { type: boolean, enum: [false] }
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      role: { type: string }
+                      content: {}
+      responses:
+        "200": { description: 兼容格式回答 }
+        "400": { description: 不支持流式或缺少 user 消息 }
+        "504": { description: 任务未在 60 秒内结束 }

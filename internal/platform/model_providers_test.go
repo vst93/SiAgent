@@ -16,7 +16,7 @@ func TestProviderPacksGateOfficialPresets(t *testing.T) {
 		Packs   []ProviderPack   `json:"packs"`
 	}
 	json.Unmarshal(response.Body.Bytes(), &list)
-	if len(list.Presets) == 0 || len(list.Packs) != 1 {
+	if len(list.Presets) == 0 || len(list.Packs) != 2 {
 		t.Fatalf("unexpected provider catalog: %s", response.Body.String())
 	}
 	for _, preset := range list.Presets {
