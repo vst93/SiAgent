@@ -15,10 +15,12 @@ import (
 	"time"
 
 	"siagent/internal/selfupdate"
+	"siagent/internal/service"
 )
 
 type commandOptions struct {
 	Command, DataDir, Listen, PublicURL, Runtime, Node, ChannelWorker, Probe, Conversation string
+	ServiceAction, ServiceManager                                                          string
 	ProbeTool                                                                              bool
 	ServerArgs                                                                             []string
 }
@@ -50,7 +52,15 @@ func parseCommand(args []string, installed installation, output io.Writer) (comm
 		parsedArgs = append(append([]string{}, args[:commandIndex]...), rest[1:]...)
 		// Installer launchers prepend -data-dir before the command; retain those
 		// parsed values while accepting options after the command as well.
-		if err := flags.Parse(rest[1:]); err != nil {
+		if options.Command == "service" {
+			if len(rest) < 2 {
+				return options, errors.New("用法：siagent service install|uninstall|start|stop|restart|status")
+			}
+			options.ServiceAction = rest[1]
+			if err := flags.Parse(rest[2:]); err != nil {
+				return options, err
+			}
+		} else if err := flags.Parse(rest[1:]); err != nil {
 			return options, err
 		}
 		if len(flags.Args()) != 0 {
@@ -61,7 +71,7 @@ func parseCommand(args []string, installed installation, output io.Writer) (comm
 	case "help":
 		flags.Usage()
 		return options, flag.ErrHelp
-	case "serve", "update", "version":
+	case "serve", "service", "update", "version":
 	default:
 		return options, fmt.Errorf("未知命令 %q；运行 siagent help 查看帮助", options.Command)
 	}
@@ -91,6 +101,8 @@ func runCLI(args []string) error {
 		return nil
 	case "update":
 		return runUpdate(options, executable)
+	case "service":
+		return runService(options, executable, installed)
 	default:
 		return runServer(options, executable, installed)
 	}
@@ -208,4 +220,56 @@ func followUpdate(ctx context.Context, data string) error {
 		case <-tick.C:
 		}
 	}
+}
+
+func runService(options commandOptions, executable string, installed installation) error {
+	launcher := installed.Launcher
+	if launcher == "" {
+		launcher = executable
+	}
+	dataDir, err := filepath.Abs(options.DataDir)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	options.ServiceManager = service.Detect()
+	serviceOptions := service.Options{Launcher: launcher, DataDir: dataDir, Listen: options.Listen}
+	var status service.Status
+	switch options.ServiceAction {
+	case "install":
+		status, err = service.Install(ctx, serviceOptions)
+	case "uninstall":
+		status, err = service.Uninstall(ctx)
+	case "start":
+		status, err = service.Start(ctx)
+	case "stop":
+		status, err = service.Stop(ctx)
+	case "restart":
+		status, err = service.Restart(ctx)
+	case "status":
+		status, err = service.Current(ctx)
+	default:
+		return fmt.Errorf("未知服务操作 %q；使用 install|uninstall|start|stop|restart|status", options.ServiceAction)
+	}
+	if err != nil {
+		return err
+	}
+	state := "已停止"
+	if status.Running {
+		state = "运行中"
+	}
+	enabled := "未启用开机启动"
+	if status.Enabled {
+		enabled = "已启用开机启动"
+	}
+	fmt.Fprintf(os.Stdout, "服务：%s · %s · %s", status.Manager, state, enabled)
+	if status.PID > 0 {
+		fmt.Fprintf(os.Stdout, " · PID %d", status.PID)
+	}
+	fmt.Fprintln(os.Stdout)
+	if status.Detail != "" {
+		fmt.Fprintln(os.Stdout, status.Detail)
+	}
+	return nil
 }

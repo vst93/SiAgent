@@ -1,6 +1,7 @@
 package selfupdate
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,10 +14,13 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"siagent/internal/service"
 )
 
 type Plan struct {
 	Root, Work, Data, Old, Target, Version, OldVersion, Listen string
+	Restart                                                    string
 	Args                                                       []string
 	Parent                                                     int
 }
@@ -107,9 +111,14 @@ func waitReady(command *exec.Cmd, listen, boot, version string) error {
 		return err
 	}
 	done := make(chan error, 1)
-	go func() { done <- command.Wait() }()
+	if command != nil {
+		go func() { done <- command.Wait() }()
+	}
 	client := &http.Client{Timeout: time.Second, Transport: &http.Transport{Proxy: nil}}
 	terminate := func() {
+		if command == nil {
+			return
+		}
 		command.Process.Signal(syscall.SIGTERM)
 		select {
 		case <-done:
@@ -126,7 +135,9 @@ func waitReady(command *exec.Cmd, listen, boot, version string) error {
 	for {
 		select {
 		case err := <-done:
-			syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+			if command != nil {
+				syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+			}
 			return fmt.Errorf("新进程启动退出：%v", err)
 		case <-tick.C:
 			response, err := client.Get(endpoint)
@@ -224,7 +235,12 @@ func RunWorker(path string) error {
 	saveResult(p.Root, "restarting", "正在验证新版本就绪；请勿手动启动另一实例。", backup)
 	releaseLock()
 	boot := strconv.FormatInt(time.Now().UnixNano(), 36)
-	command, err := startApplication(filepath.Join(destination, "siagent"), p.Args, boot)
+	var command *exec.Cmd
+	if p.Restart != "" {
+		err = service.RestartKind(context.Background(), p.Restart)
+	} else {
+		command, err = startApplication(filepath.Join(destination, "siagent"), p.Args, boot)
+	}
 	if err == nil {
 		err = waitReady(command, p.Listen, boot, p.Version)
 	}
@@ -253,7 +269,13 @@ func RunWorker(path string) error {
 		return restoreErr
 	}
 	releaseLock()
-	old, restoreErr := startApplication(filepath.Join(p.Old, "siagent"), p.Args, boot+"-rollback")
+	var old *exec.Cmd
+	var restoreErr error
+	if p.Restart != "" {
+		restoreErr = service.RestartKind(context.Background(), p.Restart)
+	} else {
+		old, restoreErr = startApplication(filepath.Join(p.Old, "siagent"), p.Args, boot+"-rollback")
+	}
 	if restoreErr == nil {
 		restoreErr = waitReady(old, p.Listen, boot+"-rollback", p.OldVersion)
 	}

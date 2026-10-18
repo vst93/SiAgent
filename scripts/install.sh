@@ -7,6 +7,7 @@ repository=vst93/SiAgent
 prefix=${XDG_DATA_HOME:-$HOME/.local/share}/siagent
 bin_dir=$HOME/.local/bin
 modify_path=yes
+service=yes
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --version|--repo|--prefix|--bin-dir)
@@ -17,8 +18,9 @@ while [ "$#" -gt 0 ]; do
       esac
       shift 2 ;;
     --no-modify-path) modify_path=no; shift ;;
+    --no-service) service=no; shift ;;
     -h|--help)
-      echo 'Usage: install.sh [--version v0.1.0] [--repo owner/repo] [--prefix DIR] [--bin-dir DIR] [--no-modify-path]'
+      echo 'Usage: install.sh [--version v0.1.0] [--repo owner/repo] [--prefix DIR] [--bin-dir DIR] [--no-modify-path] [--no-service]'
       exit 0 ;;
     *) fail "Unknown option: $1" ;;
   esac
@@ -47,33 +49,97 @@ if command -v sha256sum >/dev/null 2>&1; then hash_tool=sha256sum
 elif command -v shasum >/dev/null 2>&1; then hash_tool=shasum
 else fail 'Install sha256sum or shasum to verify the release.'
 fi
-# Official GitHub first, then bounded attempts through public mirror prefixes.
-# Set SIAGENT_GITHUB_MIRRORS='' to disable fallback, or use comma-separated HTTPS prefixes.
-mirrors=${SIAGENT_GITHUB_MIRRORS-'https://ghproxy.net/,https://gh-proxy.com/'}
-fetch() {
-  fetch_url=$1
-  fetch_output=$2
-  fetch_timeout=$3
-  printf 'Downloading from GitHub: %s\n' "$fetch_url" >&2
-  if curl -fsSL --retry 2 --retry-all-errors --retry-delay 1 --retry-max-time 380 --connect-timeout 5 --max-time "$fetch_timeout" "$fetch_url" -o "$fetch_output"; then return 0; fi
-  case "$fetch_url" in https://github.com/*) ;; *) return 1 ;; esac
-  remaining=$mirrors
-  while [ -n "$remaining" ]; do
-    mirror=${remaining%%,*}
-    case "$remaining" in *,*) remaining=${remaining#*,} ;; *) remaining= ;; esac
-    case "$mirror" in https://*) ;; *) continue ;; esac
-    printf 'GitHub unavailable; trying mirror: %s\n' "$mirror" >&2
-    if curl -fsSL --retry 1 --retry-all-errors --retry-delay 1 --retry-max-time 250 --connect-timeout 5 --max-time "$fetch_timeout" "${mirror%/}/$fetch_url" -o "$fetch_output"; then return 0; fi
+# Official GitHub and the configured public mirror prefixes race once; the
+# fastest reachable source serves every later download. Mirrors only wrap
+# github.com URLs. Set SIAGENT_GITHUB_MIRRORS='' to disable fallback, or use
+# comma-separated HTTPS prefixes.
+release_base=${SIAGENT_RELEASE_BASE_URL:-https://github.com/$repository/releases}
+release_base=${release_base%/}
+case "$release_base" in
+  *\ *) fail 'SIAGENT_RELEASE_BASE_URL must not contain spaces' ;;
+esac
+sources=$release_base
+case "$release_base" in
+  https://github.com/*)
+    mirrors=${SIAGENT_GITHUB_MIRRORS-'https://ghproxy.net/,https://gh-proxy.com/'}
+    remaining=$mirrors
+    while [ -n "$remaining" ]; do
+      mirror=${remaining%%,*}
+      case "$remaining" in *,*) remaining=${remaining#*,} ;; *) remaining= ;; esac
+      case "$mirror" in
+        https://*\ *|https://) : ;;
+        https://*) sources="$sources ${mirror%/}/$release_base" ;;
+      esac
+    done ;;
+esac
+
+download() { # download <source base> <release path> <output> <timeout> <retries>
+  curl -fsSL --retry "$5" --retry-all-errors --retry-delay 1 --retry-max-time 380 \
+    --connect-timeout 5 --max-time "$4" "$1/$2" -o "$3"
+}
+
+select_source() { # select_source <release path> <timeout>: race every source once
+  select_dir=$(mktemp -d) || return 1
+  select_path=$1
+  printf 'Selecting the fastest reachable release source:\n' >&2
+  index=0
+  pids=
+  for base in $sources; do
+    index=$((index+1))
+    printf '  probing %s\n' "$base" >&2
+    # Publish the result with an atomic rename so the polling loop below only
+    # ever observes complete status files, never a truncated one.
+    { if download "$base" "$select_path" "$select_dir/out.$index" "$2" 0; then state=done; else state=fail; fi
+      printf '%s\n' "$state" > "$select_dir/next.$index"
+      mv "$select_dir/next.$index" "$select_dir/st.$index"; } 2>/dev/null &
+    pids="$pids $!"
+  done
+  total=$index
+  winner=
+  failed=0
+  deadline=$(( $(date +%s) + 20 ))
+  while :; do
+    index=0
+    for base in $sources; do
+      index=$((index+1))
+      if [ -f "$select_dir/st.$index" ]; then
+        state=$(cat "$select_dir/st.$index")
+        if [ "$state" = done ]; then winner=$index; break; fi
+        mv "$select_dir/st.$index" "$select_dir/seen.$index"
+        failed=$((failed+1))
+      fi
+    done
+    if [ -n "$winner" ] || [ "$failed" -eq "$total" ] || [ "$(date +%s)" -ge "$deadline" ]; then break; fi
+    sleep 0.2
+  done
+  for pid in $pids; do kill "$pid" 2>/dev/null || :; done
+  wait 2>/dev/null || :
+  if [ -z "$winner" ]; then rm -rf "$select_dir"; select_dir=; return 1; fi
+  index=0
+  for base in $sources; do
+    index=$((index+1))
+    if [ "$index" = "$winner" ]; then source_base=$base; fi
+  done
+  printf 'Using release source: %s\n' "$source_base" >&2
+}
+
+fetch_file() { # fetch_file <release path> <output> <timeout>: chosen source first, then the rest
+  if download "$source_base" "$1" "$2" "$3" 2; then return 0; fi
+  for base in $sources; do
+    if [ "$base" != "$source_base" ]; then
+      printf 'Source failed; trying next: %s\n' "$base" >&2
+      if download "$base" "$1" "$2" "$3" 1; then return 0; fi
+    fi
   done
   return 1
 }
-release_base=${SIAGENT_RELEASE_BASE_URL:-https://github.com/$repository/releases}
-release_base=${release_base%/}
+select_dir=
+probed=no
 if [ "$version" = latest ]; then
-  version_file=$(mktemp)
-  if ! fetch "$release_base/latest/download/VERSION" "$version_file" 12; then rm -f "$version_file"; fail 'Cannot resolve latest release via GitHub or mirrors.'; fi
-  version=$(cat "$version_file")
-  rm -f "$version_file"
+  select_source 'latest/download/VERSION' 15 || fail 'Cannot resolve latest release via GitHub or mirrors; set SIAGENT_GITHUB_MIRRORS to configure fallback prefixes.'
+  version=$(cat "$select_dir/out.$winner")
+  rm -rf "$select_dir"; select_dir=
+  probed=yes
 fi
 printf '%s\n' "$version" | awk 'BEGIN {ok=1} NR != 1 || $0 !~ /^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/ {ok=0} END {exit !ok}' || fail 'Version must be a release tag, such as v0.1.0.'
 
@@ -93,6 +159,7 @@ mkdir "$prefix/.install-lock" 2>/dev/null || fail "Another install is running (l
 work_dir=
 cleanup() {
   if [ -n "$work_dir" ]; then rm -rf "$work_dir"; fi
+  if [ -n "$select_dir" ]; then rm -rf "$select_dir"; fi
   rmdir "$prefix/.install-lock" 2>/dev/null || :
 }
 trap cleanup EXIT
@@ -101,10 +168,17 @@ trap 'exit 143' TERM
 work_dir=$(mktemp -d "$prefix/.install.XXXXXX")
 name=siagent-$platform-$architecture
 asset=$name.tar.xz
-url=$release_base/download/$version
 printf 'Installing SiAgent %s (%s/%s)\n' "$version" "$platform" "$architecture"
-fetch "$url/$asset" "$work_dir/$asset" 120 || fail 'Cannot download release via GitHub or mirrors.'
-fetch "$url/SHA256SUMS" "$work_dir/SHA256SUMS" 12 || fail 'Cannot download SHA256SUMS via GitHub or mirrors.'
+# Pinned versions race on SHA256SUMS, so the probe result is the real file;
+# latest already raced on VERSION and reuses the chosen source.
+if [ "$probed" = yes ]; then
+  fetch_file "download/$version/SHA256SUMS" "$work_dir/SHA256SUMS" 12 || fail 'Cannot download SHA256SUMS via GitHub or mirrors.'
+else
+  select_source "download/$version/SHA256SUMS" 15 || fail 'Cannot download SHA256SUMS via GitHub or mirrors; set SIAGENT_GITHUB_MIRRORS to configure fallback prefixes.'
+  mv "$select_dir/out.$winner" "$work_dir/SHA256SUMS"
+  rm -rf "$select_dir"; select_dir=
+fi
+fetch_file "download/$version/$asset" "$work_dir/$asset" 120 || fail 'Cannot download release via GitHub or mirrors.'
 expected=$(awk -v file="$asset" '$2 == file || $2 == "./" file {print $1}' "$work_dir/SHA256SUMS")
 [ "${#expected}" -eq 64 ] || fail "Missing or ambiguous checksum for $asset"
 case "$expected" in *[!0-9a-fA-F]*) fail 'Invalid SHA-256 checksum' ;; esac
@@ -163,3 +237,19 @@ if [ "$modify_path" = yes ]; then
   esac
 fi
 printf 'Installed: %s\nData: %s/data\nStart: "%s/siagent"\nWeb: http://127.0.0.1:8080\n' "$destination" "$prefix" "$bin_dir"
+
+if [ "$service" = yes ]; then
+  printf '\nInstalling the per-user service (auto-start at login)...\n'
+  if "$bin_dir/siagent" service install; then
+    printf 'Service installed. Check it with: siagent service status\n'
+    if [ "$platform" = darwin ]; then
+      printf 'First-run token is in: tail -n 50 "$HOME/Library/Logs/SiAgent/siagent.log"\n'
+    else
+      printf 'First-run token is in: journalctl --user -u siagent -n 50\n'
+    fi
+  else
+    printf 'Service was not installed; SiAgent itself is installed and can be started with: "%s/siagent"\n' "$bin_dir"
+  fi
+else
+  printf 'Service installation skipped (--no-service). Start manually with: "%s/siagent"\n' "$bin_dir"
+fi

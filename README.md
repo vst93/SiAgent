@@ -51,7 +51,7 @@ wsl --install -d Ubuntu
 siagent
 ```
 
-打开 <http://127.0.0.1:8080>，从启动日志复制首次令牌并设置管理员密码。安装只配置程序和命令入口，需手动启动；默认仅监听本机，不注册开机启动服务。
+安装器默认注册并启动当前用户的 systemd/launchd 服务；打开 <http://127.0.0.1:8080>，从 `journalctl --user -u siagent -n 50`（macOS 为 `~/Library/Logs/SiAgent/siagent.log`）复制首次令牌并设置管理员密码。使用 `--no-service` 可跳过服务安装；`siagent service status|restart|stop|start|uninstall` 管理服务。服务默认仅监听本机。
 
 | 内容 | Linux / macOS 默认位置 | Windows（WSL）默认位置 |
 | --- | --- | --- |
@@ -61,7 +61,7 @@ siagent
 
 Linux/macOS 设置 `XDG_DATA_HOME` 时，程序与数据根目录改为 `$XDG_DATA_HOME/siagent`。通过 `siagent -data-dir /path/to/data` 可指定其他数据目录。
 
-安装器部署可在“配置 → 运行与维护 → 应用更新”检查版本、后台下载校验，并确认停机备份后自动重启；新版本启动失败会恢复旧程序与完整数据。也可手动升级：停止完整服务并备份数据，然后重新执行安装脚本，最后手动启动。脚本保留旧版本和独立数据目录；数据库迁移后的回退需恢复升级前完整备份。PDF 处理另需 Poppler，外部 MCP 命令和 Skill 脚本需要各自环境；Windows 下这些依赖安装在 WSL 内。
+安装器部署可在“配置 → 运行与维护 → 应用更新”检查版本、后台下载校验，并确认停机备份后自动重启；新版本启动失败会恢复旧程序与完整数据。也可手动升级：停止完整服务并备份数据，然后重新执行安装脚本；默认服务会被重启，`--no-service` 部署需手动启动。脚本保留旧版本和独立数据目录；数据库迁移后的回退需恢复升级前完整备份。PDF 处理另需 Poppler，外部 MCP 命令和 Skill 脚本需要各自环境；Windows 下这些依赖安装在 WSL 内。
 
 应用更新和安装脚本先尝试 GitHub 官方地址并重试，失败或超时后切换国内可用的镜像；可用 `SIAGENT_GITHUB_MIRRORS` 自定义或禁用回退。Docker 显示镜像拉取/重建指引。重启、备份与失败恢复详见 [应用内更新](docs/application-updates.md)。
 

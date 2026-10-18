@@ -10,13 +10,26 @@
 curl -fsSL https://github.com/vst93/SiAgent/releases/latest/download/install.sh | sh
 ```
 
-安装完成后打开新终端运行：
+安装器默认安装并启动当前用户的 systemd/launchd 服务，打开 <http://127.0.0.1:8080> 即可使用。首次设置令牌在服务日志中：
 
 ```sh
-siagent
+# Linux
+journalctl --user -u siagent -n 50
+# macOS
+tail -n 50 "$HOME/Library/Logs/SiAgent/siagent.log"
 ```
 
-打开 <http://127.0.0.1:8080>，从启动日志复制首次设置令牌。也可直接使用安装脚本最后输出的完整命令路径，无需打开新终端。
+服务命令：
+
+```sh
+siagent service status
+siagent service restart
+siagent service stop
+siagent service start
+siagent service uninstall
+```
+
+不想安装服务时使用 `--no-service`，之后手动运行 `siagent`。安装脚本在服务安装失败时仍会完成程序安装，并打印手动启动命令。
 
 支持 Linux/macOS 的 amd64 和 arm64。需要 curl、tar 以及 sha256sum 或 shasum；Linux 另需 xz，Debian/Ubuntu 可通过 `sudo apt-get install curl xz-utils` 安装。Linux 需 glibc，建议 Ubuntu 22.04 / Debian 12 或更新版本；macOS 建议 15 或更新版本，发布包目前未签名或公证。
 
@@ -25,6 +38,8 @@ siagent
 | 内容 | 位置 |
 | --- | --- |
 | 命令 | `~/.local/bin/siagent` |
+| Linux 服务 | `~/.config/systemd/user/siagent.service` |
+| macOS 服务 | `~/Library/LaunchAgents/com.vst93.siagent.plist` |
 | 程序版本 | `${XDG_DATA_HOME:-~/.local/share}/siagent/versions/` |
 | 当前版本链接 | `${XDG_DATA_HOME:-~/.local/share}/siagent/current` |
 | 持久数据 | `${XDG_DATA_HOME:-~/.local/share}/siagent/data/` |
@@ -76,7 +91,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install-siagent.ps1 -Versi
 
 ## 启动、数据与升级
 
-安装完成后手动运行 `siagent`。它默认仅监听本机，不注册系统服务。需要开机启动时，可由 systemd、launchd 或 WSL 内的服务管理器管理安装后的命令。
+安装器默认注册当前用户的 systemd user unit（Linux）或 LaunchAgent（macOS），登录后自动启动；服务运行的是稳定命令入口，升级只会切换 `current` 版本。Linux 若要在未登录时也运行，执行一次 `sudo loginctl enable-linger "$USER"`。`siagent service uninstall` 移除服务但保留程序和全部数据。
+
+Windows/WSL：如果 WSL 已启用 systemd，可在 WSL 内运行 `siagent service install`；否则保持手动启动，或由 Windows 任务计划程序在登录时执行 `wsl.exe -d <发行版> --exec <Linux 家目录>/.local/bin/siagent serve`。当前不自动创建 Windows 计划任务。
 
 运行参数与原程序相同，例如：
 
@@ -89,7 +106,7 @@ Linux/macOS 还可用 `SIAGENT_DATA_DIR=/srv/siagent-data siagent` 指定数据�
 
 优先使用“配置 → 运行与维护 → 应用更新”：后台下载校验后，确认停机备份，自动切换并重启；新版本失败会恢复旧程序与完整数据。Docker 与外部服务管理器显示相应操作指引，详见 [应用更新、网络回退和恢复](application-updates.md)。
 
-手动升级时，停止完整服务并备份数据，然后重新执行安装脚本，最后手动启动。旧版本目录会保留，已运行的进程不会被安装脚本重启。数据库迁移后的回退仍需恢复升级前完整备份，不能仅切换旧程序。备份与恢复见 [deployment.md](deployment.md)。
+手动升级时，停止完整服务并备份数据，然后重新执行安装脚本；默认服务会被重启，`--no-service` 部署需手动启动。旧版本目录会保留。数据库迁移后的回退仍需恢复升级前完整备份，不能仅切换旧程序。备份与恢复见 [deployment.md](deployment.md)。
 
 PDF 处理另需 Poppler；外部 MCP 命令和 Skill 脚本仍需各自环境。Windows 通过 WSL 使用这些依赖时，应安装在对应的 Linux 发行版内。
 

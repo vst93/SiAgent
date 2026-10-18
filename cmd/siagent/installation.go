@@ -11,6 +11,7 @@ import (
 
 type installation struct {
 	Node, Runtime, ChannelWorker, DataDir string
+	Root, Launcher                        string
 	Bundled                               bool
 }
 
@@ -23,11 +24,17 @@ func locateInstallation(executable string) installation {
 	_, markerErr := os.Stat(filepath.Join(base, "NODE_VERSION"))
 	privateDir, privateErr := os.Stat(filepath.Join(base, "libexec"))
 	if markerErr == nil || (privateErr == nil && privateDir.IsDir()) {
+		root := base
+		if filepath.Base(filepath.Dir(base)) == "versions" {
+			root = filepath.Dir(filepath.Dir(base))
+		}
 		return installation{
 			Node:          filepath.Join(base, "libexec", "node"),
 			Runtime:       filepath.Join(base, "runtime", "dist", "index.js"),
 			ChannelWorker: filepath.Join(base, "runtime", "dist", "channel-wecom.js"),
-			DataDir:       filepath.Join(base, "data"),
+			DataDir:       filepath.Join(root, "data"),
+			Root:          root,
+			Launcher:      filepath.Join(root, "siagent"),
 			Bundled:       true,
 		}
 	}

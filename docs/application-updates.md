@@ -4,7 +4,7 @@
 
 ## 官方安装脚本部署
 
-使用 `scripts/install.sh` 安装的 Linux/macOS，以及 Windows 下的 WSL 安装，可在应用内更新。安装脚本记录仓库到 `.siagent-repository`，fork 部署检查并下载原仓库的 Release。安装目录必须保留 `.siagent-install`、`versions/` 和指向当前版本的 `current`。手动解压、源码部署以及外部服务管理器托管的实例显示相应操作提示。
+使用 `scripts/install.sh` 安装的 Linux/macOS，以及 Windows 下的 WSL 安装，可在应用内更新。安装脚本默认安装当前用户的 systemd/launchd 服务；服务模式下更新会切换 `current` 后调用服务管理器重启，不再自行启动第二个进程。安装脚本记录仓库到 `.siagent-repository`，fork 部署检查并下载原仓库的 Release。安装目录必须保留 `.siagent-install`、`versions/` 和指向当前版本的 `current`。手动解压、源码部署以及非 SiAgent 服务管理的实例仍显示手动操作提示。
 
 1. 点击“检查新版本”查看可用版本，再点击“更新并自动重启”。这一次操作授权后续下载、停机备份和重启，下载完成后无需再次确认。关闭页面不会中断更新。
 2. 下载到安装目录的独立暂存区，验证 SHA-256、私有 Node 和程序可执行性；下载期间当前应用继续服务。
@@ -19,7 +19,7 @@
 
 建议使用独立数据目录，默认 `<安装目录>/data/`。数据目录不能位于版本或备份目录内，也不能包含安装目录，否则拒绝应用内更新。数据目录中的符号链接会按链接备份，不复制其指向的外部文件；外部 MCP 程序和系统依赖仍由管理员维护。更新不包含 Poppler 等系统软件。
 
-更新进程独立于启动终端，因此安装完成后原终端命令会退出，新实例继续在后台运行。请勿在重连期间再次手动启动同一数据目录。重启后如需停止实例，使用系统进程管理工具正常发送 SIGTERM；应用内更新不是开机服务注册器。
+更新进程独立于启动终端。服务模式下，更新进程在旧服务停止后取得数据锁，完成备份与切换，再通过 `systemctl --user restart siagent.service` 或 `launchctl kickstart -k` 拉起新版本；不再手动启动第二个进程。请勿在重连期间再次手动启动同一数据目录。停止实例请使用 `siagent service stop`。
 
 首次发布包含更新功能的版本之前，旧程序仍需通过安装脚本升级一次，之后才能使用此入口。
 
@@ -34,6 +34,7 @@ siagent serve                # 与直接运行 siagent 相同
 siagent serve -listen 127.0.0.1:8080
 siagent update
 siagent update -data-dir /path/to/data
+siagent service install|uninstall|start|stop|restart|status
 ```
 
 正在运行的实例：`update` 通过当前系统账户专用、权限 0600 的本地 Unix socket 发起同一自动更新流程，并打印阶段、等待重连及最终结果。控制目录权限为 0700，按规范化数据目录区分实例，避免长安装路径超出 Unix socket 长度限制；不使用公开 TCP 接口，不需要输入 Web 管理员密码。命令连接的是 `-data-dir` 对应的本机实例，更新沿用该实例的启动参数。关闭命令行不取消服务端更新。
@@ -62,7 +63,7 @@ docker compose up -d --build
 
 更新前停止或等待任务，并停机备份原数据卷；始终使用原 Compose 项目及数据卷。新镜像失败时，若数据库已迁移，必须同时恢复旧镜像与升级前完整备份。
 
-检测到 systemd 的 `INVOCATION_ID` / `NOTIFY_SOCKET`、Supervisor 的 `SUPERVISOR_ENABLED`，或设置 `SIAGENT_DEPLOYMENT=managed` 时，显示由原服务管理器停止、更新和启动的指引。其他进程管理器也应显式设置此变量，避免应用内启动与管理器自动拉起冲突。
+由 `siagent service install` 创建的服务会设置 `SIAGENT_SERVICE=systemd` 或 `SIAGENT_SERVICE=launchd`，这类实例支持应用内更新并重启服务。只有未声明 `SIAGENT_SERVICE`、但检测到 systemd `INVOCATION_ID` / `NOTIFY_SOCKET`、Supervisor `SUPERVISOR_ENABLED` 或 `SIAGENT_DEPLOYMENT=managed` 时，才显示由外部服务管理器停止、更新和启动的指引。其他进程管理器也应显式设置 `SIAGENT_DEPLOYMENT=managed`，避免应用内启动与管理器自动拉起冲突。
 
 ## GitHub 官方优先与镜像回退
 

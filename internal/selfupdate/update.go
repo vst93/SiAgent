@@ -35,6 +35,7 @@ type Status struct {
 type Config struct {
 	Context                           context.Context
 	Executable, Data, Listen, Version string
+	Service                           string
 	Args                              []string
 }
 type Manager struct {
@@ -49,13 +50,15 @@ type Manager struct {
 }
 
 func New(config Config) *Manager {
+	serviceKind := strings.TrimSpace(os.Getenv("SIAGENT_SERVICE"))
+	config.Service = serviceKind
 	m := &Manager{config: config, client: &http.Client{}, releaseBase: ReleaseBase, repository: "vst93/SiAgent", status: Status{Current: config.Version, Mode: "source", Phase: "idle", Message: "源码部署请拉取代码、重新构建并重启。"}}
 	if containerEnvironment() {
 		m.status.Mode = "docker"
 		m.status.Message = "Docker 请拉取新镜像并重建容器，保留原数据卷。Compose：docker compose pull && docker compose up -d；本地构建：docker compose up -d --build。容器内更新会在重建时丢失，因此不提供一键替换。"
 		return m
 	}
-	if os.Getenv("INVOCATION_ID") != "" || os.Getenv("NOTIFY_SOCKET") != "" || os.Getenv("SUPERVISOR_ENABLED") != "" || os.Getenv("SIAGENT_DEPLOYMENT") == "managed" {
+	if serviceKind == "" && (os.Getenv("INVOCATION_ID") != "" || os.Getenv("NOTIFY_SOCKET") != "" || os.Getenv("SUPERVISOR_ENABLED") != "" || os.Getenv("SIAGENT_DEPLOYMENT") == "managed") {
 		m.status.Mode = "managed"
 		m.status.Message = "此实例由外部服务管理器托管。请先停止服务，更新安装包，再由原服务管理器启动；应用内不另起进程。"
 		return m
@@ -99,9 +102,15 @@ func New(config Config) *Manager {
 			m.releaseBase = "https://github.com/" + repository + "/releases"
 		}
 	}
-	m.status.Mode = "installer"
-	m.status.Supported = true
-	m.status.Message = "支持下载更新、停机备份及自动重启；更新前须等待所有任务和渠道投递结束。"
+	if serviceKind != "" {
+		m.status.Mode = "service"
+		m.status.Supported = true
+		m.status.Message = "由 " + serviceKind + " 托管，支持应用内更新并重启服务；更新前须等待所有任务和渠道投递结束。"
+	} else {
+		m.status.Mode = "installer"
+		m.status.Supported = true
+		m.status.Message = "支持下载更新、停机备份及自动重启；更新前须等待所有任务和渠道投递结束。"
+	}
 	if raw, err := os.ReadFile(filepath.Join(root, ".update-result.json")); err == nil {
 		var result Status
 		if json.Unmarshal(raw, &result) == nil {
@@ -325,7 +334,7 @@ func (m *Manager) StartWorker() error {
 	if err != nil {
 		return err
 	}
-	plan := Plan{Root: m.root, Work: m.work, Data: m.config.Data, Old: old, Target: target, Version: m.status.Latest, OldVersion: m.config.Version, Listen: m.config.Listen, Args: m.config.Args, Parent: os.Getpid()}
+	plan := Plan{Root: m.root, Work: m.work, Data: m.config.Data, Old: old, Target: target, Version: m.status.Latest, OldVersion: m.config.Version, Listen: m.config.Listen, Restart: m.config.Service, Args: m.config.Args, Parent: os.Getpid()}
 	path := filepath.Join(m.work, "plan.json")
 	raw, _ := json.Marshal(plan)
 	if err := os.WriteFile(path, raw, 0600); err != nil {

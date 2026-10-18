@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 type UpdateStatus = {
-  mode: "installer" | "docker" | "managed" | "source";
+  mode: "installer" | "service" | "docker" | "managed" | "source";
   supported: boolean;
   automatic: boolean;
   current: string;

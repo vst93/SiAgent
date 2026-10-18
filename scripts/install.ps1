@@ -79,7 +79,7 @@ try {
     }
     $start = New-Object System.Diagnostics.ProcessStartInfo
     $start.FileName = $wsl
-    $start.Arguments = '-d "{0}" --exec sh -s -- --version "{1}" --repo "{2}" --no-modify-path' -f $Distribution, $Version, $Repository
+    $start.Arguments = '-d "{0}" --exec sh -s -- --version "{1}" --repo "{2}" --no-modify-path --no-service' -f $Distribution, $Version, $Repository
     $start.UseShellExecute = $false
     $start.RedirectStandardInput = $true
     $process = [Diagnostics.Process]::Start($start)
@@ -111,6 +111,8 @@ try {
     Write-Host 'Open a new terminal and run: siagent'
     Write-Host 'Data is stored inside WSL; command arguments use Linux paths.'
     Write-Host 'Web: http://127.0.0.1:8080'
+    Write-Host 'WSL autostart: enable systemd in /etc/wsl.conf, then run inside WSL:'
+    Write-Host '  siagent service install'
 }
 finally {
     Remove-Item -LiteralPath $temporary -Recurse -Force

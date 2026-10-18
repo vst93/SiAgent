@@ -35,6 +35,28 @@ func TestCommandsPreserveLauncherOptionsAndRestartAsServer(t *testing.T) {
 	}
 }
 
+func TestServiceCommandParsing(t *testing.T) {
+	defaults := installation{DataDir: "data", Node: "node", Runtime: "runtime/dist/index.js", ChannelWorker: "runtime/dist/channel-wecom.js"}
+	for _, tc := range []struct {
+		args   []string
+		action string
+	}{
+		{[]string{"service", "install"}, "install"},
+		{[]string{"-data-dir", "/installer/data", "service", "status"}, "status"},
+	} {
+		options, err := parseCommand(tc.args, defaults, &bytes.Buffer{})
+		if err != nil {
+			t.Fatal(tc.args, err)
+		}
+		if options.Command != "service" || options.ServiceAction != tc.action {
+			t.Fatalf("unexpected service command: %+v", options)
+		}
+	}
+	if _, err := parseCommand([]string{"service"}, defaults, &bytes.Buffer{}); err == nil {
+		t.Fatal("service without action accepted")
+	}
+}
+
 func TestHelpAliasesWorkBeforeOrAfterInstallerFlags(t *testing.T) {
 	for _, args := range [][]string{{"help"}, {"-h"}, {"--help"}, {"-help"}, {"-data-dir", "/installer/data", "help"}, {"update", "-h"}} {
 		var output bytes.Buffer

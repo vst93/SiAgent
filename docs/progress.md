@@ -14,6 +14,16 @@
 
 验证：`make test`（Runtime 39 项 + Go `-race`）、`python3 tests/e2e.py`、`SIAGENT_CHROMIUM=... npm --prefix web run test:browser` 全部通过；迁移测试覆盖 schema 1–20 升级并保留既有数据。
 
+## 安装、用户服务与更新优化
+
+- [x] 新增 `internal/service`：Linux systemd user unit、macOS LaunchAgent；服务始终启动稳定 launcher，升级切换 `current` 后由服务重启加载新版本。
+- [x] 安装脚本默认安装并启动用户服务；`--no-service` 跳过。服务单元设置 `SIAGENT_SERVICE` 与 `SIAGENT_DATA_DIR`，并打印首次令牌日志位置。
+- [x] 新增 `siagent service install|uninstall|start|stop|restart|status`；支持状态、linger 提醒、已有非 SiAgent unit 备份。
+- [x] selfupdate 识别 `SIAGENT_SERVICE=systemd|launchd`，不再因 `INVOCATION_ID` 误判为 external managed；服务模式下更新完成后通过服务管理器重启，不再直接启动第二个进程。
+- [x] systemd 使用 `KillMode=process`、launchd 使用 `AbandonProcessGroup`，确保独立更新 worker 在旧服务停止后继续完成备份/切换；失败时仍恢复旧版本与完整数据。
+- [x] 安装测试显式使用 `--no-service`，避免测试环境创建系统服务；新增 unit 文本、service 模式检测与 CLI 解析测试。
+- [ ] 真实 systemd/launchd、WSL systemd 与 macOS 登录自启动仍需对应环境验收；Windows 任务计划程序未自动创建。
+
 ## 集成接口体验优化
 
 - [x] 密钥创建后不再只显示一次：认证仍只使用 SHA-256 哈希，另存主密钥加密副本；列表默认隐藏，显式“查看”才解密并写审计。

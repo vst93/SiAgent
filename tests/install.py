@@ -128,7 +128,7 @@ def main():
             assert (conflict / "siagent").read_text() == "unrelated command"
             # Windows feeds the LF script to `sh -s --` over stdin.
             before_profile = profile.read_text()
-            piped = subprocess.run(["sh", "-s", "--", "--version", "v1.0.0", "--no-modify-path"],
+            piped = subprocess.run(["sh", "-s", "--", "--version", "v1.0.0", "--no-modify-path", "--no-service"],
                                    input=INSTALLER.read_text(), env=env, capture_output=True, text=True, timeout=20)
             assert piped.returncode == 0, piped.stdout + piped.stderr
             assert (home / ".local/bin/siagent").is_symlink()
@@ -156,11 +156,16 @@ def main():
                           "SIAGENT_REAL_CURL": real_curl,
                           "SIAGENT_CURL_LOG": str(root / "curl.log")}
             mirror_result = subprocess.run(["sh", str(INSTALLER), "--prefix", str(root / "mirror-app"),
-                                            "--bin-dir", str(root / "mirror-bin"), "--no-modify-path"],
+                                            "--bin-dir", str(root / "mirror-bin"), "--no-modify-path", "--no-service"],
                                            env=mirror_env, capture_output=True, text=True, timeout=20)
             assert mirror_result.returncode == 0, mirror_result.stdout + mirror_result.stderr
             attempts = (root / "curl.log").read_text().splitlines()
-            assert attempts == ["official", "mirror"] * 3, attempts
+            # One concurrent reachability race (per-source order is not deterministic),
+            # then the sticky winner serves SHA256SUMS and the archive without
+            # touching the failed official source again.
+            assert len(attempts) == 4, attempts
+            assert sorted(attempts[:2]) == ["mirror", "official"], attempts
+            assert attempts[2:] == ["mirror", "mirror"], attempts
             if len(sys.argv) > 1:
                 from package import check_service
                 actual = Path(sys.argv[1]).resolve()
