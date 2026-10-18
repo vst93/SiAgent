@@ -210,3 +210,87 @@ func TestOpenAPISpecIsPublished(t *testing.T) {
 		t.Fatalf("openapi spec incomplete: %s", recorder.Body.String())
 	}
 }
+
+func TestAnswerEvalUsesModelAndScoresMetrics(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	knowledgeWorker(t, f)
+	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"choices":[{"message":{"content":"住宿标准为每晚 500 元 [1]。"}}]}`))
+	}))
+	defer modelServer.Close()
+	response := f.request(t, "PUT", "/api/models/1", map[string]any{
+		"base_url": modelServer.URL,
+		"name":     "fake",
+		"api_key":  "key",
+		"provider": "openai",
+		"options":  map[string]any{"api": "openai-completions"},
+	}, true, nil)
+	requireStatus(t, response, 200)
+
+	response = f.request(t, "POST", "/api/knowledge/bases", map[string]string{"name": "Answers"}, true, nil)
+	requireStatus(t, response, 201)
+	var base struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(response.Body.Bytes(), &base)
+	response = f.uploadKnowledge(t, base.ID, "policy.txt", "住宿标准为每晚 500 元。", true)
+	requireStatus(t, response, 202)
+	var document struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(response.Body.Bytes(), &document)
+	waitDocument(t, f, document.ID)
+	response = f.request(t, "POST", "/api/knowledge/bases/"+base.ID+"/eval/questions", map[string]any{
+		"question":              "住宿标准是多少",
+		"expected_document_ids": []string{document.ID},
+		"answerable":            true,
+	}, true, nil)
+	requireStatus(t, response, 201)
+
+	response = f.request(t, "POST", "/api/knowledge/bases/"+base.ID+"/eval/answers", nil, true, nil)
+	requireStatus(t, response, 201)
+	var run struct {
+		Metrics struct {
+			CitationPrecision float64 `json:"citation_precision"`
+			Faithfulness      float64 `json:"faithfulness"`
+			AbstentionAcc     float64 `json:"abstention_accuracy"`
+		} `json:"metrics"`
+		Kind string `json:"kind"`
+	}
+	json.Unmarshal(response.Body.Bytes(), &run)
+	if run.Kind != "answer" || run.Metrics.CitationPrecision != 1 || run.Metrics.Faithfulness != 1 || run.Metrics.AbstentionAcc != 1 {
+		t.Fatalf("unexpected answer metrics: %s", response.Body.String())
+	}
+}
+
+func TestProviderIsForwardedToRuntime(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	requireStatus(t, f.request(t, "POST", "/api/model-providers/packs/pi-providers/install", nil, true, nil), 200)
+	response := f.request(t, "POST", "/api/models", map[string]any{
+		"base_url": "http://localhost:9999/v1",
+		"name":     "deepseek-chat",
+		"api_key":  "key",
+		"provider": "deepseek",
+		"options":  map[string]any{"api": "openai-completions"},
+	}, true, nil)
+	requireStatus(t, response, 201)
+	var model struct {
+		ID int64 `json:"id"`
+	}
+	json.Unmarshal(response.Body.Bytes(), &model)
+	agent, err := f.server.agentByID("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, f.request(t, "PUT", "/api/agents/default", map[string]any{
+		"name": "默认助手", "instructions": agent.Instructions, "enabled": true, "model_id": model.ID,
+	}, true, nil), 200)
+	f.start(t, f.conversation(t), "hello")
+	config := f.runtime.requests[0]["model"].(map[string]any)
+	if config["provider"] != "deepseek" {
+		t.Fatalf("provider not forwarded: %+v", config)
+	}
+}

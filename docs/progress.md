@@ -26,10 +26,10 @@
 
 - K0：评测问题支持 CSV/JSON 导入与 CSV/JSON 导出；CSV 为表头驱动，支持 answerable 与 expected_answer；部分失败逐行报告。
 - K2：`knowledge_bases.config` 支持按库关闭规则扩展、开启可选模型改写；领域词表支持增删与候选词；配置只影响之后提交的检索。
-- K4：新增“评测回答质量”，用当前模型对评测问题作答并按 citation precision、数字忠实度、拒答准确率打分；结果单独保存为 `kind='answer'`。
+- K4：新增“评测回答质量”，用当前模型对评测问题作答并按 citation precision、数字忠实度、拒答准确率打分；结果单独保存为 `kind='answer'`。平台测试用本地假模型验证三项指标均为 1.0。
 - K5：冲突检测（同措辞不同数字）、冲突状态流转、过期引用列表、评测退化门禁（替换/重新索引返回 409，可用 force 覆盖）。
 - K6：`run_evidence` 保存每条结论对应的来源 ID，对话内提供“答案-证据”展开；领域词表候选从高频词中提取。
-- M1：增加 `pi-providers-heavy` 单独包（Bedrock/Vertex 预设），说明其不内置厂商 SDK。
+- M1：增加 `pi-providers-heavy` 单独包（Bedrock/Vertex 预设），说明其不内置厂商 SDK；provider 已随运行请求传入 Runtime 并用于 Pi AI provider id，平台测试覆盖。
 - M3：扩展包支持 ZIP 上传、配置字段与密钥、健康检查；渠道插件登记为随系统分发并跳转配置。
 - M4：发布机器可读的 `openapi.yaml`。
 - 迁移：新增从 schema 10–21 每个版本升级到 22 的测试，逐版本验证管理员、模型密钥与知识库保留。
