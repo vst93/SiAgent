@@ -49,7 +49,10 @@ func callbackFrame(corp, text string) string {
 }
 func callback(t *testing.T, f *fixture, c wecomChannel, msgID, member, text string) *httptest.ResponseRecorder {
 	t.Helper()
-	message := wecom.Message{CorpID: c.CorpID, AppID: c.AppID, Member: member, ID: msgID, Type: "text", Content: text, Created: time.Now().Unix()}
+	// The channel fingerprint hashes the whole message, including its create time.
+	// Replayed callbacks in tests must therefore carry the same timestamp, or a
+	// retry that crosses a second boundary looks like a conflicting message.
+	message := wecom.Message{CorpID: c.CorpID, AppID: c.AppID, Member: member, ID: msgID, Type: "text", Content: text, Created: 1700000000}
 	raw, _ := xml.Marshal(message)
 	return callbackXML(f, c, string(raw), "callback-token")
 }
