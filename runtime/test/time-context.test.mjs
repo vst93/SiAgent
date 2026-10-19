@@ -15,3 +15,16 @@ test('turn time handles date boundaries and DST while keeping input separate',()
   assert.throws(()=>withTurnTime('hello',time),/invalid_time_context/);
  }
 });
+
+test('turn attachments become image and extracted file content blocks',async()=>{
+ const content=withTurnTime('看图',{received_at:'2026-10-17T16:00:00Z',timezone:'Asia/Shanghai'},[
+  {kind:'file',name:'note.txt',mime:'text/plain',text:'附件内容'},
+  {kind:'image',name:'screen.png',mime:'image/png',data:'aGVsbG8='},
+ ]);
+ assert(Array.isArray(content));
+ const text=content.filter(part=>part.type==='text').map(part=>part.text).join('\n');
+ assert.match(text,/附件内容/);
+ const image=content.find(part=>part.type==='image');
+ assert.equal(image.mimeType,'image/png');
+ assert.equal(image.data,'aGVsbG8=');
+});

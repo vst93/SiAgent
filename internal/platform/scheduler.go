@@ -78,7 +78,17 @@ type TurnTime struct {
 	Timezone   string `json:"timezone"`
 }
 
+type runFallback struct {
+	ModelOptions ModelOptions `json:"model_options"`
+	ModelID      int64        `json:"model_id"`
+	ModelVersion int          `json:"model_version"`
+	Provider     string       `json:"provider"`
+	BaseURL      string       `json:"base_url"`
+	Model        string       `json:"model"`
+}
+
 type runConfig struct {
+	Fallbacks    []runFallback `json:"fallbacks,omitempty"`
 	TimeContext  *TurnTime     `json:"time_context,omitempty"`
 	ModelOptions ModelOptions  `json:"model_options"`
 	ModelID      int64         `json:"model_id,omitempty"`
@@ -106,10 +116,10 @@ func (s *Server) dispatch() error {
 		if count >= s.limits.Concurrent {
 			return nil
 		}
-		var runID, conversationID, config, credential, input string
-		err := s.store.db.QueryRow(`SELECT r.id,r.conversation_id,r.config,r.credential,m.content FROM runs r JOIN messages m ON m.run_id=r.id AND m.role='user'
+		var runID, conversationID, config, credential, input, messageAttachments string
+		err := s.store.db.QueryRow(`SELECT r.id,r.conversation_id,r.config,r.credential,m.content,m.attachments FROM runs r JOIN messages m ON m.run_id=r.id AND m.role='user'
    WHERE r.status='queued' AND NOT EXISTS(SELECT 1 FROM runs active WHERE active.conversation_id=r.conversation_id AND active.released=0)
-   ORDER BY r.created,r.rowid LIMIT 1`).Scan(&runID, &conversationID, &config, &credential, &input)
+   ORDER BY r.created,r.rowid LIMIT 1`).Scan(&runID, &conversationID, &config, &credential, &input, &messageAttachments)
 		if err == sql.ErrNoRows {
 			return nil
 		}
@@ -147,7 +157,19 @@ func (s *Server) dispatch() error {
 		if err != nil {
 			return err
 		}
-		request := map[string]any{"v": 1, "type": "start", "request_id": runID, "run_id": runID, "conversation_id": conversationID, "input": input, "instructions": snapshot.Agent.Instructions, "model": map[string]any{"provider": snapshot.Provider, "base_url": snapshot.BaseURL, "name": snapshot.Model, "api_key": key, "options": snapshot.ModelOptions}, "limits": map[string]int{"run_timeout_ms": snapshot.Limits.RunTimeout * 1000, "tool_timeout_ms": snapshot.Limits.ToolTimeout * 1000, "tool_rounds": snapshot.Limits.ToolRounds}}
+		modelRequest := map[string]any{"provider": snapshot.Provider, "base_url": snapshot.BaseURL, "name": snapshot.Model, "api_key": key, "options": snapshot.ModelOptions}
+		if len(snapshot.Fallbacks) > 0 {
+			fallbacks := make([]map[string]any, 0, len(snapshot.Fallbacks))
+			for index, fallback := range snapshot.Fallbacks {
+				fallbackKey := ""
+				if index < len(credentials.FallbackKeys) {
+					fallbackKey = credentials.FallbackKeys[index]
+				}
+				fallbacks = append(fallbacks, map[string]any{"provider": fallback.Provider, "base_url": fallback.BaseURL, "name": fallback.Model, "api_key": fallbackKey, "options": fallback.ModelOptions})
+			}
+			modelRequest["fallbacks"] = fallbacks
+		}
+		request := map[string]any{"v": 1, "type": "start", "request_id": runID, "run_id": runID, "conversation_id": conversationID, "input": input, "instructions": snapshot.Agent.Instructions, "model": modelRequest, "limits": map[string]int{"run_timeout_ms": snapshot.Limits.RunTimeout * 1000, "tool_timeout_ms": snapshot.Limits.ToolTimeout * 1000, "tool_rounds": snapshot.Limits.ToolRounds}}
 		if snapshot.TimeContext != nil {
 			request["time_context"] = snapshot.TimeContext
 		}
@@ -166,6 +188,15 @@ func (s *Server) dispatch() error {
 			snapshot.KnowledgeIDs = []string{}
 		}
 		request["knowledge_ids"] = snapshot.KnowledgeIDs
+		attachments, err := s.attachmentsForRun(runID)
+		if err != nil {
+			return err
+		}
+		runtimeAttachments, err := s.runtimeAttachments(attachments)
+		if err != nil {
+			return err
+		}
+		request["attachments"] = runtimeAttachments
 		if err := s.runtime.Send(request); err != nil {
 			// A partial pipe write can have admitted the request. Keep its slot until
 			// status/exit reconciliation, and do not replay it.

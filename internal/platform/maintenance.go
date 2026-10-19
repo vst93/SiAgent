@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
 	agentruntime "siagent/internal/runtime"
 	"strings"
@@ -66,6 +67,7 @@ func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 func (s *Server) MaintenanceTick(ctx context.Context) error {
 	s.maintenanceWork.Lock()
 	defer s.maintenanceWork.Unlock()
+	s.cleanupOrphanAttachments(ctx)
 	s.mu.Lock()
 	if s.stopping || s.restarting || !s.ready() || len(s.pendingTests) >= 4 {
 		s.mu.Unlock()
@@ -105,6 +107,17 @@ func (s *Server) MaintenanceTick(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	attachmentRows, attachmentErr := s.store.db.QueryContext(ctx, "SELECT path FROM attachments WHERE conversation_id=?", conversation)
+	attachmentPaths := []string{}
+	if attachmentErr == nil {
+		for attachmentRows.Next() {
+			var path string
+			if attachmentRows.Scan(&path) == nil {
+				attachmentPaths = append(attachmentPaths, path)
+			}
+		}
+		attachmentRows.Close()
+	}
 	tx, err := s.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -121,6 +134,7 @@ func (s *Server) MaintenanceTick(ctx context.Context) error {
 		"DELETE FROM channel_outbox WHERE inbox_id IN (SELECT id FROM channel_inbox WHERE conversation_id=?)",
 		"UPDATE channel_inbox SET content='',member='',reply_context='{}',agent_id='',run_id='',conversation_id='',error='管理员已清理会话历史，去重标识保留。',state='rejected',finalized=1,hinted=1 WHERE conversation_id=?",
 		"DELETE FROM channel_sessions WHERE conversation_id=?",
+		"DELETE FROM attachments WHERE conversation_id=?",
 		"DELETE FROM conversations WHERE id=?",
 		"DELETE FROM conversation_cleanup WHERE conversation_id=?",
 	} {
@@ -128,7 +142,42 @@ func (s *Server) MaintenanceTick(ctx context.Context) error {
 			return fmt.Errorf("cleanup conversation %s: %w", query, err)
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	for _, relative := range attachmentPaths {
+		_ = os.Remove(filepath.Join(s.store.directory, filepath.Clean(relative)))
+	}
+	return nil
+}
+
+func (s *Server) cleanupOrphanAttachments(ctx context.Context) {
+	cutoff := time.Now().Add(-24 * time.Hour).UnixMilli()
+	rows, err := s.store.db.QueryContext(ctx, "SELECT id,path FROM attachments WHERE linked=0 AND created<?", cutoff)
+	if err != nil {
+		return
+	}
+	paths := []string{}
+	ids := []string{}
+	for rows.Next() {
+		var id, path string
+		if rows.Scan(&id, &path) == nil {
+			ids = append(ids, id)
+			paths = append(paths, path)
+		}
+	}
+	rows.Close()
+	if len(ids) == 0 {
+		return
+	}
+	for _, id := range ids {
+		if _, err := s.store.db.ExecContext(ctx, "DELETE FROM attachments WHERE id=? AND linked=0", id); err != nil {
+			return
+		}
+	}
+	for _, relative := range paths {
+		_ = os.Remove(filepath.Join(s.store.directory, filepath.Clean(relative)))
+	}
 }
 
 func (s *Server) RunMaintenance(ctx context.Context) error {
@@ -208,7 +257,7 @@ func (s *Server) storage(w http.ResponseWriter, r *http.Request) {
 		}
 		group := strings.SplitN(filepath.ToSlash(relative), "/", 2)[0]
 		switch group {
-		case "runtime", "knowledge", "skills", "workspaces", "files":
+		case "runtime", "knowledge", "skills", "workspaces", "files", "attachments":
 		default:
 			group = "platform"
 		}

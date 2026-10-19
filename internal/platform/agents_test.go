@@ -31,7 +31,7 @@ func saveTestAgent(t *testing.T, f *fixture, a Agent) Agent {
 		method = "PUT"
 		status = 200
 	}
-	response := f.request(t, method, path, map[string]any{"name": a.Name, "instructions": a.Instructions, "enabled": a.Enabled, "model_id": a.ModelID}, true, nil)
+	response := f.request(t, method, path, map[string]any{"name": a.Name, "instructions": a.Instructions, "enabled": a.Enabled, "model_id": a.ModelID, "fallback_model_ids": a.FallbackModelIDs}, true, nil)
 	requireStatus(t, response, status)
 	var saved Agent
 	json.Unmarshal(response.Body.Bytes(), &saved)
@@ -163,4 +163,32 @@ func TestModelEditKeepsOnlyThatConnectionsKey(t *testing.T) {
 	}
 	conversation := agentConversation(t, f, "default")
 	requireStatus(t, f.request(t, "POST", "/api/conversations/"+conversation+"/runs", map[string]any{"input": "attempt rebind", "agent_id": "other"}, true, nil), 400)
+}
+
+func TestAgentFallbackModelsAreOrderedAndSnapshotted(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	f.model(t, "primary", "primary-key")
+	first := createTestModel(t, f, "backup-one", "backup-one-key")
+	second := createTestModel(t, f, "backup-two", "backup-two-key")
+	a := saveTestAgent(t, f, Agent{Name: "Fallback", Enabled: true, ModelID: 1, FallbackModelIDs: []int64{second.ID, first.ID}})
+	if len(a.FallbackModelIDs) != 2 || a.FallbackModelIDs[0] != second.ID || a.FallbackModelIDs[1] != first.ID {
+		t.Fatalf("fallback order lost: %+v", a.FallbackModelIDs)
+	}
+	conversation := agentConversation(t, f, a.ID)
+	if _, err := f.server.enqueueRun(context.Background(), conversation, "use fallback", 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	request := f.runtime.requests[len(f.runtime.requests)-1]
+	model := request["model"].(map[string]any)
+	fallbacks, ok := model["fallbacks"].([]map[string]any)
+	if !ok || len(fallbacks) != 2 {
+		t.Fatalf("runtime fallback snapshot missing: %#v", model)
+	}
+	if fallbacks[0]["name"] != "backup-two" || fallbacks[1]["name"] != "backup-one" {
+		t.Fatalf("runtime fallback order changed: %#v", fallbacks)
+	}
+	if fallbacks[0]["api_key"] != "backup-two-key" || fallbacks[1]["api_key"] != "backup-one-key" {
+		t.Fatalf("runtime fallback credentials missing")
+	}
 }

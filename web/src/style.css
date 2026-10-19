@@ -5320,3 +5320,130 @@ select option:disabled {
   align-self: flex-start;
   margin: 0 16px 4px;
 }
+
+/* Chat attachments */
+.attach-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+}
+.attach-button:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+.attach-button input {
+  display: none;
+}
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px 0;
+}
+.composer-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  font-size: 11px;
+  color: var(--muted);
+}
+.composer-attachment > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-attachment button {
+  display: inline-flex;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  padding: 0;
+}
+.composer-attachment.image {
+  padding: 3px;
+}
+.composer-attachment.image img {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 8px;
+}
+.message-image img {
+  display: block;
+  max-width: min(320px, 60vw);
+  max-height: 240px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.message-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 280px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.agent-fallback {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.agent-fallback-label {
+  font-size: 12px;
+  font-weight: 650;
+}
+.agent-fallback .muted {
+  margin: 0;
+  font-size: 11px;
+}
+.agent-fallback-list {
+  display: grid;
+  gap: 4px;
+}
+.agent-fallback-item,
+.agent-fallback-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-fallback-item > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.agent-fallback-item button,
+.agent-fallback-add button {
+  padding: 3px 6px;
+  font-size: 10px;
+}
+.agent-fallback-add select {
+  flex: 1;
+  min-width: 0;
+}

@@ -25,6 +25,7 @@ const defaults: ModelOptions = {
   temperature: null,
   top_p: null,
   max_tokens_field: "",
+  input: ["text"],
 };
 const blank: Model = {
   provider: "openai",
@@ -388,6 +389,7 @@ export function ModelsWorkspace({
                       options({
                         api,
                         max_tokens_field: "",
+  input: ["text"],
                         ...(api === "anthropic-messages"
                           ? { top_p: null, temperature: null }
                           : {}),
@@ -560,6 +562,20 @@ export function ModelsWorkspace({
                 </p>
               )}
             </section>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={o.input?.includes("image") ?? false}
+                onChange={(event) =>
+                  options({
+                    input: event.target.checked
+                      ? ["text", "image"]
+                      : ["text"],
+                  })
+                }
+              />
+              支持图片输入（视觉模型）
+            </label>
             <section className="model-form-section">
               <div className="model-section-title">
                 <h3>上下文与输出</h3>

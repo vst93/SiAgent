@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -122,6 +123,7 @@ func (s *Server) saveModel(w http.ResponseWriter, r *http.Request) {
 		err = tx.Commit()
 	}
 	if err != nil {
+		slog.Error("save model failed", "error", err)
 		internal(w)
 		return
 	}

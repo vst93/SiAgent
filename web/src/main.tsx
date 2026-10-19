@@ -3,6 +3,7 @@ import { type Agent, type Model } from "./agents";
 import { KnowledgeSource } from "./knowledge";
 import {
   ChatWorkspace,
+  type Attachment,
   type Conversation,
   type Snapshot,
   type Run,
@@ -50,7 +51,8 @@ async function api<T>(
     body:
       body === undefined ? undefined : multipart ? body : JSON.stringify(body),
   });
-  const data = await response.json();
+  const raw = await response.text();
+  const data = raw ? JSON.parse(raw) : {};
   if (!response.ok) {
     if (response.status === 401 && csrf)
       window.dispatchEvent(new Event("siagent:session-expired"));
@@ -212,6 +214,8 @@ function App() {
   const [connectionLost, setConnectionLost] = useState(false);
   const [ready, setReady] = useState(false);
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [pending, setPending] = useState(false);
   useEffect(() => {
     rememberLanguage(language);
@@ -328,9 +332,40 @@ function App() {
     setSelected(conversation.id);
     return conversation.id;
   }
+  async function uploadFiles(files: FileList) {
+    if (uploading || pending) return;
+    setUploading(true);
+    setError("");
+    try {
+      const conversationID = selected || (await createConversation());
+      const uploaded: Attachment[] = [];
+      for (const file of Array.from(files)) {
+        const body = new FormData();
+        body.append("file", file);
+        uploaded.push(
+          await api<Attachment>(
+            `/conversations/${conversationID}/attachments`,
+            "POST",
+            body,
+          ),
+        );
+      }
+      setAttachments((current) => [...current, ...uploaded]);
+    } catch (error) {
+      setError(errorText(error));
+    } finally {
+      setUploading(false);
+    }
+  }
+  function removeAttachment(id: string) {
+    setAttachments((current) =>
+      current.filter((attachment) => attachment.id !== id),
+    );
+    void api(`/attachments/${id}`, "DELETE").catch(() => {});
+  }
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (!input.trim() || pending) return;
+    if ((!input.trim() && !attachments.length) || pending || uploading) return;
     if (
       selected &&
       (snapshot?.conversation.id !== selected || snapshot.conversation.channel_id)
@@ -343,7 +378,10 @@ function App() {
       const run = await api<Run>(
         `/conversations/${conversationID}/runs`,
         "POST",
-        { input: submitted },
+        {
+          input: submitted,
+          attachment_ids: attachments.map((attachment) => attachment.id),
+        },
       );
       setSnapshot((value) =>
         value?.conversation.id === conversationID &&
@@ -352,6 +390,7 @@ function App() {
           : value,
       );
       setInput((current) => (current === submitted ? "" : current));
+      setAttachments([]);
     } catch (error) {
       setError(errorText(error));
     } finally {
@@ -386,6 +425,7 @@ function App() {
     setAgentID(id);
     setSelected(conversations.find((item) => item.agent_id === id)?.id ?? "");
     setInput("");
+    setAttachments([]);
     setError("");
     navigation.navigate("chat");
   }
@@ -410,6 +450,7 @@ function App() {
     try {
       await createConversation();
       setInput("");
+      setAttachments([]);
     } catch (error) {
       setError(errorText(error));
     } finally {
@@ -625,6 +666,7 @@ function App() {
             selectAgent={selectAgent}
             selectConversation={(id) => {
               setSelected(id);
+              setAttachments([]);
               setMaintenanceFeedback("");
             }}
             newConversation={newConversation}
@@ -635,6 +677,7 @@ function App() {
               setSelected("");
               setSnapshot(null);
               setInput("");
+              setAttachments([]);
               setMaintenanceFeedback(
                 "会话已移出列表，清理请求已保存。模型上下文和历史将在后台清理。",
               );
@@ -643,6 +686,10 @@ function App() {
             request={api}
             connectionLost={connectionLost}
             maintenanceFeedback={maintenanceFeedback}
+            attachments={attachments}
+            uploading={uploading}
+            onUpload={uploadFiles}
+            onRemoveAttachment={removeAttachment}
           />
         ) : loading ? (
           <div className="empty-view" role="status">

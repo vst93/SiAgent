@@ -68,3 +68,22 @@ test('internal envelope protection is separate from a model Token budget',async(
  const result=await models.completeSimple(models.getModel('siagent','large'),{messages:[{role:'user',content:'x'.repeat(9*1024*1024),timestamp:1}]});
  assert.equal(result.stopReason,'error');assert.match(result.errorMessage,/request_size_limit/);
 });
+
+test('fallback model is used when the primary fails before content',{timeout:15000},async t=>{
+ const primary=createServer(async(req,res)=>{for await(const _ of req){}res.writeHead(503,{'content-type':'application/json'});res.end('{"error":"down"}')});
+ const fallbackHeaders=[]; const fallback=createServer(async(req,res)=>{fallbackHeaders.push(req.headers);for await(const _ of req){}res.writeHead(200,{'content-type':'text/event-stream'});res.write(`data: ${JSON.stringify({id:'fallback',object:'chat.completion.chunk',created:1,model:'backup',choices:[{index:0,delta:{role:'assistant',content:'fallback-ok'},finish_reason:null}]})}\n\ndata: ${JSON.stringify({id:'fallback',object:'chat.completion.chunk',created:1,model:'backup',choices:[{index:0,delta:{},finish_reason:'stop'}]})}\n\ndata: [DONE]\n\n`);res.end()});
+ await new Promise(resolve=>primary.listen(0,'127.0.0.1',resolve));
+ await new Promise(resolve=>fallback.listen(0,'127.0.0.1',resolve));
+ t.after(async()=>{for(const server of [primary,fallback]){server.closeAllConnections();await new Promise(resolve=>server.close(resolve))}});
+ const models=configuredModels({
+  name:'primary',base_url:`http://127.0.0.1:${primary.address().port}/v1`,api_key:'primary-key',
+  options:{input:['text']},
+  fallbacks:[{name:'backup',base_url:`http://127.0.0.1:${fallback.address().port}/v1`,api_key:'fallback-key',options:{input:['text','image']}}],
+ },()=>{});
+ const model=models.getModel('siagent','primary');
+ const result=await models.completeSimple(model,{messages:[{role:'user',content:'hello',timestamp:Date.now()}]});
+ assert.equal(result.stopReason,'stop',result.errorMessage);
+ assert(result.content.some(part=>part.type==='text'&&part.text==='fallback-ok'));
+ assert.equal(model.input.includes('image'),false);
+ assert.equal(fallbackHeaders[0].authorization,'Bearer fallback-key');
+});

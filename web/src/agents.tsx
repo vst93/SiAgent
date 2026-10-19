@@ -17,6 +17,7 @@ export type ModelOptions = {
   temperature: number | null;
   top_p: number | null;
   max_tokens_field: "" | "max_tokens" | "max_completion_tokens";
+  input: string[];
 };
 export type Model = {
   options: ModelOptions;
@@ -35,6 +36,7 @@ export type Agent = {
   name: string;
   instructions: string;
   enabled: boolean;
+  fallback_model_ids: number[];
   model_id: number;
   archived: boolean;
 };
@@ -61,6 +63,7 @@ export function AgentWorkspace({
     instructions: "你是一位简洁、可靠的助手。请使用用户的语言回答。",
     enabled: true,
     model_id: models.find((model) => !model.archived)?.id ?? 1,
+    fallback_model_ids: [],
     archived: false,
   };
   const [editor, setEditor] = useState<Agent>(agents[0] ?? blank);
@@ -71,6 +74,7 @@ export function AgentWorkspace({
   const [feedback, setFeedback] = useState("");
   const [pending, setPending] = useState(false);
   const [advancedConfirmed, setAdvancedConfirmed] = useState(false);
+  const [fallbackPick, setFallbackPick] = useState("");
   const savedAgent = agents.find((agent) => agent.id === editor.id);
   const advancedNeedsConfirm =
     editor.policy.advanced_tools &&
@@ -106,6 +110,7 @@ export function AgentWorkspace({
           instructions: editor.instructions,
           enabled: editor.enabled,
           model_id: editor.model_id,
+          fallback_model_ids: editor.fallback_model_ids,
         },
       );
       setEditor(agent);
@@ -253,6 +258,9 @@ export function AgentWorkspace({
                           setEditor({
                             ...editor,
                             model_id: Number(event.target.value),
+                            fallback_model_ids: editor.fallback_model_ids.filter(
+                              (id) => id !== Number(event.target.value),
+                            ),
                           })
                         }
                       >
@@ -269,6 +277,101 @@ export function AgentWorkspace({
                           ))}
                       </select>
                     </label>
+                    <div className="agent-fallback">
+                      <span className="agent-fallback-label">兜底模型</span>
+                      <p className="muted">
+                        主模型在产生回答或调用工具前失败时，按顺序尝试。
+                      </p>
+                      <div className="agent-fallback-list">
+                        {(editor.fallback_model_ids ?? []).map((id, index) => {
+                          const item = models.find((model) => model.id === id);
+                          return (
+                            <div className="agent-fallback-item" key={id}>
+                              <span>{index + 1}. {item?.name ?? `#${id}`}</span>
+                              <button
+                                type="button"
+                                disabled={index === 0}
+                                aria-label={`上移 ${item?.name ?? id}`}
+                                onClick={() => {
+                                  const next = [...editor.fallback_model_ids];
+                                  [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                                  setEditor({ ...editor, fallback_model_ids: next });
+                                }}
+                              >
+                                上移
+                              </button>
+                              <button
+                                type="button"
+                                disabled={index === editor.fallback_model_ids.length - 1}
+                                aria-label={`下移 ${item?.name ?? id}`}
+                                onClick={() => {
+                                  const next = [...editor.fallback_model_ids];
+                                  [next[index + 1], next[index]] = [next[index], next[index + 1]];
+                                  setEditor({ ...editor, fallback_model_ids: next });
+                                }}
+                              >
+                                下移
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`移除 ${item?.name ?? id}`}
+                                onClick={() =>
+                                  setEditor({
+                                    ...editor,
+                                    fallback_model_ids: editor.fallback_model_ids.filter(
+                                      (value) => value !== id,
+                                    ),
+                                  })
+                                }
+                              >
+                                移除
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {!(editor.fallback_model_ids ?? []).length && (
+                          <p className="muted">尚未配置兜底模型。</p>
+                        )}
+                      </div>
+                      <div className="agent-fallback-add">
+                        <select
+                          aria-label="添加兜底模型"
+                          value={fallbackPick}
+                          onChange={(event) => setFallbackPick(event.target.value)}
+                        >
+                          <option value="">选择模型</option>
+                          {models
+                            .filter(
+                              (model) =>
+                                !model.archived &&
+                                model.id !== editor.model_id &&
+                                !editor.fallback_model_ids.includes(model.id),
+                            )
+                            .map((model) => (
+                              <option key={model.id} value={model.id}>
+                                {model.name}
+                              </option>
+                            ))}
+                        </select>
+                        <button
+                          type="button"
+                          disabled={!fallbackPick || (editor.fallback_model_ids ?? []).length >= 5}
+                          onClick={() => {
+                            if (!fallbackPick) return;
+                            setEditor({
+                              ...editor,
+                              fallback_model_ids: [
+                                ...editor.fallback_model_ids,
+                                Number(fallbackPick),
+                              ],
+                            });
+                            setFallbackPick("");
+                          }}
+                        >
+                          添加
+                        </button>
+                      </div>
+                    </div>
                     <label htmlFor="agent-role">角色指令</label>
                     <textarea
                       id="agent-role"

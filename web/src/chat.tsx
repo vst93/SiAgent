@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import type { Agent, Model } from "./agents";
 import type { KnowledgeHit } from "./knowledge";
 import { ConversationMaintenance, RunDiagnostics } from "./runtime-controls";
+import { appURL } from "./urls";
 export type Conversation = {
   id: string;
   title: string;
@@ -25,6 +26,13 @@ export type Run = {
   error: string;
   created: number;
 };
+export type Attachment = {
+  id: string;
+  name: string;
+  mime: string;
+  kind: "image" | "file";
+  size: number;
+};
 export type Snapshot = {
   sources: (KnowledgeHit & { run_id: string })[];
   conversation: Conversation;
@@ -34,6 +42,7 @@ export type Snapshot = {
     role: string;
     content: string;
     created: number;
+    attachments?: Attachment[];
   }[];
   runs: Run[];
 };
@@ -246,6 +255,10 @@ export function ChatWorkspace({
   request,
   connectionLost,
   maintenanceFeedback,
+  attachments,
+  uploading,
+  onUpload,
+  onRemoveAttachment,
 }: {
   agent: Agent | null;
   model: Model | null;
@@ -269,6 +282,10 @@ export function ChatWorkspace({
   request: Api;
   connectionLost: boolean;
   maintenanceFeedback: string;
+  attachments: Attachment[];
+  uploading: boolean;
+  onUpload: (files: FileList) => Promise<void>;
+  onRemoveAttachment: (id: string) => void;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [mobile, setMobile] = useState(() =>
@@ -525,6 +542,38 @@ export function ChatWorkspace({
                               )}
                             </time>
                           </div>
+                          {!!message.attachments?.length && (
+                            <div className="message-attachments">
+                              {message.attachments.map((attachment) =>
+                                attachment.kind === "image" ? (
+                                  <a
+                                    key={attachment.id}
+                                    href={appURL(`/api/attachments/${attachment.id}`)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="message-image"
+                                  >
+                                    <img
+                                      src={appURL(`/api/attachments/${attachment.id}`)}
+                                      alt={attachment.name}
+                                      loading="lazy"
+                                    />
+                                  </a>
+                                ) : (
+                                  <a
+                                    key={attachment.id}
+                                    href={appURL(`/api/attachments/${attachment.id}`)}
+                                    className="message-file"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <Icon name="file" size={14} />
+                                    {attachment.name}
+                                  </a>
+                                ),
+                              )}
+                            </div>
+                          )}
                           {message.role === "assistant" && run?.thinking && (
                             <details className="thinking-output">
                               <summary>
@@ -688,6 +737,39 @@ export function ChatWorkspace({
               </div>
             ) : (
               <div className="composer-area">
+                {!!attachments.length && (
+                  <div className="composer-attachments" aria-label="待发送附件">
+                    {attachments.map((attachment) =>
+                      attachment.kind === "image" ? (
+                        <span className="composer-attachment image" key={attachment.id}>
+                          <img
+                            src={appURL(`/api/attachments/${attachment.id}`)}
+                            alt={attachment.name}
+                          />
+                          <button
+                            type="button"
+                            aria-label={`移除 ${attachment.name}`}
+                            onClick={() => onRemoveAttachment(attachment.id)}
+                          >
+                            <Icon name="close" size={14} />
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="composer-attachment" key={attachment.id}>
+                          <Icon name="file" size={14} />
+                          <span title={attachment.name}>{attachment.name}</span>
+                          <button
+                            type="button"
+                            aria-label={`移除 ${attachment.name}`}
+                            onClick={() => onRemoveAttachment(attachment.id)}
+                          >
+                            <Icon name="close" size={14} />
+                          </button>
+                        </span>
+                      ),
+                    )}
+                  </div>
+                )}
                 <form
                   onSubmit={(event) => {
                     nearBottom.current = true;
@@ -731,6 +813,25 @@ export function ChatWorkspace({
                     }}
                   />
                   <div className="composer-toolbar">
+                    <label className="attach-button" title="添加图片或文件">
+                      <Icon name="plus" size={16} />
+                      <span>附件</span>
+                      <input
+                        type="file"
+                        multiple
+                        disabled={blocked || uploading}
+                        accept={
+                          model?.options.input?.includes("image")
+                            ? ".png,.jpg,.jpeg,.webp,.gif,.txt,.md,.markdown,.csv,.json,.pdf,.docx"
+                            : ".txt,.md,.markdown,.csv,.json,.pdf,.docx"
+                        }
+                        onChange={(event) => {
+                          if (event.target.files?.length)
+                            void onUpload(event.target.files);
+                          event.target.value = "";
+                        }}
+                      />
+                    </label>
                     <span>
                       {currentRun
                         ? `${statusNames[currentRun.status]}${waitingCount ? ` · 等待 ${waitingCount} 条` : ""}`
@@ -752,7 +853,7 @@ export function ChatWorkspace({
                       )}
                       <button
                         className="primary send-button"
-                        disabled={blocked || !input.trim()}
+                        disabled={blocked || uploading || (!input.trim() && !attachments.length)}
                       >
                         发送 <Icon name="arrow-up" size={16} />
                       </button>

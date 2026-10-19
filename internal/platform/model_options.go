@@ -18,10 +18,11 @@ type ModelOptions struct {
 	Temperature    *float64 `json:"temperature"`
 	TopP           *float64 `json:"top_p"`
 	MaxTokensField string   `json:"max_tokens_field"`
+	Input          []string `json:"input"`
 }
 
 func defaultModelOptions() ModelOptions {
-	return ModelOptions{API: "openai-completions", ContextWindow: 32768, MaxTokens: 4096, ThinkingLevel: "off"}
+	return ModelOptions{API: "openai-completions", ContextWindow: 32768, MaxTokens: 4096, ThinkingLevel: "off", Input: []string{"text"}}
 }
 func parseModelOptions(raw []byte, base ModelOptions) (ModelOptions, error) {
 	if len(raw) > 0 {
@@ -37,6 +38,26 @@ func parseModelOptions(raw []byte, base ModelOptions) (ModelOptions, error) {
 	base.DisplayName = strings.TrimSpace(base.DisplayName)
 	if utf8.RuneCountInString(base.DisplayName) > 100 || (base.API != "openai-completions" && base.API != "openai-responses" && base.API != "anthropic-messages") {
 		return base, errors.New("请选择支持的接口协议，连接名称不能超过 100 个字符。")
+	}
+	if len(base.Input) == 0 {
+		base.Input = []string{"text"}
+	}
+	seen := map[string]bool{}
+	for _, input := range base.Input {
+		if input != "text" && input != "image" {
+			return base, errors.New("模型输入类型仅支持 text 和 image。")
+		}
+		if seen[input] {
+			return base, errors.New("模型输入类型不能重复。")
+		}
+		seen[input] = true
+	}
+	if !seen["text"] {
+		return base, errors.New("模型必须支持文本输入。")
+	}
+	base.Input = []string{"text"}
+	if seen["image"] {
+		base.Input = append(base.Input, "image")
 	}
 	if base.ContextWindow < 256 || base.ContextWindow > 10000000 || base.MaxTokens < 16 || base.MaxTokens >= base.ContextWindow {
 		return base, errors.New("上下文窗口须为 256–10000000 Token，最大输出须至少 16 Token 且小于上下文窗口。")

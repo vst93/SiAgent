@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -62,7 +63,7 @@ func TestModelDiscoveryUsesEditorValuesWithoutSaving(t *testing.T) {
 				}
 			}
 			after, err := f.store.model()
-			if err != nil || before != after {
+			if err != nil || !reflect.DeepEqual(before, after) {
 				t.Fatal("discovery changed saved configuration", err)
 			}
 		})

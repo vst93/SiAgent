@@ -20,11 +20,12 @@ type Conversation struct {
 	Created   int64  `json:"created"`
 }
 type Message struct {
-	ID      int64  `json:"id"`
-	RunID   string `json:"run_id"`
-	Role    string `json:"role"`
-	Content string `json:"content"`
-	Created int64  `json:"created"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+	ID          int64        `json:"id"`
+	RunID       string       `json:"run_id"`
+	Role        string       `json:"role"`
+	Content     string       `json:"content"`
+	Created     int64        `json:"created"`
 }
 type Run struct {
 	Output        *OutputPolicy `json:"output,omitempty"`
@@ -115,15 +116,22 @@ func (s *Server) snapshot(conversationID string) (Snapshot, error) {
 	if err != nil {
 		return result, err
 	}
-	rows, err := s.store.db.Query("SELECT id,run_id,role,content,created FROM messages WHERE conversation_id=? ORDER BY id", conversationID)
+	rows, err := s.store.db.Query("SELECT id,run_id,role,content,created,attachments FROM messages WHERE conversation_id=? ORDER BY id", conversationID)
 	if err != nil {
 		return result, err
 	}
 	for rows.Next() {
 		var message Message
-		if err := rows.Scan(&message.ID, &message.RunID, &message.Role, &message.Content, &message.Created); err != nil {
+		var attachments string
+		if err := rows.Scan(&message.ID, &message.RunID, &message.Role, &message.Content, &message.Created, &attachments); err != nil {
 			rows.Close()
 			return result, err
+		}
+		if attachments != "" {
+			if err := json.Unmarshal([]byte(attachments), &message.Attachments); err != nil {
+				rows.Close()
+				return result, err
+			}
 		}
 		result.Messages = append(result.Messages, message)
 	}
@@ -248,12 +256,16 @@ func (s *Server) getConversation(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Input string `json:"input"`
+		Input         string   `json:"input"`
+		AttachmentIDs []string `json:"attachment_ids"`
 	}
 	if !decode(w, r, &input) {
 		return
 	}
 	input.Input = strings.TrimSpace(input.Input)
+	if input.Input == "" && len(input.AttachmentIDs) > 0 {
+		input.Input = "请查看附件。"
+	}
 	if input.Input == "" || len(input.Input) > 100000 {
 		fail(w, 400, "请输入消息，单条消息不超过 100,000 字节。")
 		return
@@ -271,7 +283,7 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	run, err := s.enqueueRun(r.Context(), r.PathValue("id"), input.Input, 0, nil)
+	run, err := s.enqueueRunWithAttachments(r.Context(), r.PathValue("id"), input.Input, 0, input.AttachmentIDs, nil)
 	if err != nil {
 		var rejected *admissionError
 		if errors.As(err, &rejected) {
@@ -295,6 +307,10 @@ func (e *admissionError) Error() string { return e.Message }
 // The admission callback joins the run transaction, so an acknowledged inbox
 // message cannot lose its run link or be admitted twice after a crash.
 func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, receivedAt int64, admitted func(*sql.Tx, string) error) (Run, error) {
+	return s.enqueueRunWithAttachments(ctx, conversationID, input, receivedAt, nil, admitted)
+}
+
+func (s *Server) enqueueRunWithAttachments(ctx context.Context, conversationID, input string, receivedAt int64, attachmentIDs []string, admitted func(*sql.Tx, string) error) (Run, error) {
 
 	if s.stopping || !s.ready() || s.restarting {
 		return Run{}, &admissionError{503, "对话服务正在启动或恢复，请稍后重试。"}
@@ -323,15 +339,37 @@ func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, r
 			return Run{}, &admissionError{403, "此助手仅接收群聊消息。"}
 		}
 	}
-	model, err := s.store.modelByID(agent.ModelID)
+	primaryModel, primaryErr := s.store.modelByID(agent.ModelID)
+	if primaryErr != nil && primaryErr != sql.ErrNoRows {
+		return Run{}, primaryErr
+	}
+	candidates := []Model{}
+	if primaryErr == nil && !primaryModel.Archived && s.store.modelProviderError(primaryModel) == "" {
+		candidates = append(candidates, primaryModel)
+	}
+	for _, fallbackID := range agent.FallbackModelIDs {
+		fallback, err := s.store.modelByID(fallbackID)
+		if err != nil || fallback.Archived || s.store.modelProviderError(fallback) != "" {
+			continue
+		}
+		candidates = append(candidates, fallback)
+	}
+	if len(candidates) == 0 {
+		if primaryErr == sql.ErrNoRows || primaryModel.Archived {
+			return Run{}, &admissionError{409, "关联模型已归档或不存在，请重新选择模型。"}
+		}
+		return Run{}, &admissionError{409, s.store.modelProviderError(primaryModel)}
+	}
+	model := candidates[0]
+	fallbackModels := candidates[1:]
+	attachments, err := s.loadAttachments(conversationID, attachmentIDs)
 	if err != nil {
-		return Run{}, err
+		return Run{}, &admissionError{400, err.Error()}
 	}
-	if model.Archived {
-		return Run{}, &admissionError{409, "关联模型已归档，请重新选择模型。"}
-	}
-	if message := s.store.modelProviderError(model); message != "" {
-		return Run{}, &admissionError{409, message}
+	for _, item := range attachments {
+		if item.Kind == "image" && !supportsModelInput(model, "image") {
+			return Run{}, &admissionError{409, "当前模型未声明支持图片输入，请切换视觉模型或移除图片。"}
+		}
 	}
 	var exists, waiting, total, occupied, sameActive int
 	if err := s.store.db.QueryRow("SELECT count(*) FROM conversations WHERE id=? AND NOT EXISTS(SELECT 1 FROM conversation_cleanup WHERE conversation_id=conversations.id)", conversationID).Scan(&exists); err != nil {
@@ -381,7 +419,11 @@ func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, r
 		}
 	}
 	contextBudget := 8 * 1024 * 1024
-	if bytes+len(input)+len(agent.Instructions)+skillBytes+1024 > contextBudget {
+	attachmentBytes := 0
+	for _, item := range attachments {
+		attachmentBytes += len(item.Extracted) + len(item.Name)
+	}
+	if bytes+len(input)+len(agent.Instructions)+skillBytes+attachmentBytes+1024 > contextBudget {
 		return Run{}, &admissionError{409, "会话数据量超过平台内部保护上限，请新建对话后发送。已有内容不会删除。"}
 	}
 	knowledgeIDs, err := s.knowledge.Bindings(ctx, agent.ID)
@@ -398,8 +440,14 @@ func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, r
 		timezone = defaultAgentPolicy().Timezone
 	}
 	turnTime := &TurnTime{ReceivedAt: time.UnixMilli(receivedAt).UTC().Format(time.RFC3339Nano), Timezone: timezone}
-	config, _ := json.Marshal(runConfig{TimeContext: turnTime, ModelOptions: model.Options, ModelID: model.ID, ModelVersion: model.Version, Provider: model.Provider, BaseURL: model.BaseURL, Model: model.Name, Agent: agent, Limits: s.limits, Capabilities: &capabilities, KnowledgeIDs: knowledgeIDs})
-	credentials, _ := json.Marshal(RunCredentials{ModelKey: model.APIKey, MCPs: toolSecrets})
+	fallbackSnapshots := make([]runFallback, 0, len(fallbackModels))
+	fallbackKeys := make([]string, 0, len(fallbackModels))
+	for _, fallback := range fallbackModels {
+		fallbackSnapshots = append(fallbackSnapshots, runFallback{ModelOptions: fallback.Options, ModelID: fallback.ID, ModelVersion: fallback.Version, Provider: fallback.Provider, BaseURL: fallback.BaseURL, Model: fallback.Name})
+		fallbackKeys = append(fallbackKeys, fallback.APIKey)
+	}
+	config, _ := json.Marshal(runConfig{Fallbacks: fallbackSnapshots, TimeContext: turnTime, ModelOptions: model.Options, ModelID: model.ID, ModelVersion: model.Version, Provider: model.Provider, BaseURL: model.BaseURL, Model: model.Name, Agent: agent, Limits: s.limits, Capabilities: &capabilities, KnowledgeIDs: knowledgeIDs})
+	credentials, _ := json.Marshal(RunCredentials{ModelKey: model.APIKey, FallbackKeys: fallbackKeys, MCPs: toolSecrets})
 	tx, err := s.store.db.Begin()
 	if err != nil {
 		return Run{}, err
@@ -407,7 +455,15 @@ func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, r
 	defer tx.Rollback()
 	_, err = tx.Exec("INSERT INTO runs(id,conversation_id,status,config,credential,created) VALUES(?,?,'queued',?,?,?)", runID, conversationID, string(config), s.store.encrypt(string(credentials)), created)
 	if err == nil {
-		_, err = tx.Exec("INSERT INTO messages(conversation_id,run_id,role,content,created) VALUES(?,?,'user',?,?),(?,?,'assistant','',?)", conversationID, runID, input, receivedAt, conversationID, runID, created)
+		public := make([]Attachment, 0, len(attachments))
+		for _, item := range attachments {
+			public = append(public, item.Attachment)
+		}
+		publicAttachments, _ := json.Marshal(public)
+		_, err = tx.Exec("INSERT INTO messages(conversation_id,run_id,role,content,created,attachments) VALUES(?,?,'user',?,?,?),(?,?,'assistant','',?,'[]')", conversationID, runID, input, receivedAt, string(publicAttachments), conversationID, runID, created)
+		if err == nil {
+			err = s.linkAttachments(tx, runID, attachments)
+		}
 	}
 	title := []rune(input)
 	if len(title) > 32 {

@@ -71,8 +71,9 @@ type Capabilities struct {
 	MCPs   []MCPConfig `json:"mcps"`
 }
 type RunCredentials struct {
-	ModelKey string               `json:"model_key"`
-	MCPs     map[string]MCPSecret `json:"mcps"`
+	ModelKey     string               `json:"model_key"`
+	FallbackKeys []string             `json:"fallback_keys,omitempty"`
+	MCPs         map[string]MCPSecret `json:"mcps"`
 }
 
 func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {

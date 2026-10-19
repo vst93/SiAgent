@@ -17,5 +17,8 @@ func (s *Store) migrateAPIKeySecret() error {
 	if _, err := tx.Exec(apiKeySecretSchema); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateChatAssets()
 }
