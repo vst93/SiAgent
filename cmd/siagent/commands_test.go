@@ -11,9 +11,17 @@ import (
 	"testing"
 )
 
+func emptyConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestCommandsPreserveLauncherOptionsAndRestartAsServer(t *testing.T) {
-	t.Setenv("SIAGENT_CONFIG", "")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("SIAGENT_CONFIG", emptyConfig(t))
 	defaults := installation{DataDir: "data", Node: "node", Runtime: "runtime/dist/index.js", ChannelWorker: "runtime/dist/channel-wecom.js"}
 	for _, tc := range []struct {
 		args                  []string
@@ -40,8 +48,7 @@ func TestCommandsPreserveLauncherOptionsAndRestartAsServer(t *testing.T) {
 }
 
 func TestServiceCommandParsing(t *testing.T) {
-	t.Setenv("SIAGENT_CONFIG", "")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("SIAGENT_CONFIG", emptyConfig(t))
 	defaults := installation{DataDir: "data", Node: "node", Runtime: "runtime/dist/index.js", ChannelWorker: "runtime/dist/channel-wecom.js"}
 	for _, tc := range []struct {
 		args   []string
@@ -64,8 +71,7 @@ func TestServiceCommandParsing(t *testing.T) {
 }
 
 func TestHelpAliasesWorkBeforeOrAfterInstallerFlags(t *testing.T) {
-	t.Setenv("SIAGENT_CONFIG", "")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("SIAGENT_CONFIG", emptyConfig(t))
 	for _, args := range [][]string{{"help"}, {"-h"}, {"--help"}, {"-help"}, {"-data-dir", "/installer/data", "help"}, {"update", "-h"}} {
 		var output bytes.Buffer
 		_, err := parseCommand(args, installation{}, &output)
@@ -81,20 +87,15 @@ func TestHelpAliasesWorkBeforeOrAfterInstallerFlags(t *testing.T) {
 }
 
 func TestExternalConfigPrecedence(t *testing.T) {
-	t.Setenv("SIAGENT_CONFIG", "")
-	base := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", base)
-	dir := filepath.Join(base, "SiAgent")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{
   "data_dir": "/config/data",
   "listen": "127.0.0.1:9100",
   "attachments": {"max_message_count": 5}
 }`), 0600); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("SIAGENT_CONFIG", configPath)
 	defaults := installation{DataDir: "installed-data", Node: "node", Runtime: "runtime/dist/index.js", ChannelWorker: "runtime/dist/channel-wecom.js"}
 	options, err := parseCommand(nil, defaults, &bytes.Buffer{})
 	if err != nil {

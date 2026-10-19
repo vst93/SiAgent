@@ -254,7 +254,7 @@ function LibraryEditor({
           </label>
         </fieldset>
         {error && (
-          <p role="alert" className="error">
+          <p role="alert" className="error kb-upload-error">
             {error}
           </p>
         )}
@@ -291,32 +291,48 @@ function UploadDialog({
   onClose: () => void;
   onUploaded: (document: Document) => void;
 }) {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [pending, setPending] = useState(false);
+  const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   async function upload(event: FormEvent) {
     event.preventDefault();
-    if (!file) return;
-    if (file.size > 20 * 1024 * 1024) {
+    if (!files.length) return;
+    if (files.some((file) => file.size > 20 * 1024 * 1024)) {
       setError("单个文件不能超过 20 MiB，请拆分后上传。");
       return;
     }
     setPending(true);
     setError("");
-    try {
-      const data = new FormData();
-      data.append("file", file);
-      const result = await request<Document>(
-        `/knowledge/bases/${baseID}/documents${replacement ? `/${replacement.id}` : ""}`,
-        replacement ? "PUT" : "POST",
-        data,
-      );
-      onUploaded(result);
-    } catch (error) {
-      setError(message(error));
-    } finally {
-      setPending(false);
+    setProgress("");
+    const failures: string[] = [];
+    const failedFiles: File[] = [];
+    const selected = replacement ? files.slice(0, 1) : files;
+    for (let index = 0; index < selected.length; index++) {
+      const file = selected[index];
+      setProgress(`正在上传 ${index + 1}/${selected.length}：${file.name}`);
+      try {
+        const data = new FormData();
+        data.append("file", file);
+        const result = await request<Document>(
+          `/knowledge/bases/${baseID}/documents${replacement ? `/${replacement.id}` : ""}`,
+          replacement ? "PUT" : "POST",
+          data,
+        );
+        onUploaded(result);
+      } catch (uploadError) {
+        failures.push(`${file.name}：${message(uploadError)}`);
+        failedFiles.push(file);
+      }
     }
+    setPending(false);
+    setProgress("");
+    if (failures.length) {
+      setFiles(failedFiles);
+      setError(failures.join("\n"));
+      return;
+    }
+    onClose();
   }
   return (
     <KnowledgeDialog
@@ -332,23 +348,30 @@ function UploadDialog({
             <input
               required
               type="file"
+              multiple={!replacement}
               accept=".txt,.md,.markdown,.pdf,.docx"
               disabled={pending}
               onChange={(event) => {
-                setFile(event.target.files?.[0] ?? null);
+                setFiles(Array.from(event.target.files ?? []));
                 setError("");
               }}
             />
           </label>
-          {file && (
-            <p>
-              {file.name} · {size(file.size)}
-            </p>
+          {!!files.length && (
+            <ul className="kb-file-list">
+              {files.map((file, index) => (
+                <li key={`${file.name}-${file.lastModified}-${index}`}>
+                  <span>{file.name}</span>
+                  <small>{size(file.size)}</small>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
         <p className="kb-help">
-          UTF-8 TXT、Markdown、DOCX、文本 PDF，单文件最多 20 MiB。不支持扫描件、旧版
-          .doc 与 OCR。
+          UTF-8 TXT、Markdown、DOCX、文本 PDF，单文件最多 20 MiB。
+          {!replacement && " 可一次选择多个文件，系统会逐个上传并建立索引。"}
+          不支持扫描件、旧版 .doc 与 OCR。
         </p>
         {replacement && (
           <p className="kb-help">
@@ -371,7 +394,7 @@ function UploadDialog({
           </p>
         </details>
         {error && (
-          <p role="alert" className="error">
+          <p role="alert" className="error kb-upload-error">
             {error}
           </p>
         )}
@@ -384,12 +407,12 @@ function UploadDialog({
           >
             取消
           </button>
-          <button className="primary" disabled={pending || !file}>
+          <button className="primary" disabled={pending || !files.length}>
             {pending
-              ? "正在上传…"
+              ? progress || "正在上传…"
               : replacement
                 ? "上传替换版本"
-                : "上传并建立索引"}
+                : `上传${files.length > 1 ? ` ${files.length} 个文件` : "并建立索引"}`}
           </button>
         </footer>
       </form>
@@ -1072,7 +1095,6 @@ function LibraryDocuments({
               doc,
               ...values.filter((value) => value.id !== doc.id),
             ]);
-            setUpload(null);
             setFeedback(
               "文档已接收，处理完成后才进入检索。替换失败时继续使用原版本。",
             );

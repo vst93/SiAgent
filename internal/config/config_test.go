@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -51,17 +52,21 @@ func TestMissingDefaultIsOptionalButExplicitPathFails(t *testing.T) {
 		t.Fatal("explicit missing config should fail")
 	}
 	t.Setenv("SIAGENT_CONFIG", "")
-	base := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", base)
-	if _, resolved, err := Load(""); err != nil || resolved != filepath.Join(base, projectDir, "config.json") {
+	if _, resolved, err := Load(""); err != nil || !strings.HasSuffix(resolved, filepath.Join(projectDir, "config.json")) {
 		t.Fatalf("default path: %q %v", resolved, err)
 	}
 }
 
 func TestDefaultsAndConfigDir(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "/tmp/config-home")
 	t.Setenv("SIAGENT_CONFIG", "")
-	if got := DefaultPath(); got != filepath.Join("/tmp/config-home", "SiAgent", "config.json") {
+	if runtime.GOOS == "linux" {
+		t.Setenv("XDG_CONFIG_HOME", "/tmp/config-home")
+		if got := DefaultPath(); got != filepath.Join("/tmp/config-home", "SiAgent", "config.json") {
+			t.Fatalf("unexpected default path: %s", got)
+		}
+		return
+	}
+	if got := DefaultPath(); !strings.HasSuffix(got, filepath.Join("SiAgent", "config.json")) {
 		t.Fatalf("unexpected default path: %s", got)
 	}
 }

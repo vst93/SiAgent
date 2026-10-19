@@ -14,6 +14,13 @@
 
 验证：`make test`（Runtime 39 项 + Go `-race`）、`python3 tests/e2e.py`、`SIAGENT_CHROMIUM=... npm --prefix web run test:browser` 全部通过；迁移测试覆盖 schema 1–20 升级并保留既有数据。
 
+## 知识库多文件上传
+
+- [x] 知识库“上传文档”支持浏览器多选；逐个提交并建立索引，显示上传进度和逐个失败原因。
+- [x] 部分文件失败时保留失败文件列表供重试，已成功的文件不重复上传。
+- [x] 替换文档仍为单文件，避免误将多个文件替换为同一版本。
+- [x] 每个文件仍受 20 MiB 和既有解析/字符/页数限制；接口保持单文件 multipart，兼容现有调用方。
+
 ## 外置系统配置
 
 - [x] 新增 `SiAgent/config.json`：Linux `~/.config/SiAgent/`，macOS `~/Library/Application Support/SiAgent/`，Windows `%AppData%\SiAgent\`；可用 `SIAGENT_CONFIG` 覆盖。
