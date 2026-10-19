@@ -35,7 +35,7 @@ export const configSections = [
     group: "模型与工具",
     title: "扩展",
     description: "安装、启停和回滚扩展包，查看健康状态与事件。",
-    icon: "plugins",
+    icon: "package",
   },
   {
     id: "channels",
@@ -49,7 +49,7 @@ export const configSections = [
     group: "接入与集成",
     title: "集成接口",
     description: "为业务系统创建 API 密钥，调用 Agent 与知识库。",
-    icon: "models",
+    icon: "key",
   },
   {
     id: "api-docs",
@@ -88,9 +88,6 @@ export function useNavigation() {
   const [page, setPage] = useState<Page>(() => hashPage() ?? storedDefault());
   const [defaultPage, setDefaultPage] = useState<Page>(storedDefault);
   const [preferenceError, setPreferenceError] = useState("");
-  const [lastConfig, setLastConfig] = useState<Page>(() =>
-    page === "chat" ? "settings/models" : page,
-  );
   useEffect(() => {
     const changed = () => setPage(hashPage() ?? storedDefault());
     const synced = (event: StorageEvent) => {
@@ -104,9 +101,6 @@ export function useNavigation() {
       window.removeEventListener("storage", synced);
     };
   }, []);
-  useEffect(() => {
-    if (page !== "chat") setLastConfig(page);
-  }, [page]);
   function navigate(next: Page) {
     setPage(next);
     if (hashPage() !== next) window.location.hash = `/${next}`;
@@ -122,40 +116,10 @@ export function useNavigation() {
       );
     }
   }
-  return { page, navigate, defaultPage, pin, preferenceError, lastConfig };
+  return { page, navigate, defaultPage, pin, preferenceError };
 }
 export function pageName(page: Page) {
   return page === "chat"
     ? "Agent 对话"
     : `配置 · ${configSections.find((section) => page === `settings/${section.id}`)?.title ?? "模型连接"}`;
-}
-export function ModuleSwitch({
-  page,
-  lastConfig,
-  navigate,
-}: Pick<
-  ReturnType<typeof useNavigation>,
-  "page" | "lastConfig" | "navigate"
->) {
-  const configTarget = page === "chat" ? lastConfig : page;
-  return (
-    <nav className="module-switch" aria-label="主模块">
-      <button
-        className={`module-link ${page === "chat" ? "active" : ""}`}
-        aria-current={page === "chat" ? "page" : undefined}
-        onClick={() => navigate("chat")}
-      >
-        <Icon name="chat" size={16} />
-        Agent 对话
-      </button>
-      <button
-        className={`module-link ${page !== "chat" ? "active" : ""}`}
-        aria-current={page !== "chat" ? "page" : undefined}
-        onClick={() => navigate(configTarget)}
-      >
-        <Icon name="settings" size={16} />
-        配置
-      </button>
-    </nav>
-  );
 }

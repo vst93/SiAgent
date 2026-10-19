@@ -212,13 +212,9 @@ try {
       errors.push(message.text());
   });
   const config = async (name) => {
-    const modules = page.getByRole("navigation", { name: "主模块" });
+    const modules = page.getByRole("navigation", { name: "主导航" });
     if (await modules.isVisible()) {
-      await modules.getByRole("button", { name: "配置", exact: true }).click();
-      await page
-        .getByRole("navigation", { name: "配置导航" })
-        .getByRole("link", { name, exact: true })
-        .click();
+      await modules.getByRole("button", { name, exact: true }).click();
     } else {
       await page.getByRole("button", { name: "打开导航", exact: true }).click();
       await page
@@ -232,7 +228,7 @@ try {
       .waitFor();
   };
   const chat = async () => {
-    const modules = page.getByRole("navigation", { name: "主模块" });
+    const modules = page.getByRole("navigation", { name: "主导航" });
     if (await modules.isVisible()) {
       await modules.getByRole("button", { name: "Agent 对话", exact: true }).click();
     } else {
@@ -1553,7 +1549,7 @@ try {
   assert.equal(await page.getByRole("button", { name: "发送", exact: false }).count(), 0);
   assert.equal(await page.locator(".message.user .message-meta strong").textContent(), "remote-member");
   assert.equal(await page.locator(".conversation .channel-tag").textContent(), "私聊 · remote-member");
-  assert.match(await page.locator(".message.user time").textContent(), /202\d/);
+  assert.match(await page.locator(".message.user time").textContent(), /\d{2}\/\d{2} \d{2}:\d{2}/);
   await page.screenshot({ path: join(artifacts, "channel-chat-desktop.png"), fullPage: true });
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
@@ -1995,7 +1991,7 @@ try {
     assert(overflow <= 1, `${name} overflows its content pane by ${overflow}px`);
   }
   await page
-    .getByRole("navigation", { name: "主模块" })
+    .getByRole("navigation", { name: "主导航" })
     .getByRole("button", { name: "Agent 对话", exact: true })
     .click();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -2060,6 +2056,30 @@ try {
   assert.equal(
     await page.evaluate(() => localStorage.getItem("siagent.language")),
     "zh",
+  );
+  await page.getByRole("button", { name: "关闭导航", exact: true }).click();
+  // Theme preference survives a reload and can be switched back.
+  await page
+    .locator(".mobile-topbar")
+    .getByRole("button", { name: "切换到深色模式", exact: true })
+    .click();
+  assert.equal(
+    await page.evaluate(() => document.documentElement.dataset.theme),
+    "dark",
+  );
+  await page.reload();
+  await page.waitForTimeout(300);
+  assert.equal(
+    await page.evaluate(() => document.documentElement.dataset.theme),
+    "dark",
+  );
+  await page
+    .locator(".mobile-topbar")
+    .getByRole("button", { name: "切换到浅色模式", exact: true })
+    .click();
+  assert.equal(
+    await page.evaluate(() => document.documentElement.dataset.theme),
+    "light",
   );
   assert.deepEqual(errors, []);
   console.log(

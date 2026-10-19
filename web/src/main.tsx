@@ -11,7 +11,6 @@ import {
 import { Configuration } from "./configuration";
 import {
   configSections,
-  ModuleSwitch,
   pageName,
   useNavigation,
   type ConfigSection,
@@ -25,7 +24,17 @@ import {
   type Language,
 } from "./i18n";
 import { createRoot } from "react-dom/client";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
 import "./style.css";
+import {
+  applyTheme,
+  rememberTheme,
+  storedTheme,
+  type Theme,
+} from "./theme";
+
+applyTheme(storedTheme());
 
 type Auth = {
   initialized: boolean;
@@ -84,6 +93,29 @@ function LanguageToggle({
   );
 }
 
+function ThemeToggle({
+  theme,
+  onChange,
+  className = "",
+}: {
+  theme: Theme;
+  onChange: (theme: Theme) => void;
+  className?: string;
+}) {
+  const next = theme === "light" ? "dark" : "light";
+  return (
+    <button
+      type="button"
+      className={`theme-toggle ${className}`.trim()}
+      aria-label={next === "dark" ? "切换到深色模式" : "切换到浅色模式"}
+      title={next === "dark" ? "切换到深色模式" : "切换到浅色模式"}
+      onClick={() => onChange(next)}
+    >
+      <Icon name={theme === "light" ? "moon" : "sun"} size={16} />
+    </button>
+  );
+}
+
 function Mark() {
   return (
     <span className="mark" aria-hidden="true">
@@ -94,9 +126,17 @@ function Mark() {
 function AuthScreen({
   auth,
   onDone,
+  language,
+  onLanguage,
+  theme,
+  onTheme,
 }: {
   auth: Auth;
   onDone: () => Promise<void>;
+  language: Language;
+  onLanguage: (language: Language) => void;
+  theme: Theme;
+  onTheme: (theme: Theme) => void;
 }) {
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
@@ -123,9 +163,15 @@ function AuthScreen({
   }
   return (
     <div className="auth-page">
-      <div className="brand">
-        <Mark /> <span>SiAgent</span>
-      </div>
+      <header className="auth-topbar">
+        <div className="brand">
+          <Mark /> <span>SiAgent</span>
+        </div>
+        <div className="auth-topbar-actions">
+          <LanguageToggle language={language} onChange={onLanguage} />
+          <ThemeToggle theme={theme} onChange={onTheme} />
+        </div>
+      </header>
       <div className="auth-panel">
         <p className="eyebrow">你的 AI 工作台</p>
         <h1>{auth.initialized ? "欢迎回来" : "先为工作台设置密码"}</h1>
@@ -199,6 +245,7 @@ function App() {
   const [maintenanceFeedback, setMaintenanceFeedback] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [language, setLanguage] = useState<Language>(storedLanguage);
+  const [theme, setTheme] = useState<Theme>(storedTheme);
   const navigation = useNavigation();
   const [auth, setAuth] = useState<Auth | null>(null);
   const [models, setModels] = useState<Model[]>([]);
@@ -221,6 +268,10 @@ function App() {
     rememberLanguage(language);
     return applyLanguage(language);
   }, [language]);
+  useEffect(() => {
+    applyTheme(theme);
+    rememberTheme(theme);
+  }, [theme]);
   async function refreshAuth() {
     const state = await api<Auth>("/auth/status");
     csrf = state.csrf;
@@ -468,6 +519,7 @@ function App() {
         <div className="auth-panel">
           <div className="auth-language">
             <LanguageToggle language={language} onChange={setLanguage} />
+            <ThemeToggle theme={theme} onChange={setTheme} />
           </div>
           {error ? (
             <>
@@ -493,72 +545,111 @@ function App() {
   if (!auth.authenticated)
     return (
       <>
-        <AuthScreen auth={auth} onDone={refreshAuth} />
-        <div className="auth-language auth-language-corner">
-          <LanguageToggle language={language} onChange={setLanguage} />
-        </div>
+        <AuthScreen
+          auth={auth}
+          onDone={refreshAuth}
+          language={language}
+          onLanguage={setLanguage}
+          theme={theme}
+          onTheme={setTheme}
+        />
       </>
     );
   if (sourceID) return <KnowledgeSource request={api} sourceID={sourceID} />;
+  const isDefaultPage = navigation.defaultPage === navigation.page;
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <a
-          className="brand"
-          href={`#/${navigation.defaultPage}`}
-          aria-label="打开默认页面"
-        >
-          <Mark />
-          <span>SiAgent</span>
-        </a>
-        <span className="mobile-title">{pageName(navigation.page)}</span>
-        <ModuleSwitch
-          page={navigation.page}
-          lastConfig={navigation.lastConfig}
-          navigate={navigation.navigate}
-        />
-        <div className="app-account">
-          <LanguageToggle language={language} onChange={setLanguage} />
-          <button
-            className="default-page-control"
-            aria-pressed={navigation.defaultPage === navigation.page}
-            aria-label={
-              navigation.defaultPage === navigation.page
-                ? "当前页已是默认页"
-                : "将当前页设为默认页"
-            }
-            title={`当前默认：${pageName(navigation.defaultPage)}（只保存在当前浏览器）`}
-            onClick={() => navigation.pin(navigation.page)}
-          >
-            <Icon
-              name="star"
-              size={16}
-              filled={navigation.defaultPage === navigation.page}
-            />
-            <span>
-              {navigation.defaultPage === navigation.page
-                ? "默认页"
-                : "设为默认"}
-            </span>
-          </button>
-          <button
-            className="logout"
-            aria-label="退出登录"
-            onClick={() => void logout()}
-          >
-            <Icon name="logout" size={16} />
-            <span>退出登录</span>
-          </button>
-        </div>
+      <header className="mobile-topbar">
         <button
           className="mobile-menu-button"
           aria-label="打开导航"
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen(true)}
         >
-          <Icon name="more" />
+          <Icon name="menu" size={18} />
         </button>
+        <span className="mobile-title">{pageName(navigation.page)}</span>
+        <ThemeToggle
+          theme={theme}
+          onChange={setTheme}
+          className="mobile-theme-toggle"
+        />
       </header>
+      <aside className="app-rail" aria-label="应用侧栏">
+        <a
+          className="rail-brand"
+          href={`#/${navigation.defaultPage}`}
+          aria-label="打开默认页面"
+        >
+          <Mark />
+          <span>SiAgent</span>
+          <span className="rail-version">自托管</span>
+        </a>
+        <nav className="rail-nav" aria-label="主导航">
+          <p className="rail-group">工作区</p>
+          <button
+            className={`rail-link ${navigation.page === "chat" ? "selected" : ""}`}
+            aria-current={navigation.page === "chat" ? "page" : undefined}
+            onClick={() => navigation.navigate("chat")}
+          >
+            <Icon name="chat" size={16} />
+            <span>Agent 对话</span>
+          </button>
+          {configSections.map((item, index) => (
+            <Fragment key={item.id}>
+              {(index === 0 ||
+                configSections[index - 1].group !== item.group) && (
+                <p className="rail-group">{item.group}</p>
+              )}
+              <button
+                className={`rail-link ${
+                  navigation.page === `settings/${item.id}` ? "selected" : ""
+                }`}
+                aria-current={
+                  navigation.page === `settings/${item.id}`
+                    ? "page"
+                    : undefined
+                }
+                onClick={() => navigation.navigate(`settings/${item.id}`)}
+              >
+                <Icon name={item.icon} size={16} />
+                <span>{item.title}</span>
+              </button>
+            </Fragment>
+          ))}
+        </nav>
+        <div className="rail-footer">
+          <div className="rail-status">
+            <span className={ready ? "status-dot" : "status-dot offline"} />
+            <span>{ready ? "服务已就绪" : "服务正在恢复"}</span>
+          </div>
+          <div className="rail-actions">
+            <button
+              className="rail-icon-button"
+              aria-pressed={isDefaultPage}
+              aria-label={isDefaultPage ? "当前页已是默认页" : "将当前页设为默认页"}
+              title={`当前默认：${pageName(navigation.defaultPage)}（只保存在当前浏览器）`}
+              onClick={() => navigation.pin(navigation.page)}
+            >
+              <Icon name="star" size={16} filled={isDefaultPage} />
+            </button>
+            <LanguageToggle language={language} onChange={setLanguage} />
+            <ThemeToggle
+              theme={theme}
+              onChange={setTheme}
+              className="rail-icon-button"
+            />
+            <button
+              className="rail-icon-button"
+              aria-label="退出登录"
+              title="退出登录"
+              onClick={() => void logout()}
+            >
+              <Icon name="logout" size={16} />
+            </button>
+          </div>
+        </div>
+      </aside>
       <div
         className={`mobile-menu-backdrop ${menuOpen ? "open" : ""}`}
         onClick={() => setMenuOpen(false)}
@@ -567,6 +658,7 @@ function App() {
         className={`mobile-menu ${menuOpen ? "open" : ""}`}
         aria-label="导航菜单"
         aria-hidden={!menuOpen}
+        inert={!menuOpen}
       >
         <header>
           <span className="brand">
@@ -582,6 +674,7 @@ function App() {
           </button>
         </header>
         <nav aria-label="移动导航">
+          <p className="mobile-menu-label">工作区</p>
           <button
             className={navigation.page === "chat" ? "selected" : ""}
             onClick={() => {
@@ -591,10 +684,10 @@ function App() {
           >
             <Icon name="chat" size={18} /> Agent 对话
           </button>
-          <p className="mobile-menu-label">配置</p>
           {configSections.map((item, index) => (
             <Fragment key={item.id}>
-              {(index === 0 || configSections[index - 1].group !== item.group) && (
+              {(index === 0 ||
+                configSections[index - 1].group !== item.group) && (
                 <p className="mobile-menu-label">{item.group}</p>
               )}
               <button
@@ -612,7 +705,14 @@ function App() {
           ))}
         </nav>
         <div className="mobile-menu-footer">
-          <LanguageToggle language={language} onChange={setLanguage} />
+          <div className="mobile-menu-actions">
+            <LanguageToggle language={language} onChange={setLanguage} />
+            <ThemeToggle
+              theme={theme}
+              onChange={setTheme}
+              className="mobile-theme-toggle"
+            />
+          </div>
           <p>
             默认页面：{pageName(navigation.defaultPage)}
             <button
@@ -629,86 +729,88 @@ function App() {
           </button>
         </div>
       </aside>
-      {navigation.preferenceError && (
-        <p className="workspace-alert" role="alert">
-          {navigation.preferenceError}
-        </p>
-      )}
-      {error && (
-        <p className="workspace-alert" role="alert">
-          <span>{error}</span>
-          <button
-            className="icon-button"
-            aria-label="关闭提示"
-            onClick={() => setError("")}
-          >
-            <Icon name="close" />
-          </button>
-        </p>
-      )}
       <div className="app-content">
-        {navigation.page === "chat" ? (
-          <ChatWorkspace
-            agent={agent}
-            model={model}
-            agents={agents}
-            agentID={agentID}
-            conversations={visibleConversations}
-            selected={selected}
-            snapshot={snapshot?.conversation.id === selected ? snapshot : null}
-            loading={loading}
-            ready={ready}
-            pending={pending}
-            input={input}
-            setInput={setInput}
-            send={send}
-            cancel={cancel}
-            selectAgent={selectAgent}
-            selectConversation={(id) => {
-              setSelected(id);
-              setAttachments([]);
-              setMaintenanceFeedback("");
-            }}
-            newConversation={newConversation}
-            onDeleted={() => {
-              setConversations((items) =>
-                items.filter((item) => item.id !== snapshot?.conversation.id),
-              );
-              setSelected("");
-              setSnapshot(null);
-              setInput("");
-              setAttachments([]);
-              setMaintenanceFeedback(
-                "会话已移出列表，清理请求已保存。模型上下文和历史将在后台清理。",
-              );
-            }}
-            onConfigure={() => navigation.navigate("settings/models")}
-            request={api}
-            connectionLost={connectionLost}
-            maintenanceFeedback={maintenanceFeedback}
-            attachments={attachments}
-            uploading={uploading}
-            onUpload={uploadFiles}
-            onRemoveAttachment={removeAttachment}
-          />
-        ) : loading ? (
-          <div className="empty-view" role="status">
-            正在读取配置…
-          </div>
-        ) : (
-          <Configuration
-            section={navigation.page.slice(9) as ConfigSection}
-            navigate={navigation.navigate}
-            request={api}
-            models={models}
-            agents={agents}
-            onSaved={refreshCatalog}
-            onStart={() => selectAgent("default")}
-            onSelectAgent={selectAgent}
-            onConversation={openChannelConversation}
-            language={language}
-          />
+        {navigation.preferenceError && (
+          <p className="workspace-alert" role="alert">
+            {navigation.preferenceError}
+          </p>
         )}
+        {error && (
+          <p className="workspace-alert" role="alert">
+            <span>{error}</span>
+            <button
+              className="icon-button"
+              aria-label="关闭提示"
+              onClick={() => setError("")}
+            >
+              <Icon name="close" />
+            </button>
+          </p>
+        )}
+        <div className="app-workspace">
+          {navigation.page === "chat" ? (
+            <ChatWorkspace
+              agent={agent}
+              model={model}
+              agents={agents}
+              agentID={agentID}
+              conversations={visibleConversations}
+              selected={selected}
+              snapshot={snapshot?.conversation.id === selected ? snapshot : null}
+              loading={loading}
+              ready={ready}
+              pending={pending}
+              input={input}
+              setInput={setInput}
+              send={send}
+              cancel={cancel}
+              selectAgent={selectAgent}
+              selectConversation={(id) => {
+                setSelected(id);
+                setAttachments([]);
+                setMaintenanceFeedback("");
+              }}
+              newConversation={newConversation}
+              onDeleted={() => {
+                setConversations((items) =>
+                  items.filter((item) => item.id !== snapshot?.conversation.id),
+                );
+                setSelected("");
+                setSnapshot(null);
+                setInput("");
+                setAttachments([]);
+                setMaintenanceFeedback(
+                  "会话已移出列表，清理请求已保存。模型上下文和历史将在后台清理。",
+                );
+              }}
+              onConfigure={() => navigation.navigate("settings/models")}
+              request={api}
+              connectionLost={connectionLost}
+              maintenanceFeedback={maintenanceFeedback}
+              attachments={attachments}
+              uploading={uploading}
+              onUpload={uploadFiles}
+              onRemoveAttachment={removeAttachment}
+            />
+          ) : loading ? (
+            <div className="empty-view" role="status">
+              正在读取配置…
+            </div>
+          ) : (
+            <Configuration
+              section={navigation.page.slice(9) as ConfigSection}
+              navigate={navigation.navigate}
+              request={api}
+              models={models}
+              agents={agents}
+              onSaved={refreshCatalog}
+              onStart={() => selectAgent("default")}
+              onSelectAgent={selectAgent}
+              onConversation={openChannelConversation}
+              language={language}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

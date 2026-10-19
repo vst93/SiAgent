@@ -1,5 +1,4 @@
 import { Icon } from "./icons";
-import { useEffect, useRef } from "react";
 import { AgentWorkspace, type Agent, type Model } from "./agents";
 import { ModelsWorkspace } from "./models";
 import { KnowledgeWorkspace } from "./knowledge";
@@ -36,39 +35,8 @@ export function Configuration({
   language: Language;
 }) {
   const current = configSections.find((item) => item.id === section)!;
-  const navRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const nav = navRef.current;
-    if (nav && nav.scrollWidth > nav.clientWidth)
-      nav
-        .querySelector<HTMLElement>('[aria-current="page"]')
-        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [section]);
   return (
     <section className="configuration-workspace" aria-label="配置工作区">
-      <aside className="configuration-sidebar">
-        <nav ref={navRef} aria-label="配置导航">
-          {configSections.map((item, index) => (
-            <div key={item.id}>
-              {(index === 0 || configSections[index - 1].group !== item.group) && (
-                <p className="nav-group-label">{item.group}</p>
-              )}
-              <a
-                href={`#/settings/${item.id}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  navigate(`settings/${item.id}`);
-                }}
-                className={`configuration-link ${section === item.id ? "selected" : ""}`}
-                aria-current={section === item.id ? "page" : undefined}
-              >
-                <Icon name={item.icon} size={18} />
-                {item.title}
-              </a>
-            </div>
-          ))}
-        </nav>
-      </aside>
       <main className="configuration-main">
         <header className="configuration-heading">
           <h1>{current.title}</h1>

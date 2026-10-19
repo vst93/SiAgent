@@ -315,6 +315,7 @@ export function ChatWorkspace({
       <aside
         id="chat-history"
         className={`chat-history-panel ${historyOpen ? "is-open" : ""}`}
+        aria-label="对话记录"
       >
         <div className="chat-history-heading">
           <span>对话记录</span>
@@ -351,8 +352,8 @@ export function ChatWorkspace({
           )}
         </nav>
         <div className="chat-sidebar-status">
-          <span className={ready ? "status-dot" : "status-dot offline"} />
-          <span>{ready ? "服务已就绪" : "服务正在恢复"}</span>
+          <Icon name="history" size={14} />
+          <span>会话保存在此实例</span>
         </div>
       </aside>
       <div className="chat-main">
@@ -409,6 +410,24 @@ export function ChatWorkspace({
                     <br />
                     对话会保存在这个实例中。
                   </p>
+                  <div className="chat-suggestions">
+                    {[
+                      "总结知识库内容",
+                      "拆解这段需求",
+                      "检查当前配置",
+                    ].map((suggestion) => (
+                      <button
+                        type="button"
+                        key={suggestion}
+                        onClick={() => {
+                          setInput(suggestion);
+                          inputRef.current?.focus();
+                        }}
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
                   {agent?.enabled === false && (
                     <p className="error">
                       {agent.archived
@@ -451,13 +470,13 @@ export function ChatWorkspace({
                                 timeZoneName: "short",
                               })}
                             >
-                              {messageTime.toLocaleString(
-                                "zh-CN",
-                                {
-                                  year: "numeric", month: "2-digit", day: "2-digit",
-                                  hour: "2-digit", minute: "2-digit", hourCycle: "h23",
-                                },
-                              )}
+                              {messageTime.toLocaleString("zh-CN", {
+                                month: "2-digit",
+                                day: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                hourCycle: "h23",
+                              })}
                             </time>
                           </div>
                           {!!message.attachments?.length && (

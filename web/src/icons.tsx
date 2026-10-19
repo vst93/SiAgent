@@ -10,12 +10,17 @@ import { DotsThreeIcon } from "@phosphor-icons/react/dist/csr/DotsThree";
 import { FileTextIcon } from "@phosphor-icons/react/dist/csr/FileText";
 import { FolderIcon } from "@phosphor-icons/react/dist/csr/Folder";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
+import { KeyIcon } from "@phosphor-icons/react/dist/csr/Key";
+import { ListIcon } from "@phosphor-icons/react/dist/csr/List";
+import { MoonIcon } from "@phosphor-icons/react/dist/csr/Moon";
+import { PackageIcon } from "@phosphor-icons/react/dist/csr/Package";
 import { PlugsConnectedIcon } from "@phosphor-icons/react/dist/csr/PlugsConnected";
 import { PlusIcon } from "@phosphor-icons/react/dist/csr/Plus";
 import { PuzzlePieceIcon } from "@phosphor-icons/react/dist/csr/PuzzlePiece";
 import { RobotIcon } from "@phosphor-icons/react/dist/csr/Robot";
 import { SignOutIcon } from "@phosphor-icons/react/dist/csr/SignOut";
 import { StarIcon } from "@phosphor-icons/react/dist/csr/Star";
+import { SunIcon } from "@phosphor-icons/react/dist/csr/Sun";
 import { ThumbsDownIcon } from "@phosphor-icons/react/dist/csr/ThumbsDown";
 import { ThumbsUpIcon } from "@phosphor-icons/react/dist/csr/ThumbsUp";
 import { TrashIcon } from "@phosphor-icons/react/dist/csr/Trash";
@@ -33,6 +38,8 @@ const icons = {
   "caret-right": CaretRightIcon,
   channels: ArrowsLeftRightIcon,
   knowledge: BooksIcon,
+  key: KeyIcon,
+  package: PackageIcon,
   chat: ChatCircleIcon,
   history: ClockCounterClockwiseIcon,
   more: DotsThreeIcon,
@@ -40,6 +47,9 @@ const icons = {
   folder: FolderIcon,
   settings: GearSixIcon,
   models: PlugsConnectedIcon,
+  menu: ListIcon,
+  moon: MoonIcon,
+  sun: SunIcon,
   plus: PlusIcon,
   plugins: PuzzlePieceIcon,
   agent: RobotIcon,
