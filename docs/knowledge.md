@@ -46,7 +46,7 @@
 | 分数 | 返回值为融合后的排序分数（越大越相关）；trace 中的候选仍显示原始 BM25（越小越相关） |
 | 查询 | 最多 500 字符、32 个去重后的有效词；管理 API 最多 10 个片段，Agent 每次最多 5 个、默认 3 个 |
 | 原文 | 管理端每次最多 12000 字符；Agent 最多 4000、默认 2000；可用 `next_offset` 继续读取 |
-| 上传 | 默认单文件 20 MiB、100 万字符、5000 个片段、PDF 1000 页；格式默认 TXT、Markdown、DOCX、文本 PDF，可用 `knowledge.allowed_extensions` 调整，见 [系统配置](configuration.md#知识库上传) |
+| 上传 | 默认单文件 20 MiB、100 万字符、5000 个片段、PDF 1000 页；格式默认 TXT、Markdown、DOCX、文本 PDF，可在“配置 → 运行与维护 → 知识库上传限制”中调整，或写入外置配置，见 [系统配置](configuration.md#知识库上传) |
 | 结构元数据 | 每个片段记录章节路径、块类型、条款标签、父片段与内容哈希；章节路径和条款标签一并写入索引 |
 
 检索测试只展示紧凑摘要：有效分词不超过 2 个时最多 140 字符，其余最多 220 字符（省略号另计），优先覆盖更多查询词；来源页保留完整片段与原文。Agent 检索仍保留最多 600 字符的摘要预算。已有索引立即使用紧凑摘要，新切片规则需对文档“重新索引”后生效，不改写历史来源。调整依据、操作与本地性能小样见 [knowledge-tuning.md](knowledge-tuning.md)。
@@ -133,11 +133,13 @@ Go 的 `internal/knowledge` 不依赖 Runtime 或 MCP。`Core` 管理生命周�
 | --- | --- |
 | `GET/POST /api/knowledge/bases` | 列表/创建 |
 | `PUT/DELETE /api/knowledge/bases/{id}` | 修改/删除知识库 |
-| `GET /api/knowledge/status` | PDF 依赖状态和限制 |
+| `GET /api/knowledge/status` | PDF 依赖状态和当前生效的上传限制 |
+| `GET/PUT /api/knowledge/limits` | 读取/保存上传限制，保存后立即生效并覆盖外置默认值 |
 | `GET/POST /api/knowledge/bases/{id}/documents` | 文档列表/单文件 multipart 上传，字段 `file` |
 | `PUT /api/knowledge/bases/{id}/documents/{document}` | 上传替换版本 |
 | `GET /api/knowledge/documents/{document}/download` | 下载当前发布的原始文件 |
 | `DELETE /api/knowledge/documents/{document}` | 删除文档/重试文件清理 |
+| `POST /api/knowledge/documents/batch-delete` | 批量删除，`{"ids":[...],"confirm":true}`，最多 200 份，逐项返回结果 |
 | `POST /api/knowledge/documents/{document}/retry` | 重试失败版本或重新索引 |
 | `POST /api/knowledge/search` | 管理员本地检索，可指定 `knowledge_ids`；`trace: true` 返回检索过程 |
 | `GET/POST /api/knowledge/bases/{id}/eval/questions` | 列出/新增评测问题 |

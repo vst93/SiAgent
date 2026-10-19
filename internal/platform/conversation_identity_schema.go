@@ -71,5 +71,8 @@ func (s *Store) migrateConversationIdentity() error {
 	if _, err := tx.Exec("DROP TABLE IF EXISTS answer_feedback; PRAGMA user_version=24;"); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateKnowledgeSettings()
 }

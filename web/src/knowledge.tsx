@@ -1160,7 +1160,7 @@ function LibraryDocuments({
                 <div role="cell" className="kb-version">
                   {doc.active_version > 0 && !doc.deleted
                     ? `v${doc.active_version}`
-                    : "—"}
+                    : "-"}
                   {doc.version !== doc.active_version && (
                     <small>最新 v{doc.version}</small>
                   )}
@@ -2515,7 +2515,7 @@ export function KnowledgeSource({
                   {source.location?.end !== undefined && (
                     <>
                       {" "}
-                      · 段内字符 {(source.location.start ?? 0) + 1}–
+                      · 段内字符 {(source.location.start ?? 0) + 1}-
                       {source.location.end}
                     </>
                   )}
@@ -2524,7 +2524,7 @@ export function KnowledgeSource({
               <section>
                 <h2>解析原文</h2>
                 <p className="muted">
-                  第 {source.offset + 1}–
+                  第 {source.offset + 1}-
                   {source.offset + Array.from(source.document_text).length}{" "}
                   字符，共 {source.total_characters.toLocaleString()}{" "}
                   字符。文档内容以文本展示。

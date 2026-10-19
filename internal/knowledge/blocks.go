@@ -604,6 +604,7 @@ func splitRunes(runes []rune) []string {
 // parseDocument returns both the pages used for source reading and the blocks
 // used for indexing.
 func (c *Core) parseDocument(ctx context.Context, path, kind string) ([]page, []block, error) {
+	limits := c.Limits()
 	if kind != "txt" && kind != "markdown" && kind != "pdf" && kind != "docx" {
 		if c.external == nil {
 			return nil, nil, invalid("该格式需要安装并启用解析扩展。")
@@ -612,8 +613,8 @@ func (c *Core) parseDocument(ctx context.Context, path, kind string) ([]page, []
 		if err != nil {
 			return nil, nil, invalid("解析扩展未能处理该文件，请检查扩展状态后重试。")
 		}
-		if utf8.RuneCountInString(text) > c.limits.MaxCharacters {
-			return nil, nil, invalid(fmt.Sprintf("提取文本超过 %d 字符上限，请拆分文档。", c.limits.MaxCharacters))
+		if utf8.RuneCountInString(text) > limits.MaxCharacters {
+			return nil, nil, invalid(fmt.Sprintf("提取文本超过 %d 字符上限，请拆分文档。", limits.MaxCharacters))
 		}
 		blocks := blocksFromPlainText(text, 1, 0)
 		assignSections(blocks)
@@ -631,7 +632,7 @@ func (c *Core) parseDocument(ctx context.Context, path, kind string) ([]page, []
 		assignSections(blocks)
 		return []page{{Text: text}}, blocks, nil
 	}
-	pages, err := parse(ctx, path, kind, c.limits)
+	pages, err := parse(ctx, path, kind, limits)
 	if err != nil {
 		return nil, nil, err
 	}

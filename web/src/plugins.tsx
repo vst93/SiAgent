@@ -418,15 +418,20 @@ function SkillDetail({
     : content;
   return (
     <section className="skill-detail" aria-label="技能详情">
-      <header>
-        <div>
+      <header className="skill-detail-head">
+        <div className="skill-title">
           <h2>{skill.name}</h2>
-          <small>
-            {skill.files.length} 个文件 ·{" "}
-            {size(skill.files.reduce((sum, file) => sum + file.size, 0))}
-          </small>
+          <p className="skill-meta">
+            <span>{skill.files.length} 个文件</span>
+            <span>{size(skill.files.reduce((sum, file) => sum + file.size, 0))}</span>
+            <span>{skill.compatibility ? "已声明运行要求" : "未声明外部依赖"}</span>
+          </p>
         </div>
-        <button onClick={onArchive}>删除技能</button>
+        <div className="skill-head-actions">
+          <button className="danger-ghost" onClick={onArchive}>
+            删除技能
+          </button>
+        </div>
       </header>
       <p className="skill-description">{skill.description}</p>
       <LinkedAgents request={request} kind="skills" id={skill.id} />
@@ -446,13 +451,26 @@ function SkillDetail({
       </details>
       <div className="skill-resource-browser">
         <nav className="skill-file-tree" aria-label="技能文件">
-          <SkillTree node={tree} selected={path} onSelect={setPath} />
+          <header className="skill-pane-head">
+            <span>文件</span>
+            <span>{skill.files.length}</span>
+          </header>
+          <div className="skill-file-tree-scroll">
+            <SkillTree node={tree} selected={path} onSelect={setPath} />
+          </div>
         </nav>
         <section className="skill-file-preview">
-          <header>
-            <strong>{path}</strong>
-            <span>{resource ? size(resource.size) : ""}</span>
-            <div className="skill-file-actions">
+          <header className="skill-pane-head">
+            <div className="skill-file-path">
+              <Icon name="file" size={16} />
+              <strong title={path}>{path}</strong>
+              {resource && <span>{size(resource.size)}</span>}
+            </div>
+            <div
+              className="skill-file-actions"
+              role="group"
+              aria-label="文件视图"
+            >
               <button
                 type="button"
                 aria-pressed={mode === "preview"}
@@ -470,60 +488,67 @@ function SkillDetail({
               </button>
             </div>
           </header>
-          {error ? (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          ) : resource && resource.size > 128000 ? (
-            <p className="muted">文件已保存，超过 128 KB 文本预览上限。</p>
-          ) : content === null ? (
-            <p className="muted" role="status">
-              正在读取文件…
-            </p>
-          ) : mode === "edit" ? (
-            <div className="skill-file-editor">
-              <textarea
-                aria-label={`编辑 ${path}`}
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                spellCheck={false}
-                maxLength={path === "SKILL.md" ? 64000 : 128000}
-                disabled={saving}
-              />
-              {saveError && (
-                <p className="error" role="alert">
-                  {saveError}
-                </p>
-              )}
-              <div className="form-actions">
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={saving || draft === content}
-                  onClick={() => void save()}
-                >
-                  {saving ? "正在保存…" : "保存文件"}
-                </button>
-                <button
-                  type="button"
+          <div className="skill-file-body">
+            {error ? (
+              <p className="error skill-file-message" role="alert">
+                {error}
+              </p>
+            ) : resource && resource.size > 128000 ? (
+              <p className="muted skill-file-message">
+                文件已保存，超过 128 KB 文本预览上限。
+              </p>
+            ) : content === null ? (
+              <p className="muted skill-file-message" role="status">
+                正在读取文件…
+              </p>
+            ) : mode === "edit" ? (
+              <div className="skill-file-editor">
+                <textarea
+                  aria-label={`编辑 ${path}`}
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  spellCheck={false}
+                  maxLength={path === "SKILL.md" ? 64000 : 128000}
                   disabled={saving}
-                  onClick={() => {
-                    setDraft(content);
-                    setSaveError("");
-                    setMode("preview");
-                  }}
-                >
-                  取消
-                </button>
+                />
+                {saveError && (
+                  <p className="error skill-file-message" role="alert">
+                    {saveError}
+                  </p>
+                )}
+                <div className="skill-editor-actions">
+                  <span className="muted">
+                    {draft.length.toLocaleString()} 字符
+                  </span>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => {
+                      setDraft(content);
+                      setSaveError("");
+                      setMode("preview");
+                    }}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={saving || draft === content}
+                    onClick={() => void save()}
+                  >
+                    {saving ? "正在保存…" : "保存文件"}
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : markdown ? (
-            <div className="skill-markdown-preview">
-              <MessageMarkdown content={preview || ""} />
-            </div>
-          ) : (
-            <pre>{content}</pre>
-          )}
+            ) : markdown ? (
+              <div className="skill-markdown-preview">
+                <MessageMarkdown content={preview || ""} />
+              </div>
+            ) : (
+              <pre>{content}</pre>
+            )}
+          </div>
         </section>
       </div>
     </section>

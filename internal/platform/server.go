@@ -55,7 +55,6 @@ type Server struct {
 	stopping              bool
 	advancedToolsDisabled bool
 	apiRate               map[string]*rateWindow
-	knowledgeLimits       knowledge.Limits
 	apiRateMu             sync.Mutex
 	lastStatus            time.Time
 	restarting            bool
@@ -79,7 +78,7 @@ func New(store *Store, runtime Runtime, ready func() bool, publicURL string, opt
 			knowledgeLimits = options[0].Knowledge.Normalize()
 		}
 	}
-	s := &Server{pendingTests: make(map[string]chan agentruntime.Event), schedulerCtx: context.Background(), store: store, runtime: runtime, ready: ready, publicURL: strings.TrimRight(publicURL, "/"), configuredLimits: configuredLimits, attachmentLimits: attachmentLimits, knowledgeLimits: knowledgeLimits, limits: configuredLimits}
+	s := &Server{pendingTests: make(map[string]chan agentruntime.Event), schedulerCtx: context.Background(), store: store, runtime: runtime, ready: ready, publicURL: strings.TrimRight(publicURL, "/"), configuredLimits: configuredLimits, attachmentLimits: attachmentLimits, limits: configuredLimits}
 	s.advancedToolsDisabled = advancedToolsDisabledConfig(options)
 	s.channelConnections.values = make(map[string]channelConnection)
 	s.channelTests = make(map[string]bool)
@@ -106,6 +105,9 @@ func New(store *Store, runtime Runtime, ready func() bool, publicURL string, opt
 		return nil, err
 	}
 	s.limits = limits
+	if knowledgeLimits, err = s.loadKnowledgeLimits(knowledgeLimits); err != nil {
+		return nil, err
+	}
 	core, err := knowledge.New(store.db, store.directory, knowledgeLimits)
 	if err != nil {
 		return nil, err
@@ -261,6 +263,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/knowledge/bases/{id}", s.authorize(http.HandlerFunc(s.saveKnowledge)))
 	mux.Handle("DELETE /api/knowledge/bases/{id}", s.authorize(http.HandlerFunc(s.deleteKnowledge)))
 	mux.Handle("GET /api/knowledge/status", s.authorize(http.HandlerFunc(s.knowledgeStatus)))
+	mux.Handle("GET /api/knowledge/limits", s.authorize(http.HandlerFunc(s.getKnowledgeLimits)))
+	mux.Handle("PUT /api/knowledge/limits", s.authorize(http.HandlerFunc(s.saveKnowledgeLimits)))
 	mux.Handle("GET /api/knowledge/bases/{id}/documents", s.authorize(http.HandlerFunc(s.listDocuments)))
 	mux.Handle("POST /api/knowledge/bases/{id}/documents", s.authorize(http.HandlerFunc(s.uploadDocument)))
 	mux.Handle("PUT /api/knowledge/bases/{id}/documents/{document}", s.authorize(http.HandlerFunc(s.uploadDocument)))

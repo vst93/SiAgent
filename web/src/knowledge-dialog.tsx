@@ -57,7 +57,7 @@ export function KnowledgeDialog({
           <Icon name="close" />
         </button>
       </header>
-      {children}
+      <div className="kb-dialog-body">{children}</div>
     </dialog>
   );
 }

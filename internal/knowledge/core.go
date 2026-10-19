@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -62,6 +63,7 @@ type Core struct {
 	reranker Reranker
 	external func(context.Context, string, string) (string, error)
 	wake     chan struct{}
+	limitsMu sync.RWMutex
 	limits   Limits
 }
 
@@ -401,9 +403,10 @@ func (c *Core) Upload(ctx context.Context, baseID, documentID, filename string, 
 	if filename == "." || filename == "" || len(filename) > 240 {
 		return Document{}, invalid("文件名无效，最多 240 字节。")
 	}
-	kind, allowed := c.limits.Accepts(filename)
+	limits := c.Limits()
+	kind, allowed := limits.Accepts(filename)
 	if !allowed {
-		return Document{}, invalid("当前知识库允许的格式为 " + c.limits.Description() + "；如需其他格式请安装并启用解析扩展，或由管理员调整 knowledge.allowed_extensions。")
+		return Document{}, invalid("当前知识库允许的格式为 " + limits.Description() + "；如需其他格式请安装并启用解析扩展，或由管理员调整上传限制。")
 	}
 	staging := filepath.Join(c.root, "staging", rand.Text())
 	if err := os.Mkdir(staging, 0700); err != nil {
@@ -414,7 +417,7 @@ func (c *Core) Upload(ctx context.Context, baseID, documentID, filename string, 
 	if err != nil {
 		return Document{}, err
 	}
-	size, err := io.Copy(file, io.LimitReader(reader, c.limits.MaxUploadBytes+1))
+	size, err := io.Copy(file, io.LimitReader(reader, limits.MaxUploadBytes+1))
 	if err == nil {
 		err = file.Sync()
 	}
@@ -425,8 +428,8 @@ func (c *Core) Upload(ctx context.Context, baseID, documentID, filename string, 
 	if closeErr != nil {
 		return Document{}, closeErr
 	}
-	if size > c.limits.MaxUploadBytes {
-		return Document{}, tooLarge(fmt.Sprintf("单个文件不能超过 %s。", HumanSize(c.limits.MaxUploadBytes)))
+	if size > limits.MaxUploadBytes {
+		return Document{}, tooLarge(fmt.Sprintf("单个文件不能超过 %s。", HumanSize(limits.MaxUploadBytes)))
 	}
 	if size == 0 {
 		return Document{}, invalid("文件为空，请选择包含内容的文档。")
@@ -742,7 +745,7 @@ func (c *Core) build(ctx context.Context, id string, version int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	chunks, characters, err := chunkBlocks(id, version, blocks, c.limits)
+	chunks, characters, err := chunkBlocks(id, version, blocks, c.Limits())
 	if err != nil {
 		return err
 	}
@@ -818,6 +821,21 @@ func (c *Core) build(ctx context.Context, id string, version int) error {
 }
 
 // DescribeDependencies does not expose filesystem paths or document content.
+// Limits returns the active upload limits. Administrators may change them while
+// the service runs, so every read takes a snapshot.
+func (c *Core) Limits() Limits {
+	c.limitsMu.RLock()
+	defer c.limitsMu.RUnlock()
+	return c.limits
+}
+
+func (c *Core) SetLimits(limits Limits) {
+	c.limitsMu.Lock()
+	c.limits = limits.Normalize()
+	c.limitsMu.Unlock()
+}
+
 func (c *Core) DescribeDependencies() map[string]any {
-	return map[string]any{"provider": "sqlite-fts5", "tokenizer": "gse@1.1.0", "pdf_available": pdfAvailable(), "max_file_bytes": c.limits.MaxUploadBytes, "max_characters": c.limits.MaxCharacters, "max_chunks": c.limits.MaxChunks, "max_pdf_pages": c.limits.MaxPDFPages, "allowed_extensions": c.limits.Extensions, "allowed_formats": c.limits.Description()}
+	limits := c.Limits()
+	return map[string]any{"provider": "sqlite-fts5", "tokenizer": "gse@1.1.0", "pdf_available": pdfAvailable(), "max_file_bytes": limits.MaxUploadBytes, "max_characters": limits.MaxCharacters, "max_chunks": limits.MaxChunks, "max_pdf_pages": limits.MaxPDFPages, "allowed_extensions": limits.Extensions, "allowed_formats": limits.Description(), "allow_parser_extensions": limits.ExtendWithParsers}
 }

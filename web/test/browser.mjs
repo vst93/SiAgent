@@ -517,6 +517,24 @@ try {
       .count(),
     0,
   );
+  // Knowledge upload limits live on this page and apply without a restart.
+  await page.getByRole("heading", { name: "知识库上传限制", exact: true }).waitFor();
+  const fileLimit = page.getByLabel("单文件上限（MiB）", { exact: true });
+  assert.equal(await fileLimit.inputValue(), "20");
+  await fileLimit.fill("25");
+  await page.getByRole("button", { name: "保存上传限制", exact: true }).click();
+  await page.getByText("上传限制已保存", { exact: false }).waitFor();
+  assert.equal(
+    await page.evaluate(() =>
+      fetch("/api/knowledge/status")
+        .then((response) => response.json())
+        .then((status) => status.max_file_bytes),
+    ),
+    26214400,
+  );
+  await page.getByRole("button", { name: "恢复默认", exact: true }).click();
+  await page.getByText("已恢复默认上传限制", { exact: false }).waitFor();
+  assert.equal(await fileLimit.inputValue(), "20");
   await page.screenshot({
     path: join(artifacts, "updates-desktop.png"),
     fullPage: true,
@@ -714,6 +732,16 @@ try {
   await page
     .locator(".skill-file-preview pre")
     .filter({ hasText: "No dependencies" })
+    .waitFor();
+  // The redesigned detail pane keeps the file actions usable while editing.
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await page
+    .getByLabel("编辑 requirements.txt", { exact: true })
+    .fill("Edited dependency note.\n");
+  await page.getByRole("button", { name: "保存文件", exact: true }).click();
+  await page
+    .locator(".skill-file-preview pre")
+    .filter({ hasText: "Edited dependency note." })
     .waitFor();
   await page.getByRole("tab", { name: "MCP 工具服务", exact: true }).click();
   assert.equal(

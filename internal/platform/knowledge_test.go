@@ -370,6 +370,8 @@ func TestBatchDeleteDocumentsDeletesSelectedAndReportsMissing(t *testing.T) {
 	}
 }
 
+func defaultKnowledgeLimitsForTest() int64 { return 20 << 20 }
+
 func TestKnowledgeUploadLimitsAndFormatsAreConfigurable(t *testing.T) {
 	limits := knowledge.Limits{MaxUploadBytes: 1 << 20, Extensions: []string{"txt"}, MaxCharacters: 2000, MaxChunks: 10, MaxPDFPages: 5}
 	f := newFixture(t, ServerOptions{Knowledge: &limits})
@@ -412,4 +414,56 @@ func TestKnowledgeUploadLimitsAndFormatsAreConfigurable(t *testing.T) {
 	var document knowledge.Document
 	json.Unmarshal(response.Body.Bytes(), &document)
 	waitDocument(t, f, document.ID)
+}
+
+func TestKnowledgeLimitsUpdateFromSettingsPageApplyImmediately(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	knowledgeWorker(t, f)
+	response := f.request(t, "GET", "/api/knowledge/limits", nil, true, nil)
+	requireStatus(t, response, 200)
+	var limits knowledgeLimitSettings
+	if err := json.Unmarshal(response.Body.Bytes(), &limits); err != nil {
+		t.Fatal(err)
+	}
+	if limits.MaxFileBytes != defaultKnowledgeLimitsForTest() {
+		t.Fatalf("unexpected defaults: %s", response.Body.String())
+	}
+	// Out-of-range values are rejected and leave the active limits untouched.
+	if err := json.Unmarshal([]byte(`{"max_file_bytes":1024}`), &limits); err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, f.request(t, "PUT", "/api/knowledge/limits", limits, true, nil), 400)
+	response = f.request(t, "GET", "/api/knowledge/status", nil, true, nil)
+	requireStatus(t, response, 200)
+	var status struct {
+		MaxFileBytes int64 `json:"max_file_bytes"`
+	}
+	json.Unmarshal(response.Body.Bytes(), &status)
+	if status.MaxFileBytes != defaultKnowledgeLimitsForTest() {
+		t.Fatal("invalid update changed the active limits")
+	}
+	// A valid update applies without restarting: formats and size change at once.
+	update := knowledgeLimitSettings{MaxFileBytes: 2 << 20, MaxCharacters: 2000, MaxChunks: 10, MaxPDFPages: 5, AllowedExtensions: []string{"txt", "markdown"}}
+	response = f.request(t, "PUT", "/api/knowledge/limits", update, true, nil)
+	requireStatus(t, response, 200)
+	response = f.request(t, "POST", "/api/knowledge/bases", map[string]string{"name": "Live limits", "description": ""}, true, nil)
+	requireStatus(t, response, 201)
+	var base knowledge.Base
+	json.Unmarshal(response.Body.Bytes(), &base)
+	response = f.uploadKnowledge(t, base.ID, "guide.pdf", "%PDF-1.4", true)
+	requireStatus(t, response, 400)
+	// The saved limit accepts a 1.5 MiB document; processing then rejects it for
+	// exceeding the saved character budget, so the upload itself is admitted.
+	response = f.uploadKnowledge(t, base.ID, "large.md", strings.Repeat("x", (3<<19)), true)
+	requireStatus(t, response, 202)
+	// The saved values survive a new server instance.
+	restarted, err := New(f.store, f.runtime, func() bool { return true }, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := restarted.knowledge.Limits()
+	if active.MaxUploadBytes != 2<<20 || len(active.Extensions) != 2 || active.ExtendWithParsers {
+		t.Fatalf("saved limits not restored: %+v", active)
+	}
 }

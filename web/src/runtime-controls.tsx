@@ -4,6 +4,237 @@ import { Icon } from "./icons";
 import { ToolCallDetails } from "./capabilities";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
+type KnowledgeLimits = {
+  max_file_bytes: number;
+  max_characters: number;
+  max_chunks: number;
+  max_pdf_pages: number;
+  allowed_extensions: string[];
+  extend_with_parsers: boolean;
+};
+const builtinFormats: { key: string; label: string }[] = [
+  { key: "txt", label: "TXT" },
+  { key: "markdown", label: "Markdown" },
+  { key: "pdf", label: "PDF" },
+  { key: "docx", label: "DOCX" },
+];
+const megabyte = 1024 * 1024;
+
+function KnowledgeUploadSettings({ request }: { request: Api }) {
+  const [value, setValue] = useState<KnowledgeLimits | null>(null);
+  const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState("");
+  const [pending, setPending] = useState(false);
+  useEffect(() => {
+    void request<KnowledgeLimits>("/knowledge/limits")
+      .then(setValue)
+      .catch((error) => setError(message(error)));
+  }, []);
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!value) return;
+    if (!value.allowed_extensions.length && !value.extend_with_parsers) {
+      setError("请至少选择一种允许的上传格式，或允许解析扩展格式。");
+      setFeedback("");
+      return;
+    }
+    setPending(true);
+    setError("");
+    setFeedback("");
+    try {
+      setValue(await request<KnowledgeLimits>("/knowledge/limits", "PUT", value));
+      setFeedback("上传限制已保存，立即作用于新的上传与重新索引。");
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending(false);
+    }
+  }
+  async function restore() {
+    setPending(true);
+    setError("");
+    setFeedback("");
+    try {
+      setValue(await request<KnowledgeLimits>("/knowledge/limits", "PUT", {}));
+      setFeedback("已恢复默认上传限制。");
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setPending(false);
+    }
+  }
+  const toggleFormat = (key: string) => {
+    if (!value) return;
+    const active = value.allowed_extensions.includes(key);
+    setValue({
+      ...value,
+      allowed_extensions: active
+        ? value.allowed_extensions.filter((item) => item !== key)
+        : [...value.allowed_extensions, key],
+    });
+  };
+  const extra = value
+    ? value.allowed_extensions.filter(
+        (item) => !builtinFormats.some((format) => format.key === item),
+      )
+    : [];
+  return (
+    <section className="settings-section" aria-labelledby="knowledge-limits-title">
+      <header className="settings-section-head">
+        <div>
+          <h2 id="knowledge-limits-title">知识库上传限制</h2>
+          <p>
+            控制新上传和重新索引时接受的文档。单文件上限越大，解析耗时、内存与磁盘占用越高；PDF
+            另受页数限制。
+          </p>
+        </div>
+      </header>
+      {value && (
+        <form onSubmit={save}>
+          <div className="limits-grid">
+            <label>
+              单文件上限（MiB）
+              <input
+                type="number"
+                min={1}
+                max={1024}
+                step={1}
+                required
+                value={Math.round(value.max_file_bytes / megabyte)}
+                onChange={(event) =>
+                  setValue({
+                    ...value,
+                    max_file_bytes: Number(event.target.value) * megabyte,
+                  })
+                }
+              />
+            </label>
+            <label>
+              单文档字符上限
+              <input
+                type="number"
+                min={1000}
+                max={50000000}
+                step={1000}
+                required
+                value={value.max_characters}
+                onChange={(event) =>
+                  setValue({
+                    ...value,
+                    max_characters: Number(event.target.value),
+                  })
+                }
+              />
+            </label>
+            <label>
+              单文档片段上限
+              <input
+                type="number"
+                min={1}
+                max={200000}
+                step={1}
+                required
+                value={value.max_chunks}
+                onChange={(event) =>
+                  setValue({
+                    ...value,
+                    max_chunks: Number(event.target.value),
+                  })
+                }
+              />
+            </label>
+            <label>
+              PDF 页数上限
+              <input
+                type="number"
+                min={1}
+                max={10000}
+                step={1}
+                required
+                value={value.max_pdf_pages}
+                onChange={(event) =>
+                  setValue({
+                    ...value,
+                    max_pdf_pages: Number(event.target.value),
+                  })
+                }
+              />
+            </label>
+          </div>
+          <fieldset className="format-grid">
+            <legend>允许的上传格式</legend>
+            {builtinFormats.map((format) => (
+              <label className="checkbox-label" key={format.key}>
+                <input
+                  type="checkbox"
+                  checked={value.allowed_extensions.includes(format.key)}
+                  onChange={() => toggleFormat(format.key)}
+                />
+                {format.label}
+              </label>
+            ))}
+          </fieldset>
+          <label>
+            解析扩展格式（逗号分隔）
+            <input
+              value={extra.join(", ")}
+              placeholder="例如 xlsx, epub"
+              onChange={(event) =>
+                setValue({
+                  ...value,
+                  allowed_extensions: [
+                    ...value.allowed_extensions.filter((item) =>
+                      builtinFormats.some((format) => format.key === item),
+                    ),
+                    ...event.target.value
+                      .split(",")
+                      .map((item) => item.trim().replace(/^\./, "").toLowerCase())
+                      .filter(Boolean),
+                  ],
+                })
+              }
+            />
+          </label>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={value.extend_with_parsers}
+              onChange={(event) =>
+                setValue({
+                  ...value,
+                  extend_with_parsers: event.target.checked,
+                })
+              }
+            />
+            同时接受已启用解析扩展声明的其他格式
+          </label>
+          <p className="muted">
+            显式列出的格式就是全部允许范围；勾选上一项时，安装并启用的解析扩展可自动增加格式。未列出的文件会在解析前被拒绝。
+          </p>
+          <div className="form-actions">
+            <button className="primary" disabled={pending}>
+              {pending ? "正在保存…" : "保存上传限制"}
+            </button>
+            <button type="button" disabled={pending} onClick={() => void restore()}>
+              恢复默认
+            </button>
+          </div>
+        </form>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {feedback && (
+        <p className="success" role="status">
+          {feedback}
+        </p>
+      )}
+    </section>
+  );
+}
+
 type Limits = {
   concurrent: number;
   conversation_queue: number;
@@ -239,6 +470,7 @@ export function ExecutionSettings({ request }: { request: Api }) {
             </small>
           </section>
         )}
+        <KnowledgeUploadSettings request={request} />
         {limits && (
           <form onSubmit={save}>
             <div className="limits-grid">

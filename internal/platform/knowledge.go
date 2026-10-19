@@ -76,7 +76,8 @@ func (s *Server) listDocuments(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, values)
 }
 func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, s.knowledgeLimits.MaxUploadBytes+(1<<20))
+	limits := s.knowledge.Limits()
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxUploadBytes+(1<<20))
 	reader, err := r.MultipartReader()
 	if err != nil {
 		fail(w, 400, "请选择要上传的文档。")
@@ -88,8 +89,8 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer part.Close()
-	if !s.uploadExtensionAllowed(part.FileName()) {
-		fail(w, 400, s.uploadExtensionMessage(part.FileName()))
+	if !s.uploadExtensionAllowed(part.FileName(), limits) {
+		fail(w, 400, s.uploadExtensionMessage(part.FileName(), limits))
 		return
 	}
 	if r.PathValue("document") != "" && r.URL.Query().Get("force") != "1" && s.evalGateBlocked(r.Context(), r.PathValue("id")) {
@@ -100,7 +101,7 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var maxBytes *http.MaxBytesError
 		if errors.As(err, &maxBytes) {
-			fail(w, 413, "文件超过 "+knowledge.HumanSize(s.knowledgeLimits.MaxUploadBytes)+" 上限。")
+			fail(w, 413, "文件超过 "+knowledge.HumanSize(limits.MaxUploadBytes)+" 上限。")
 			return
 		}
 		knowledgeError(w, err)
@@ -113,8 +114,8 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 // uploadExtensionAllowed reports whether the deployment accepts this format and
 // a parser exists for it: a built-in one for the default extensions, or an
 // installed parser extension for anything else.
-func (s *Server) uploadExtensionAllowed(filename string) bool {
-	kind, ok := s.knowledgeLimits.Accepts(filename)
+func (s *Server) uploadExtensionAllowed(filename string, limits knowledge.Limits) bool {
+	kind, ok := limits.Accepts(filename)
 	if !ok {
 		return false
 	}
@@ -126,9 +127,9 @@ func (s *Server) uploadExtensionAllowed(filename string) bool {
 	return ok
 }
 
-func (s *Server) uploadExtensionMessage(filename string) string {
-	if _, allowed := s.knowledgeLimits.Accepts(filename); !allowed {
-		return "当前知识库允许的格式为 " + s.knowledgeLimits.Description() + "；管理员可通过 knowledge.allowed_extensions 调整。"
+func (s *Server) uploadExtensionMessage(filename string, limits knowledge.Limits) string {
+	if _, allowed := limits.Accepts(filename); !allowed {
+		return "当前知识库允许的格式为 " + limits.Description() + "；管理员可在“运行与维护”中调整上传限制。"
 	}
 	return "该文件格式需要先在“扩展”中安装并启用解析扩展。"
 }
@@ -142,6 +143,37 @@ func (s *Server) downloadDocument(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": document.Filename}))
 	http.ServeContent(w, r, document.Filename, time.UnixMilli(document.Updated), file)
+}
+
+func (s *Server) getKnowledgeLimits(w http.ResponseWriter, r *http.Request) {
+	respond(w, 200, knowledgeSettingsFrom(s.knowledge.Limits()))
+}
+
+// saveKnowledgeLimits applies changes immediately: uploads and parsing use the
+// new values without a restart, and an invalid combination is rejected before
+// anything is persisted.
+func (s *Server) saveKnowledgeLimits(w http.ResponseWriter, r *http.Request) {
+	var input knowledgeLimitSettings
+	if !decode(w, r, &input) {
+		return
+	}
+	limits := input.Limits()
+	if err := limits.Validate(); err != nil {
+		fail(w, 400, "知识库上传限制无效："+err.Error())
+		return
+	}
+	limits = limits.Normalize()
+	raw, _ := json.Marshal(knowledgeSettingsFrom(limits))
+	s.mu.Lock()
+	_, err := s.store.db.Exec("INSERT INTO knowledge_settings VALUES(1,?) ON CONFLICT(id) DO UPDATE SET config=excluded.config", string(raw))
+	s.mu.Unlock()
+	if err != nil {
+		internal(w)
+		return
+	}
+	s.knowledge.SetLimits(limits)
+	s.audit("knowledge.limits.update", "", limits.Description())
+	respond(w, 200, knowledgeSettingsFrom(limits))
 }
 
 func (s *Server) deleteDocument(w http.ResponseWriter, r *http.Request) {
