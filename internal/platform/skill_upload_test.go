@@ -235,3 +235,30 @@ func TestSkillUploadCleansAbandonedStagingOnOpen(t *testing.T) {
 		t.Fatal("published skill was removed", err)
 	}
 }
+
+func TestSkillFileCanBeEditedAndMetadataUpdated(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	content := []byte("---\nname: editable\ndescription: Before.\n---\nOld body.\n")
+	response := f.skillUpload(t, "SKILL.md", content, true)
+	requireStatus(t, response, 201)
+	var skill Skill
+	if err := json.Unmarshal(response.Body.Bytes(), &skill); err != nil {
+		t.Fatal(err)
+	}
+	updatedContent := "---\nname: editable\ndescription: After.\ncompatibility: Node 24\n---\nNew **body**.\n"
+	response = f.request(t, "PUT", "/api/skills/"+skill.ID+"/files/SKILL.md", map[string]string{"content": updatedContent}, true, nil)
+	requireStatus(t, response, 200)
+	var updated Skill
+	if err := json.Unmarshal(response.Body.Bytes(), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Description != "After." || updated.Compatibility != "Node 24" || updated.Content != "New **body**.\n" {
+		t.Fatalf("metadata not updated: %+v", updated)
+	}
+	raw, err := os.ReadFile(filepath.Join(f.directory, "skills", skill.ID, "SKILL.md"))
+	if err != nil || string(raw) != updatedContent {
+		t.Fatal("file content not updated", err)
+	}
+	requireStatus(t, f.request(t, "PUT", "/api/skills/"+skill.ID+"/files/missing.md", map[string]string{"content": "x"}, true, nil), 404)
+}

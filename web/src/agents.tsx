@@ -6,6 +6,7 @@ import {
 import { Icon } from "./icons";
 import { CapabilitySettings } from "./capabilities";
 import { KnowledgeBindings } from "./knowledge-bindings";
+import { MessageMarkdown } from "./message-markdown";
 import { FormEvent, useState } from "react";
 export type ModelOptions = {
   display_name: string;
@@ -75,6 +76,7 @@ export function AgentWorkspace({
   const [pending, setPending] = useState(false);
   const [advancedConfirmed, setAdvancedConfirmed] = useState(false);
   const [fallbackPick, setFallbackPick] = useState("");
+  const [instructionsPreview, setInstructionsPreview] = useState(false);
   const savedAgent = agents.find((agent) => agent.id === editor.id);
   const advancedNeedsConfirm =
     editor.policy.advanced_tools &&
@@ -372,19 +374,49 @@ export function AgentWorkspace({
                         </button>
                       </div>
                     </div>
-                    <label htmlFor="agent-role">角色指令</label>
-                    <textarea
-                      id="agent-role"
-                      rows={6}
-                      maxLength={20000}
-                      value={editor.instructions}
-                      onChange={(event) =>
-                        setEditor({
-                          ...editor,
-                          instructions: event.target.value,
-                        })
-                      }
-                    />
+                    <div className="markdown-field">
+                      <div className="markdown-field-head">
+                        <label htmlFor="agent-role">角色指令</label>
+                        <div className="markdown-field-tabs" role="group" aria-label="角色指令编辑模式">
+                          <button
+                            type="button"
+                            aria-pressed={!instructionsPreview}
+                            onClick={() => setInstructionsPreview(false)}
+                          >
+                            编辑
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={instructionsPreview}
+                            onClick={() => setInstructionsPreview(true)}
+                          >
+                            预览
+                          </button>
+                        </div>
+                      </div>
+                      {instructionsPreview ? (
+                        <div className="markdown-preview agent-instructions-preview">
+                          <MessageMarkdown
+                            content={
+                              editor.instructions || "尚未填写角色指令。"
+                            }
+                          />
+                        </div>
+                      ) : (
+                        <textarea
+                          id="agent-role"
+                          rows={8}
+                          maxLength={20000}
+                          value={editor.instructions}
+                          onChange={(event) =>
+                            setEditor({
+                              ...editor,
+                              instructions: event.target.value,
+                            })
+                          }
+                        />
+                      )}
+                    </div>
                     <label>
                       时区
                       <input

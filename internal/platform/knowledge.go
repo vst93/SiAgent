@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
@@ -123,6 +124,17 @@ func (s *Server) uploadExtensionSupported(filename string) bool {
 	}
 	_, ok := s.plugins.ParserFor(extension)
 	return ok
+}
+
+func (s *Server) downloadDocument(w http.ResponseWriter, r *http.Request) {
+	file, document, err := s.knowledge.Download(r.Context(), r.PathValue("document"))
+	if err != nil {
+		knowledgeError(w, err)
+		return
+	}
+	defer file.Close()
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": document.Filename}))
+	http.ServeContent(w, r, document.Filename, time.UnixMilli(document.Updated), file)
 }
 
 func (s *Server) deleteDocument(w http.ResponseWriter, r *http.Request) {

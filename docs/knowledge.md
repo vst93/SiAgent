@@ -5,7 +5,7 @@
 ## 使用流程
 
 1. 在顶部“配置 → 知识库”中，点击“新建知识库”，填写名称与说明。多个库通过顶部选择器切换。
-2. 在“文档管理”点击“上传文档”，可一次选择多个 UTF-8 TXT、Markdown、DOCX 或可提取文本的 PDF；客户端支持一次多选，也可通过“继续添加文件”分多次追加，逐个提交，单个文件失败不会阻止其余文件，等待状态变为“可检索”。切到“检索测试”直接查询本地索引，不调用模型。
+2. 在“文档管理”点击“上传文档”，可一次选择多个 UTF-8 TXT、Markdown、DOCX 或可提取文本的 PDF；客户端支持一次多选，也可通过“继续添加文件”分多次追加，逐个提交，单个文件失败不会阻止其余文件，等待状态变为“可检索”。文档列表显示最后修改时间，并可下载当前发布的原始文件。切到“检索测试”直接查询本地索引，不调用模型。
 3. 配置模型后，在“配置 → Agent”选择目标助手，打开“知识库关联”并选择范围，确认检索内容可以发送给当前模型服务，再保存关联。
 4. 回到对话，让助手查询资料。助手有 `knowledge_search`、`knowledge_read` 两个工具；回答下方会列出该轮实际检索或读取过的来源。点击可查看不可变版本的片段与分页解析原文。
 5. 文档列表可搜索名称、筛选状态，点击名称查看详情与已发布原文。行末“•••”菜单提供“替换文件”“重新索引”“重试处理”与确认删除；知识库编辑/删除位于顶部“管理知识库”。处理失败可重试，也可上传修正后的版本。
@@ -135,6 +135,7 @@ Go 的 `internal/knowledge` 不依赖 Runtime 或 MCP。`Core` 管理生命周�
 | `GET /api/knowledge/status` | PDF 依赖状态和限制 |
 | `GET/POST /api/knowledge/bases/{id}/documents` | 文档列表/单文件 multipart 上传，字段 `file` |
 | `PUT /api/knowledge/bases/{id}/documents/{document}` | 上传替换版本 |
+| `GET /api/knowledge/documents/{document}/download` | 下载当前发布的原始文件 |
 | `DELETE /api/knowledge/documents/{document}` | 删除文档/重试文件清理 |
 | `POST /api/knowledge/documents/{document}/retry` | 重试失败版本或重新索引 |
 | `POST /api/knowledge/search` | 管理员本地检索，可指定 `knowledge_ids`；`trace: true` 返回检索过程 |

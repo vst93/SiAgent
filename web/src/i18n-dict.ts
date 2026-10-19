@@ -701,6 +701,22 @@ export const exact: Record<string, string> = {
   "继续添加文件": "Add more files",
   "可一次选择多个文件，系统会逐个上传并建立索引。": "You can select multiple files at once; SiAgent uploads and indexes them one by one.",
   "正在上传": "Uploading",
+  "最后修改": "Last modified",
+  "下载原文件": "Download original",
+  "删除技能": "Delete Skill",
+  "确认删除": "Confirm delete",
+  "关联 Agent": "Linked Agents",
+  "尚未关联 Agent。": "No linked Agents.",
+  "取消关联": "Unlink",
+  "全选": "Select all",
+  "全不选": "Deselect all",
+  "全选工具": "Select all tools",
+  "清空": "Clear",
+  "批量授权": "Bulk authorization",
+  "保存文件": "Save file",
+  "预览": "Preview",
+  "编辑": "Edit",
+  "文件已保存，超过 128 KB 文本预览上限。": "File saved; it exceeds the 128 KB text preview limit.",
 };
 
 export const terms: [string, string][] = [

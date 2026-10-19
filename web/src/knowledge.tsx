@@ -23,6 +23,7 @@ type Document = {
   chunks: number;
   deleted: boolean;
   cleanup_pending: boolean;
+  updated: number;
 };
 export type KnowledgeHit = {
   source_id: string;
@@ -143,6 +144,15 @@ const size = (bytes: number) =>
   bytes >= 1048576
     ? `${(bytes / 1048576).toFixed(1)} MiB`
     : `${(bytes / 1024).toFixed(1)} KiB`;
+const modifiedTime = (value: number) =>
+  new Date(value).toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
 
 function DeleteDialog({
   title,
@@ -984,6 +994,7 @@ function LibraryDocuments({
                   <small>
                     {size(doc.size)}
                     {doc.state === "ready" ? ` · ${doc.chunks} 个片段` : ""}
+                    {` · 最后修改 ${modifiedTime(doc.updated)}`}
                   </small>
                   {doc.error && (
                     <p className="kb-row-error" title={doc.error}>
@@ -1031,6 +1042,17 @@ function LibraryDocuments({
                       <button onClick={() => setDetail(doc.id)}>
                         文档详情
                       </button>
+                      {!doc.deleted && doc.active_version > 0 && (
+                        <a
+                          className="kb-download"
+                          href={appURL(
+                            `/api/knowledge/documents/${doc.id}/download`,
+                          )}
+                          download
+                        >
+                          下载原文件
+                        </a>
+                      )}
                       {!doc.deleted && (
                         <>
                           <button
@@ -1188,6 +1210,8 @@ function LibraryDocuments({
                   ? `v${selectedDoc.active_version}`
                   : "尚未发布"}
             </dd>
+            <dt>最后修改</dt>
+            <dd>{modifiedTime(selectedDoc.updated)}</dd>
             <dt>字符 / 片段</dt>
             <dd>
               {selectedDoc.characters.toLocaleString()} / {selectedDoc.chunks}
@@ -1210,6 +1234,17 @@ function LibraryDocuments({
                 rel="noopener noreferrer"
               >
                 查看检索原文 <Icon name="arrow-up-right" size={14} />
+              </a>
+            )}
+            {selectedDoc.active_version > 0 && !selectedDoc.deleted && (
+              <a
+                className="kb-download"
+                href={appURL(
+                  `/api/knowledge/documents/${selectedDoc.id}/download`,
+                )}
+                download
+              >
+                下载原文件
               </a>
             )}
             <button data-dialog-cancel onClick={() => setDetail(null)}>

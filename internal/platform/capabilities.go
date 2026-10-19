@@ -191,6 +191,87 @@ func (s *Store) importSkill(directory string) (Skill, error) {
 	committed = true
 	return skill, nil
 }
+func validateSkillContent(content string) (name, description, compatibility, body string, err error) {
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	if !strings.HasPrefix(normalized, "---\n") {
+		return "", "", "", "", fmt.Errorf("SKILL.md 必须包含 YAML frontmatter，填写 name 和 description。")
+	}
+	front, body, found := strings.Cut(normalized[4:], "\n---\n")
+	var metadata struct {
+		Name          string `yaml:"name"`
+		Description   string `yaml:"description"`
+		Compatibility string `yaml:"compatibility"`
+	}
+	if !found || yaml.Unmarshal([]byte(front), &metadata) != nil || !regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`).MatchString(metadata.Name) || len(metadata.Name) > 64 || strings.TrimSpace(metadata.Description) == "" || len(metadata.Description) > 1024 || len(metadata.Compatibility) > 2000 {
+		return "", "", "", "", fmt.Errorf("技能元数据无效：name 只允许小写字母、数字和单连字符，最长 64 字符；description 必填且不超过 1024 字节。")
+	}
+	return metadata.Name, metadata.Description, metadata.Compatibility, body, nil
+}
+
+func (s *Server) updateSkillFile(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Content string `json:"content"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if len(input.Content) > 128000 || !utf8.ValidString(input.Content) {
+		fail(w, 400, "技能文件必须是 UTF-8 文本，且不超过 128,000 字节。")
+		return
+	}
+	var raw string
+	var skill Skill
+	if s.store.db.QueryRow("SELECT config FROM skills WHERE id=? AND archived=0", r.PathValue("id")).Scan(&raw) != nil || json.Unmarshal([]byte(raw), &skill) != nil {
+		fail(w, 404, "技能不存在。")
+		return
+	}
+	path := r.PathValue("path")
+	index := slices.IndexFunc(skill.Files, func(file SkillFile) bool { return file.Path == path })
+	if index < 0 {
+		fail(w, 404, "技能文件不存在。")
+		return
+	}
+	if path == "SKILL.md" {
+		if len(input.Content) > 64000 {
+			fail(w, 400, "SKILL.md 不能超过 64,000 字节。")
+			return
+		}
+		name, description, compatibility, body, err := validateSkillContent(input.Content)
+		if err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+		skill.Name, skill.Description, skill.Compatibility, skill.Content = name, description, compatibility, body
+	}
+	root, err := os.OpenRoot(filepath.Join(s.store.directory, "skills", skill.ID))
+	if err != nil {
+		internal(w)
+		return
+	}
+	defer root.Close()
+	file, err := root.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		internal(w)
+		return
+	}
+	if _, err := file.WriteString(input.Content); err != nil {
+		file.Close()
+		internal(w)
+		return
+	}
+	if err := file.Close(); err != nil {
+		internal(w)
+		return
+	}
+	skill.Files[index].Size = int64(len(input.Content))
+	updated, _ := json.Marshal(skill)
+	if _, err := s.store.db.Exec("UPDATE skills SET config=? WHERE id=? AND archived=0", string(updated), skill.ID); err != nil {
+		internal(w)
+		return
+	}
+	respond(w, 200, skill)
+}
+
 func (s *Server) skillFile(w http.ResponseWriter, r *http.Request) {
 	var raw string
 	var skill Skill
@@ -510,50 +591,84 @@ func (s *Server) saveCapabilities(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, 200, input.CapabilityBindings)
 }
-func (s *Server) archiveCapability(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	rows, err := s.store.db.Query("SELECT c.config FROM agent_capabilities c JOIN agents a ON a.id=c.agent_id WHERE a.archived=0")
+
+type LinkedAgent struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Archived bool   `json:"archived"`
+}
+
+func (s *Server) linkedAgents(kind, id string) ([]LinkedAgent, error) {
+	rows, err := s.store.db.Query("SELECT a.id,a.name,a.archived,c.config FROM agents a LEFT JOIN agent_capabilities c ON c.agent_id=a.id ORDER BY CASE WHEN a.id='default' THEN 0 ELSE 1 END,a.rowid")
 	if err != nil {
-		internal(w)
-		return
+		return nil, err
 	}
-	all := []CapabilityBindings{}
+	defer rows.Close()
+	result := []LinkedAgent{}
 	for rows.Next() {
-		var raw string
+		var agent LinkedAgent
+		var raw sql.NullString
+		if err := rows.Scan(&agent.ID, &agent.Name, &agent.Archived, &raw); err != nil {
+			return nil, err
+		}
+		if !raw.Valid {
+			continue
+		}
 		var binding CapabilityBindings
-		if err := rows.Scan(&raw); err != nil {
-			rows.Close()
-			internal(w)
-			return
+		if err := json.Unmarshal([]byte(raw.String), &binding); err != nil {
+			continue
 		}
-		if err := json.Unmarshal([]byte(raw), &binding); err != nil {
-			rows.Close()
-			internal(w)
-			return
+		linked := slices.Contains(binding.Skills, id)
+		if kind == "mcps" {
+			linked = slices.ContainsFunc(binding.MCPs, func(item MCPBinding) bool { return item.ID == id })
 		}
-		all = append(all, binding)
+		if linked {
+			result = append(result, agent)
+		}
 	}
-	err = rows.Err()
-	rows.Close()
+	return result, rows.Err()
+}
+
+func capabilityKind(r *http.Request) string {
+	if kind := r.PathValue("kind"); kind != "" {
+		return kind
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/mcps/") {
+		return "mcps"
+	}
+	return "skills"
+}
+
+func (s *Server) linkedCapabilityAgents(w http.ResponseWriter, r *http.Request) {
+	kind := capabilityKind(r)
+	if kind != "skills" && kind != "mcps" {
+		fail(w, 404, "资源不存在。")
+		return
+	}
+	agents, err := s.linkedAgents(kind, r.PathValue("id"))
 	if err != nil {
 		internal(w)
 		return
 	}
-	id := r.PathValue("id")
+	respond(w, 200, agents)
+}
+
+func (s *Server) deleteCapability(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	if kind != "skills" && kind != "mcps" {
 		fail(w, 404, "资源不存在。")
 		return
 	}
-	for _, bindings := range all {
-		if slices.Contains(bindings.Skills, id) || slices.ContainsFunc(bindings.MCPs, func(binding MCPBinding) bool { return binding.ID == id }) {
-			fail(w, 409, "请先从所有未归档助手解除关联并保存，再归档。")
-			return
-		}
+	id := r.PathValue("id")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, err := s.store.db.Begin()
+	if err != nil {
+		internal(w)
+		return
 	}
-
-	result, err := s.store.db.Exec("UPDATE "+kind+" SET archived=1 WHERE id=? AND archived=0", id)
+	defer tx.Rollback()
+	result, err := tx.Exec("DELETE FROM "+kind+" WHERE id=?", id)
 	if err != nil {
 		internal(w)
 		return
@@ -563,8 +678,122 @@ func (s *Server) archiveCapability(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "资源不存在。")
 		return
 	}
-	respond(w, 200, map[string]bool{"archived": true})
+	rows, err := tx.Query("SELECT agent_id,config FROM agent_capabilities")
+	if err != nil {
+		internal(w)
+		return
+	}
+	type update struct {
+		agent  string
+		config string
+	}
+	updates := []update{}
+	unlinked := []string{}
+	for rows.Next() {
+		var agentID, raw string
+		if err := rows.Scan(&agentID, &raw); err != nil {
+			rows.Close()
+			internal(w)
+			return
+		}
+		var binding CapabilityBindings
+		if json.Unmarshal([]byte(raw), &binding) != nil {
+			continue
+		}
+		changed := false
+		if kind == "skills" && slices.Contains(binding.Skills, id) {
+			binding.Skills = slices.DeleteFunc(binding.Skills, func(value string) bool { return value == id })
+			changed = true
+		}
+		if kind == "mcps" && slices.ContainsFunc(binding.MCPs, func(item MCPBinding) bool { return item.ID == id }) {
+			binding.MCPs = slices.DeleteFunc(binding.MCPs, func(item MCPBinding) bool { return item.ID == id })
+			changed = true
+		}
+		if changed {
+			encoded, _ := json.Marshal(binding)
+			updates = append(updates, update{agentID, string(encoded)})
+			unlinked = append(unlinked, agentID)
+		}
+	}
+	rows.Close()
+	for _, item := range updates {
+		if _, err := tx.Exec("UPDATE agent_capabilities SET config=? WHERE agent_id=?", item.config, item.agent); err != nil {
+			internal(w)
+			return
+		}
+		if _, err := tx.Exec("UPDATE agents SET revision=revision+1 WHERE id=?", item.agent); err != nil {
+			internal(w)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		internal(w)
+		return
+	}
+	if kind == "skills" {
+		_ = os.RemoveAll(filepath.Join(s.store.directory, "skills", id))
+	}
+	respond(w, 200, map[string]any{"deleted": true, "unlinked_agents": unlinked})
 }
+
+func (s *Server) unlinkCapabilityAgent(w http.ResponseWriter, r *http.Request) {
+	kind := capabilityKind(r)
+	if kind != "skills" && kind != "mcps" {
+		fail(w, 404, "资源不存在。")
+		return
+	}
+	agentID := r.PathValue("agent")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var raw string
+	if err := s.store.db.QueryRow("SELECT config FROM agent_capabilities WHERE agent_id=?", agentID).Scan(&raw); err == sql.ErrNoRows {
+		respond(w, 200, map[string]bool{"unlinked": false})
+		return
+	} else if err != nil {
+		internal(w)
+		return
+	}
+	var binding CapabilityBindings
+	if err := json.Unmarshal([]byte(raw), &binding); err != nil {
+		internal(w)
+		return
+	}
+	changed := false
+	if kind == "skills" {
+		before := len(binding.Skills)
+		binding.Skills = slices.DeleteFunc(binding.Skills, func(value string) bool { return value == r.PathValue("id") })
+		changed = len(binding.Skills) != before
+	} else {
+		before := len(binding.MCPs)
+		binding.MCPs = slices.DeleteFunc(binding.MCPs, func(item MCPBinding) bool { return item.ID == r.PathValue("id") })
+		changed = len(binding.MCPs) != before
+	}
+	if !changed {
+		respond(w, 200, map[string]bool{"unlinked": false})
+		return
+	}
+	encoded, _ := json.Marshal(binding)
+	tx, err := s.store.db.Begin()
+	if err != nil {
+		internal(w)
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("UPDATE agent_capabilities SET config=? WHERE agent_id=?", string(encoded), agentID); err != nil {
+		internal(w)
+		return
+	}
+	if _, err := tx.Exec("UPDATE agents SET revision=revision+1 WHERE id=?", agentID); err != nil {
+		internal(w)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		internal(w)
+		return
+	}
+	respond(w, 200, map[string]bool{"unlinked": true})
+}
+
 func (s *Server) testMCP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	config, secret, version, err := s.store.mcp(r.PathValue("id"))

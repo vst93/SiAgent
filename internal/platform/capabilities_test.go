@@ -52,9 +52,15 @@ func TestSkillImportIsExplicitImmutableAndAuthenticated(t *testing.T) {
 	requireStatus(t, f.request(t, "GET", "/api/skills/"+skill.ID+"/files/SKILL.md", nil, false, nil), 401)
 	binding := map[string]any{"skills": []string{skill.ID}, "mcps": []MCPBinding{}, "confirm": true}
 	requireStatus(t, f.request(t, "PUT", "/api/agent/capabilities", binding, true, nil), 200)
-	requireStatus(t, f.request(t, "DELETE", "/api/skills/"+skill.ID, nil, true, nil), 409)
-	requireStatus(t, f.request(t, "PUT", "/api/agent/capabilities", map[string]any{"skills": []string{}, "mcps": []MCPBinding{}}, true, nil), 200)
 	requireStatus(t, f.request(t, "DELETE", "/api/skills/"+skill.ID, nil, true, nil), 200)
+	requireStatus(t, f.request(t, "GET", "/api/skills/"+skill.ID+"/agents", nil, true, nil), 200)
+	var cleared CapabilityBindings
+	clearedResponse := f.request(t, "GET", "/api/agent/capabilities", nil, true, nil)
+	requireStatus(t, clearedResponse, 200)
+	json.Unmarshal(clearedResponse.Body.Bytes(), &cleared)
+	if len(cleared.Skills) != 0 || len(cleared.MCPs) != 0 {
+		t.Fatalf("delete did not clear bindings: %+v", cleared)
+	}
 	requireStatus(t, f.request(t, "PUT", "/api/agent/capabilities", binding, true, nil), 400)
 }
 func TestSkillRejectsSymlinksAndMalformedMetadata(t *testing.T) {
@@ -115,6 +121,17 @@ func TestMCPSecretsPermissionValidationAndConnectionRouting(t *testing.T) {
 	requireStatus(t, f.request(t, "PUT", "/api/agent/capabilities", binding, true, nil), 200)
 	binding["mcps"] = []MCPBinding{{ID: view.ID, Tools: []string{"unlisted"}}}
 	requireStatus(t, f.request(t, "PUT", "/api/agent/capabilities", binding, true, nil), 400)
+	binding["mcps"] = []MCPBinding{{ID: view.ID, Tools: []string{"write"}}}
+	requireStatus(t, f.request(t, "PUT", "/api/agent/capabilities", binding, true, nil), 200)
+	requireStatus(t, f.request(t, "GET", "/api/mcps/"+view.ID+"/agents", nil, true, nil), 200)
+	requireStatus(t, f.request(t, "DELETE", "/api/mcps/"+view.ID, nil, true, nil), 200)
+	left := f.request(t, "GET", "/api/agent/capabilities", nil, true, nil)
+	requireStatus(t, left, 200)
+	var remaining CapabilityBindings
+	json.Unmarshal(left.Body.Bytes(), &remaining)
+	if len(remaining.MCPs) != 0 {
+		t.Fatalf("MCP delete left stale binding: %+v", remaining)
+	}
 	input["url"] = "https://example.com/mcp?token=secret"
 	requireStatus(t, f.request(t, "POST", "/api/mcps", input, true, nil), 400)
 	input["url"] = "https://example.com/mcp"

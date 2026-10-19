@@ -7,6 +7,8 @@ import {
   useState,
 } from "react";
 import { CapabilitySettings, type Skill } from "./capabilities";
+import { MessageMarkdown } from "./message-markdown";
+import { LinkedAgents } from "./linked-agents";
 import { KnowledgeDialog as SettingsDialog } from "./knowledge-dialog";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
@@ -352,26 +354,39 @@ function SkillDetail({
   request,
   skill,
   onArchive,
+  onUpdated,
 }: {
   request: Api;
   skill: Skill;
   onArchive: () => void;
+  onUpdated: (skill: Skill) => void;
 }) {
   const [path, setPath] = useState("SKILL.md");
   const [content, setContent] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [mode, setMode] = useState<"preview" | "edit">("preview");
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [saveError, setSaveError] = useState("");
   const resource = skill.files.find((file) => file.path === path);
   const tree = useMemo(() => fileTree(skill.files), [skill.files]);
+  const markdown = /\.md$/i.test(path);
   useEffect(() => {
     let active = true;
     setContent(null);
+    setDraft("");
+    setMode("preview");
     setError("");
+    setSaveError("");
     if (resource && resource.size <= 128000)
       void request<{ content: string }>(
         `/skills/${skill.id}/files/${path.split("/").map(encodeURIComponent).join("/")}`,
       )
         .then((result) => {
-          if (active) setContent(result.content);
+          if (active) {
+            setContent(result.content);
+            setDraft(result.content);
+          }
         })
         .catch((error) => {
           if (active) setError(errorText(error));
@@ -380,6 +395,27 @@ function SkillDetail({
       active = false;
     };
   }, [skill.id, path, resource?.size]);
+  async function save() {
+    setSaving(true);
+    setSaveError("");
+    try {
+      const updated = await request<Skill>(
+        `/skills/${skill.id}/files/${path.split("/").map(encodeURIComponent).join("/")}`,
+        "PUT",
+        { content: draft },
+      );
+      onUpdated(updated);
+      setContent(draft);
+      setMode("preview");
+    } catch (error) {
+      setSaveError(errorText(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+  const preview = path === "SKILL.md"
+    ? (content ?? "").replace(/^---\n[\s\S]*?\n---\n/, "")
+    : content;
   return (
     <section className="skill-detail" aria-label="技能详情">
       <header>
@@ -390,9 +426,10 @@ function SkillDetail({
             {size(skill.files.reduce((sum, file) => sum + file.size, 0))}
           </small>
         </div>
-        <button onClick={onArchive}>归档技能</button>
+        <button onClick={onArchive}>删除技能</button>
       </header>
       <p className="skill-description">{skill.description}</p>
+      <LinkedAgents request={request} kind="skills" id={skill.id} />
       <details className="skill-compatibility">
         <summary>
           <Icon name="caret-right" size={14} className="disclosure-icon" />
@@ -414,7 +451,24 @@ function SkillDetail({
         <section className="skill-file-preview">
           <header>
             <strong>{path}</strong>
-            <small>{resource ? size(resource.size) : ""}</small>
+            <span>{resource ? size(resource.size) : ""}</span>
+            <div className="skill-file-actions">
+              <button
+                type="button"
+                aria-pressed={mode === "preview"}
+                onClick={() => setMode("preview")}
+              >
+                预览
+              </button>
+              <button
+                type="button"
+                aria-pressed={mode === "edit"}
+                disabled={content === null || !resource || resource.size > 128000}
+                onClick={() => setMode("edit")}
+              >
+                编辑
+              </button>
+            </div>
           </header>
           {error ? (
             <p className="error" role="alert">
@@ -426,6 +480,47 @@ function SkillDetail({
             <p className="muted" role="status">
               正在读取文件…
             </p>
+          ) : mode === "edit" ? (
+            <div className="skill-file-editor">
+              <textarea
+                aria-label={`编辑 ${path}`}
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                spellCheck={false}
+                maxLength={path === "SKILL.md" ? 64000 : 128000}
+                disabled={saving}
+              />
+              {saveError && (
+                <p className="error" role="alert">
+                  {saveError}
+                </p>
+              )}
+              <div className="form-actions">
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={saving || draft === content}
+                  onClick={() => void save()}
+                >
+                  {saving ? "正在保存…" : "保存文件"}
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => {
+                    setDraft(content);
+                    setSaveError("");
+                    setMode("preview");
+                  }}
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          ) : markdown ? (
+            <div className="skill-markdown-preview">
+              <MessageMarkdown content={preview || ""} />
+            </div>
           ) : (
             <pre>{content}</pre>
           )}
@@ -434,6 +529,7 @@ function SkillDetail({
     </section>
   );
 }
+
 function SkillCatalog({ request }: { request: Api }) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selected, setSelected] = useState("");
@@ -548,6 +644,13 @@ function SkillCatalog({ request }: { request: Api }) {
                 setArchiving(current);
                 setArchiveError("");
               }}
+              onUpdated={(updated) =>
+                setSkills((values) =>
+                  values.map((value) =>
+                    value.id === updated.id ? updated : value,
+                  ),
+                )
+              }
             />
           ) : (
             <p className="muted">请调整搜索条件。</p>
@@ -581,14 +684,15 @@ function SkillCatalog({ request }: { request: Api }) {
       )}
       {archiving && (
         <SettingsDialog
-          title={`归档技能“${archiving.name}”？`}
+          title={`删除技能“${archiving.name}”？`}
           pending={pending}
           onClose={() => setArchiving(null)}
         >
           <p>
-            归档后不再用于新挂载。请先从 Agent
-            配置中解除关联；文件与已提交任务保留。
+            将永久删除技能文件，并自动从所有关联 Agent
+            中移除。已有任务使用的历史快照与运行记录保留；此操作不可撤销。
           </p>
+          <LinkedAgents request={request} kind="skills" id={archiving.id} />
           {archiveError && (
             <p role="alert" className="error">
               {archiveError}
@@ -614,7 +718,7 @@ function SkillCatalog({ request }: { request: Api }) {
                     values.filter((skill) => skill.id !== archiving.id),
                   );
                   setArchiving(null);
-                  setFeedback("技能已归档，已有任务及文件保留。");
+                  setFeedback("技能已删除，关联 Agent 已自动解除；历史任务保留。");
                 } catch (error) {
                   setArchiveError(errorText(error));
                 } finally {
@@ -622,7 +726,7 @@ function SkillCatalog({ request }: { request: Api }) {
                 }
               }}
             >
-              {pending ? "正在归档…" : "确认归档"}
+              {pending ? "正在删除…" : "确认删除"}
             </button>
           </footer>
         </SettingsDialog>

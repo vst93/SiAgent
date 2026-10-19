@@ -1,4 +1,6 @@
 import { Icon } from "./icons";
+import { LinkedAgents } from "./linked-agents";
+import { KnowledgeDialog as SettingsDialog } from "./knowledge-dialog";
 import { FormEvent, useEffect, useState } from "react";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
@@ -84,6 +86,7 @@ export function CapabilitySettings({
     title: string;
     text: string;
   } | null>(null);
+  const [deletingMCP, setDeletingMCP] = useState<MCP | null>(null);
   async function refresh() {
     setLoaded(false);
     const [skills, mcps, bindings] = await Promise.all([
@@ -138,6 +141,30 @@ export function CapabilitySettings({
     });
     setConfirmed(false);
   }
+  function selectAll(checked: boolean) {
+    setBindings({
+      skills: checked ? skills.map((skill) => skill.id) : [],
+      mcps: checked
+        ? mcps.map((mcp) => ({
+            id: mcp.id,
+            tools: mcp.tools.map((tool) => tool.name),
+          }))
+        : [],
+    });
+    setConfirmed(false);
+  }
+  function selectMCP(mcp: MCP, checked: boolean) {
+    setBindings({
+      ...bindings,
+      mcps: [
+        ...bindings.mcps.filter((binding) => binding.id !== mcp.id),
+        ...(checked && mcp.tools.length
+          ? [{ id: mcp.id, tools: mcp.tools.map((tool) => tool.name) }]
+          : []),
+      ],
+    });
+    setConfirmed(false);
+  }
   function edit(mcp: MCP) {
     setForm({
       ...initialMCP,
@@ -173,11 +200,13 @@ export function CapabilitySettings({
       setFeedback("MCP 已保存。请先测试连接，再到 Agent 配置中授权工具。");
     });
   }
-  async function archive(kind: string, id: string) {
+  async function removeMCP() {
+    if (!deletingMCP) return;
     await action(async () => {
-      await request(`/${kind}/${id}`, "DELETE");
-      await refresh();
-      setFeedback("已归档；历史及已提交任务保留。");
+      await request(`/mcps/${deletingMCP.id}`, "DELETE");
+      setMCPs((items) => items.filter((item) => item.id !== deletingMCP.id));
+      setDeletingMCP(null);
+      setFeedback("MCP 已删除，关联 Agent 已自动解除；历史任务保留。");
     });
   }
   return (
@@ -196,7 +225,23 @@ export function CapabilitySettings({
         </p>
         {!catalog && (
           <>
-            {" "}
+            <div className="capability-batch-actions">
+              <span>批量授权</span>
+              <button
+                type="button"
+                disabled={!loaded || pending || readOnly}
+                onClick={() => selectAll(true)}
+              >
+                全选
+              </button>
+              <button
+                type="button"
+                disabled={!loaded || pending || readOnly}
+                onClick={() => selectAll(false)}
+              >
+                全不选
+              </button>
+            </div>
             <fieldset disabled={!loaded || pending || (!catalog && readOnly)}>
               <legend>Skills 挂载</legend>
               {skills.length === 0 && (
@@ -268,8 +313,26 @@ export function CapabilitySettings({
           {mcps.length === 0 && <p className="muted">尚未配置外部工具服务。</p>}
           {mcps.map((mcp) => (
             <div className="capability-card" key={mcp.id}>
-              <strong>{mcp.name}</strong>
-              <small> · 配置版本 {mcp.version}</small>
+              <div className="capability-card-head">
+                <strong>{mcp.name}</strong>
+                <small> · 配置版本 {mcp.version}</small>
+                {!catalog && mcp.tools.length > 0 && (
+                  <span className="capability-inline-actions">
+                    <button
+                      type="button"
+                      onClick={() => selectMCP(mcp, true)}
+                    >
+                      全选工具
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => selectMCP(mcp, false)}
+                    >
+                      清空
+                    </button>
+                  </span>
+                )}
+              </div>
               <p className="muted">
                 {mcp.transport === "stdio"
                   ? `本地进程 · ${mcp.command}`
@@ -280,6 +343,9 @@ export function CapabilitySettings({
                 {[...mcp.env_keys, ...mcp.header_keys].join("、") || "无"}
                 。保存后不回显值。
               </small>
+              {catalog && (
+                <LinkedAgents request={request} kind="mcps" id={mcp.id} />
+              )}
               {catalog && (
                 <div className="form-actions">
                   <button
@@ -308,9 +374,9 @@ export function CapabilitySettings({
                   </button>
                   <button
                     type="button"
-                    onClick={() => void archive("mcps", mcp.id)}
+                    onClick={() => setDeletingMCP(mcp)}
                   >
-                    归档 MCP
+                    删除 MCP
                   </button>
                 </div>
               )}
@@ -547,6 +613,39 @@ export function CapabilitySettings({
               保存助手工具授权
             </button>
           </form>
+        )}
+        {deletingMCP && (
+          <SettingsDialog
+            title={`删除 MCP“${deletingMCP.name}”？`}
+            pending={pending}
+            onClose={() => setDeletingMCP(null)}
+          >
+            <p>
+              将永久删除 MCP 配置和密钥，并自动从所有关联 Agent
+              中移除。已有任务使用提交时的快照，不受影响。
+            </p>
+            <LinkedAgents
+              request={request}
+              kind="mcps"
+              id={deletingMCP.id}
+            />
+            <footer>
+              <button
+                data-dialog-cancel
+                disabled={pending}
+                onClick={() => setDeletingMCP(null)}
+              >
+                取消
+              </button>
+              <button
+                className="danger-button"
+                disabled={pending}
+                onClick={() => void removeMCP()}
+              >
+                {pending ? "正在删除…" : "确认删除"}
+              </button>
+            </footer>
+          </SettingsDialog>
         )}
         {preview && (
           <section className="resource-section">

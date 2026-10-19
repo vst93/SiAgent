@@ -128,11 +128,10 @@ func TestAgentArchiveGuardsAllActiveBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireStatus(t, f.request(t, "PUT", "/api/agents/"+a.ID+"/capabilities", map[string]any{"skills": []string{skill.ID}, "confirm": true}, true, nil), 200)
-	requireStatus(t, f.request(t, "DELETE", "/api/skills/"+skill.ID, nil, true, nil), 409)
+	requireStatus(t, f.request(t, "DELETE", "/api/skills/"+skill.ID, nil, true, nil), 200)
 	a.Enabled = false
 	saveTestAgent(t, f, a)
 	requireStatus(t, f.request(t, "DELETE", "/api/agents/"+a.ID, nil, true, nil), 200)
-	requireStatus(t, f.request(t, "DELETE", "/api/skills/"+skill.ID, nil, true, nil), 200)
 	requireStatus(t, f.request(t, "PUT", "/api/agents/"+a.ID+"/knowledge", map[string]any{"knowledge_ids": []string{}}, true, nil), 409)
 	requireStatus(t, f.request(t, "PUT", "/api/agents/"+a.ID+"/capabilities", map[string]any{"skills": []string{}}, true, nil), 409)
 	requireStatus(t, f.request(t, "PUT", "/api/agents/"+a.ID, map[string]any{"name": "Revive", "enabled": true, "model_id": 1}, true, nil), 409)

@@ -52,6 +52,7 @@ type Document struct {
 	Deleted        bool   `json:"deleted"`
 	CleanupPending bool   `json:"cleanup_pending"`
 	Created        int64  `json:"created"`
+	Updated        int64  `json:"updated"`
 }
 type Core struct {
 	db       *sql.DB
@@ -352,11 +353,11 @@ func (c *Core) Read(ctx context.Context, scope Scope, request ReadRequest) (Sour
 	return c.provider.Read(ctx, scope, request)
 }
 
-const documentSelect = `SELECT d.id,d.knowledge_id,d.title,d.active_version,v.version,v.filename,v.kind,v.size,v.state,v.error,v.characters,v.chunks,d.deleted,d.cleanup_pending,d.created FROM knowledge_documents d JOIN knowledge_versions v ON v.document_id=d.id AND v.version=(SELECT max(version) FROM knowledge_versions WHERE document_id=d.id)`
+const documentSelect = `SELECT d.id,d.knowledge_id,d.title,d.active_version,v.version,v.filename,v.kind,v.size,v.state,v.error,v.characters,v.chunks,d.deleted,d.cleanup_pending,d.created,v.created FROM knowledge_documents d JOIN knowledge_versions v ON v.document_id=d.id AND v.version=(SELECT max(version) FROM knowledge_versions WHERE document_id=d.id)`
 
 func scanDocument(row interface{ Scan(...any) error }) (Document, error) {
 	var d Document
-	err := row.Scan(&d.ID, &d.KnowledgeID, &d.Title, &d.ActiveVersion, &d.Version, &d.Filename, &d.Kind, &d.Size, &d.State, &d.Error, &d.Characters, &d.Chunks, &d.Deleted, &d.CleanupPending, &d.Created)
+	err := row.Scan(&d.ID, &d.KnowledgeID, &d.Title, &d.ActiveVersion, &d.Version, &d.Filename, &d.Kind, &d.Size, &d.State, &d.Error, &d.Characters, &d.Chunks, &d.Deleted, &d.CleanupPending, &d.Created, &d.Updated)
 	return d, err
 }
 func (c *Core) Documents(ctx context.Context, baseID string) ([]Document, error) {

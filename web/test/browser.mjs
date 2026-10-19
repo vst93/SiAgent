@@ -661,7 +661,7 @@ try {
   await page
     .getByRole("heading", { name: "disposable-skill", exact: true })
     .waitFor();
-  await page.getByRole("button", { name: "归档技能", exact: true }).click();
+  await page.getByRole("button", { name: "删除技能", exact: true }).click();
   assert.equal(
     await page.evaluate(() => document.activeElement.textContent),
     "取消",
@@ -670,19 +670,19 @@ try {
   await page
     .getByRole("heading", { name: "disposable-skill", exact: true })
     .waitFor();
-  await page.getByRole("button", { name: "归档技能", exact: true }).click();
-  await page.getByRole("button", { name: "确认归档", exact: true }).click();
+  await page.getByRole("button", { name: "删除技能", exact: true }).click();
+  await page.getByRole("button", { name: "确认删除", exact: true }).click();
   await page
     .getByRole("heading", { name: "browser-skill", exact: true })
     .waitFor();
   await page
-    .locator(".skill-file-preview pre")
-    .filter({ hasText: "browser-skill" })
+    .locator(".skill-markdown-preview")
+    .filter({ hasText: "Use explicit tools only." })
     .waitFor();
   assert.equal(await page.locator(".skill-file-preview img").count(), 0);
   await page.getByRole("button", { name: "guide.md", exact: true }).click();
   await page
-    .locator(".skill-file-preview pre")
+    .locator(".skill-markdown-preview")
     .filter({ hasText: "Nested reference" })
     .waitFor();
   await page
