@@ -183,6 +183,7 @@ func RunWorker(path string) error {
 	}
 	defer unlock(p.Root)
 	defer os.Remove(filepath.Join(p.Root, ".update-prepared.json"))
+	defer os.Remove(bootTokenPath(p.Root))
 	if p.Parent <= 0 {
 		return fmt.Errorf("invalid parent process")
 	}
@@ -192,20 +193,9 @@ func RunWorker(path string) error {
 		return err
 	}
 	defer lock.Close()
-	// A fully stopped process can remain a zombie until its launcher reaps it.
-	// kill(pid, 0) still succeeds then. The app releases this lock only after all
-	// workers and the database close, so it is the cross-platform shutdown barrier.
-	deadline := time.Now().Add(45 * time.Second)
-	for {
-		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err == nil {
-			break
-		}
-		if (err != syscall.EWOULDBLOCK && err != syscall.EAGAIN) || time.Now().After(deadline) {
-			saveResult(p.Root, "failed", "旧服务或其他实例未释放数据锁，更新已停止，请检查 update.log。", "")
-			return fmt.Errorf("waiting for exclusive data lock: %w", err)
-		}
-		time.Sleep(200 * time.Millisecond)
+	if err := acquireLock(lock, 45*time.Second); err != nil {
+		saveResult(p.Root, "failed", "旧服务或其他实例未释放数据锁，更新已停止，请检查 update.log。", "")
+		return fmt.Errorf("waiting for exclusive data lock: %w", err)
 	}
 	releaseLock := func() { syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) }
 	backup := filepath.Join(p.Root, "backups", "update-"+time.Now().UTC().Format("20060102T150405")+"-"+p.Version)
@@ -235,14 +225,21 @@ func RunWorker(path string) error {
 	saveResult(p.Root, "restarting", "正在验证新版本就绪；请勿手动启动另一实例。", backup)
 	releaseLock()
 	boot := strconv.FormatInt(time.Now().UnixNano(), 36)
+	verify := boot
 	var command *exec.Cmd
 	if p.Restart != "" {
+		// systemd/launchd cannot pass SIAGENT_UPDATE_BOOT to the new process, so the
+		// token travels through the install directory. Without it, only the
+		// reported version can be verified.
+		if err := writeBootToken(p.Root, boot); err != nil {
+			verify = ""
+		}
 		err = service.RestartKind(context.Background(), p.Restart)
 	} else {
 		command, err = startApplication(filepath.Join(destination, "siagent"), p.Args, boot)
 	}
 	if err == nil {
-		err = waitReady(command, p.Listen, boot, p.Version)
+		err = waitReady(command, p.Listen, verify, p.Version)
 	}
 	if err == nil {
 		saveResult(p.Root, "completed", "更新成功，新版本已就绪。", backup)
@@ -251,7 +248,15 @@ func RunWorker(path string) error {
 	}
 	// Failed boot may have migrated the database. Restore the complete offline
 	// backup together with the old code; retain failed new data for diagnosis.
-	if lockErr := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); lockErr != nil {
+	if p.Restart != "" {
+		// The failed new version may still run under the service manager and hold
+		// the data lock; stop it before restoring the offline backup.
+		if _, stopErr := service.Stop(context.Background()); stopErr != nil {
+			saveResult(p.Root, "failed", "新版本失败，且无法停止新服务；请手动停止后从备份恢复："+stopErr.Error(), backup)
+			return stopErr
+		}
+	}
+	if lockErr := acquireLock(lock, 30*time.Second); lockErr != nil {
 		saveResult(p.Root, "failed", "新版本失败，但数据锁未释放；请停止实例后从备份恢复。", backup)
 		return lockErr
 	}
@@ -272,12 +277,20 @@ func RunWorker(path string) error {
 	var old *exec.Cmd
 	var restoreErr error
 	if p.Restart != "" {
-		restoreErr = service.RestartKind(context.Background(), p.Restart)
+		rollbackBoot := boot + "-rollback"
+		verifyRollback := rollbackBoot
+		if err := writeBootToken(p.Root, rollbackBoot); err != nil {
+			verifyRollback = ""
+		}
+		_, restoreErr = service.Start(context.Background())
+		if restoreErr == nil {
+			restoreErr = waitReady(nil, p.Listen, verifyRollback, p.OldVersion)
+		}
 	} else {
 		old, restoreErr = startApplication(filepath.Join(p.Old, "siagent"), p.Args, boot+"-rollback")
-	}
-	if restoreErr == nil {
-		restoreErr = waitReady(old, p.Listen, boot+"-rollback", p.OldVersion)
+		if restoreErr == nil {
+			restoreErr = waitReady(old, p.Listen, boot+"-rollback", p.OldVersion)
+		}
 	}
 	if restoreErr != nil {
 		saveResult(p.Root, "failed", "新版本启动失败，旧数据已恢复，但旧服务未能就绪，请手动启动。", backup)
@@ -286,6 +299,23 @@ func RunWorker(path string) error {
 	saveResult(p.Root, "rolled_back", "新版本启动失败，已恢复旧版本与完整数据备份。原因："+err.Error(), backup)
 	os.RemoveAll(p.Work)
 	return nil
+}
+
+// acquireLock waits for the data lock the running application holds. A fully
+// stopped process can remain a zombie until its launcher reaps it, so a dead
+// PID is not a reliable shutdown signal.
+func acquireLock(lock *os.File, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return nil
+		}
+		if (err != syscall.EWOULDBLOCK && err != syscall.EAGAIN) || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 // A failed boot can leave the verified version in versions/. Reuse only the

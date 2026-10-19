@@ -272,7 +272,7 @@ func (m *Manager) Prepare() error {
 			return
 		}
 		m.message("正在下载并校验发布包，完成前应用继续运行。")
-		command := exec.CommandContext(ctx, "sh", installer, "--version", latest, "--prefix", filepath.Join(work, "stage"), "--bin-dir", filepath.Join(work, "bin"), "--no-modify-path")
+		command := exec.CommandContext(ctx, "sh", append([]string{installer}, stagedInstallerArgs(latest, work)...)...)
 		command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		command.Cancel = func() error { return syscall.Kill(-command.Process.Pid, syscall.SIGKILL) }
 		command.WaitDelay = time.Second
@@ -299,6 +299,21 @@ func (m *Manager) Prepare() error {
 	}()
 	return nil
 }
+
+// stagedInstallerArgs installs a release into the private staging area only.
+// The installer must never register or restart a service: its prefix is a
+// temporary .update-* directory, so a service registered there would start a
+// fresh instance from a path that is deleted as soon as the update finishes.
+func stagedInstallerArgs(version, work string) []string {
+	return []string{
+		"--version", version,
+		"--prefix", filepath.Join(work, "stage"),
+		"--bin-dir", filepath.Join(work, "bin"),
+		"--no-modify-path",
+		"--no-service",
+	}
+}
+
 func bounded(s string, n int) string {
 	r := []rune(s)
 	if len(r) > n {

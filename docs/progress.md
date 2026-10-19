@@ -14,6 +14,13 @@
 
 验证：`make test`（Runtime 39 项 + Go `-race`）、`python3 tests/e2e.py`、`SIAGENT_CHROMIUM=... npm --prefix web run test:browser` 全部通过；迁移测试覆盖 schema 1–20 升级并保留既有数据。
 
+## 应用内更新修复：暂存安装与服务模式重启
+
+- [x] 修复暂存安装误注册用户服务：更新下载阶段调用安装脚本时缺少 `--no-service`，安装脚本会用自己的临时前缀覆盖 `systemd`/`launchd` 服务单元并立即重启，导致新进程从 `.update-*` 暂存目录启动、数据目录变成 `stage/data`（等同全新安装），且更新完成后服务单元指向已删除的路径。现在暂存安装固定 `--no-service`，并新增参数回归测试。
+- [x] 修复服务模式就绪校验永不匹配：`systemctl restart`/`launchctl kickstart -k` 无法传递 `SIAGENT_UPDATE_BOOT`，90 秒后必然判定失败。启动标识改为写入安装目录 `.update-boot`，新进程启动时读取并删除，再经 `/health/ready` 回传；无标识时降级为仅校验版本。
+- [x] 服务模式回滚先停止失败的新服务并等待数据锁释放，再用 `start` 拉起旧版本；此前失败进程仍占用数据锁，回滚无法执行。
+- [x] `waitReady`、启动标识单次消费、暂存安装参数均有 Go 测试覆盖。
+
 ## 技能/MCP 关联、文档下载与详情编辑
 
 - [x] 角色指令等 Markdown 输入增加“编辑 / 预览”切换；预览使用安全 Markdown 渲染。

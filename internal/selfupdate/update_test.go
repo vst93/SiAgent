@@ -285,3 +285,50 @@ func TestManagerChecksStagesCancelsAndRecoversPreparedUpdate(t *testing.T) {
 		t.Fatal("cancel retained stage")
 	}
 }
+
+func TestStagedInstallerNeverRegistersService(t *testing.T) {
+	work := filepath.Join("/install", ".update-abc")
+	args := stagedInstallerArgs("v1.2.3", work)
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"--version v1.2.3", "--prefix " + filepath.Join(work, "stage"), "--bin-dir " + filepath.Join(work, "bin"), "--no-modify-path", "--no-service"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("staged installer args missing %q: %v", want, args)
+		}
+	}
+}
+
+func TestBootTokenIsSingleUse(t *testing.T) {
+	root := t.TempDir()
+	if token := BootToken(root); token != "" {
+		t.Fatalf("unexpected token: %q", token)
+	}
+	if err := writeBootToken(root, "boot-1"); err != nil {
+		t.Fatal(err)
+	}
+	if token := BootToken(root); token != "boot-1" {
+		t.Fatalf("wrong token: %q", token)
+	}
+	if token := BootToken(root); token != "" {
+		t.Fatalf("token was not consumed: %q", token)
+	}
+}
+
+// A service-managed restart cannot receive SIAGENT_UPDATE_BOOT, so readiness is
+// verified by the reported version when no boot token is available.
+func TestWaitReadyWithoutBootToken(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"version": "v1.0.1", "update_boot": ""})
+	})
+	server := &http.Server{Handler: mux}
+	go server.Serve(listener)
+	defer server.Close()
+	if err := waitReady(nil, address, "", "v1.0.1"); err != nil {
+		t.Fatal(err)
+	}
+}

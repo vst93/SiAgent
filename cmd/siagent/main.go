@@ -35,6 +35,13 @@ func main() {
 	}
 }
 func runServer(options commandOptions, executable string, installed installation) error {
+	// A service-managed restart cannot pass SIAGENT_UPDATE_BOOT through systemd
+	// or launchd; the update worker leaves it in the install directory instead.
+	if os.Getenv("SIAGENT_UPDATE_BOOT") == "" {
+		if boot := selfupdate.BootToken(installed.Root); boot != "" {
+			os.Setenv("SIAGENT_UPDATE_BOOT", boot)
+		}
+	}
 	syscall.Umask(0o077)
 	dataDir, listen, publicURL := &options.DataDir, &options.Listen, &options.PublicURL
 	basePath, err := normalizeBasePath(options.BasePath)
