@@ -104,7 +104,7 @@ siagent -listen 127.0.0.1:8080
 siagent -data-dir /srv/siagent-data
 ```
 
-Linux/macOS 还可用 `SIAGENT_DATA_DIR=/srv/siagent-data siagent` 指定数据目录。安装命令提供的默认数据目录位于版本目录之外，升级不会换到新的空数据目录。
+Linux/macOS 还可用 `SIAGENT_DATA_DIR=/srv/siagent-data siagent` 指定数据目录。系统级参数可放在 `${XDG_CONFIG_HOME:-$HOME/.config}/SiAgent/config.json`（macOS 为 `~/Library/Application Support/SiAgent/config.json`），详见 [外置系统配置](configuration.md)。安装命令提供的默认数据目录位于版本目录之外，升级不会换到新的空数据目录。
 
 优先使用“配置 → 运行与维护 → 应用更新”：后台下载校验后，确认停机备份，自动切换并重启；新版本失败会恢复旧程序与完整数据。Docker 与外部服务管理器显示相应操作指引，详见 [应用更新、网络回退和恢复](application-updates.md)。
 

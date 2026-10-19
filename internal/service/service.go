@@ -13,11 +13,12 @@ import (
 )
 
 type Options struct {
-	Launcher string
-	DataDir  string
-	Listen   string
-	BasePath string
-	LogPath  string
+	Launcher   string
+	DataDir    string
+	Listen     string
+	BasePath   string
+	ConfigPath string
+	LogPath    string
 }
 
 type Status struct {

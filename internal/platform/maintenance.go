@@ -152,7 +152,7 @@ func (s *Server) MaintenanceTick(ctx context.Context) error {
 }
 
 func (s *Server) cleanupOrphanAttachments(ctx context.Context) {
-	cutoff := time.Now().Add(-24 * time.Hour).UnixMilli()
+	cutoff := time.Now().Add(-time.Duration(s.attachmentLimits.OrphanTTLHours) * time.Hour).UnixMilli()
 	rows, err := s.store.db.QueryContext(ctx, "SELECT id,path FROM attachments WHERE linked=0 AND created<?", cutoff)
 	if err != nil {
 		return

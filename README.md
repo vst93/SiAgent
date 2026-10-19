@@ -159,7 +159,7 @@ make test-e2e     # 先构建，再运行完整 Go + Node + 本地模型协议�
 
 可选浏览器验收：先 `make build`，再执行 `npm --prefix web exec -- playwright install chromium` 和 `npm --prefix web run test:browser`。测试自动启动临时实例，覆盖首次使用、双工作区切换与草稿保留、具体栏目默认页/深链接/前进后退、连接测试、刷新历史、安全文本显示、移动布局、运行中继续排队、取消排队、限制设置、技能导入和资源预览、MCP 连接与授权、调用详情及密钥脱敏；还覆盖知识库工作台、原生检索、来源安全显示、失败/成功文档更新和历史/删除引用。可通过 `SIAGENT_CHROMIUM` 指定已有 Chromium 可执行文件；截图默认保存到系统临时目录下的 `siagent-browser-artifacts`。
 
-界面默认简体中文，可在顶栏、移动端抽屉或登录页切换英文；选择按浏览器保存。对话支持图片/文件附件，模型连接可声明文本/图片输入，Agent 可配置有序 fallback 模型；详见 [对话附件](docs/chat-attachments.md)。开发 Web 时先启动 Go，然后另开终端执行 `npm --prefix web run dev`。Vite 代理 `/api`、`/health` 和 `/callbacks` 到 Go；开发时不配置 `SIAGENT_PUBLIC_URL`，浏览器源地址随 Vite 请求校验。生产构建静态资源由 Go 嵌入提供，不依赖外部字体或 CDN。前端系统图标统一使用 Phosphor Icons，后续新增图标通过公共组件引用；布局、尺寸与可访问性约定见 [界面与图标规范](docs/ui-guidelines.md)。
+界面默认简体中文，可在顶栏、移动端抽屉或登录页切换英文；选择按浏览器保存。对话支持图片/文件附件，模型连接可声明文本/图片输入，Agent 可配置有序 fallback 模型；详见 [对话附件](docs/chat-attachments.md)。系统级启动参数、附件限制和运行默认值可放在系统 config 目录的 `SiAgent/config.json`，格式、路径和优先级见 [外置系统配置](docs/configuration.md)。开发 Web 时先启动 Go，然后另开终端执行 `npm --prefix web run dev`。Vite 代理 `/api`、`/health` 和 `/callbacks` 到 Go；开发时不配置 `SIAGENT_PUBLIC_URL`，浏览器源地址随 Vite 请求校验。生产构建静态资源由 Go 嵌入提供，不依赖外部字体或 CDN。前端系统图标统一使用 Phosphor Icons，后续新增图标通过公共组件引用；布局、尺寸与可访问性约定见 [界面与图标规范](docs/ui-guidelines.md)。
 
 保留阶段一的命令行探针：停止其他服务实例后，通过环境变量 `SIAGENT_MODEL_BASE_URL`、`SIAGENT_MODEL`、`SIAGENT_MODEL_API_KEY` 临时传入模型连接信息，运行 `./bin/siagent -probe '你好'`。使用 `-probe-tool` 可显式启用无副作用的 `add` 和 `wait` 验证工具。探针输出包含对话及工具详情，仅用于本地诊断。
 

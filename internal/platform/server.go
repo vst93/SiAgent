@@ -50,6 +50,8 @@ type Server struct {
 	loginFailures         int
 	loginWindow           time.Time
 	limits                Limits
+	configuredLimits      Limits
+	attachmentLimits      AttachmentLimits
 	stopping              bool
 	advancedToolsDisabled bool
 	apiRate               map[string]*rateWindow
@@ -63,9 +65,17 @@ type Server struct {
 	knowledgeWork         sync.WaitGroup
 }
 
-func New(store *Store, runtime Runtime, ready func() bool, publicURL string) (*Server, error) {
-	s := &Server{pendingTests: make(map[string]chan agentruntime.Event), schedulerCtx: context.Background(), store: store, runtime: runtime, ready: ready, publicURL: strings.TrimRight(publicURL, "/")}
-	s.advancedToolsDisabled = advancedToolsDisabled()
+func New(store *Store, runtime Runtime, ready func() bool, publicURL string, options ...ServerOptions) (*Server, error) {
+	configuredLimits := defaultLimits()
+	attachmentLimits := defaultAttachmentLimits()
+	if len(options) > 0 {
+		if options[0].Limits != nil {
+			configuredLimits = *options[0].Limits
+		}
+		attachmentLimits = mergeAttachmentLimits(options[0].Attachments)
+	}
+	s := &Server{pendingTests: make(map[string]chan agentruntime.Event), schedulerCtx: context.Background(), store: store, runtime: runtime, ready: ready, publicURL: strings.TrimRight(publicURL, "/"), configuredLimits: configuredLimits, attachmentLimits: attachmentLimits, limits: configuredLimits}
+	s.advancedToolsDisabled = advancedToolsDisabledConfig(options)
 	s.channelConnections.values = make(map[string]channelConnection)
 	s.channelTests = make(map[string]bool)
 	if err := s.ConfigureChannelAdapters("node", "runtime/dist/channel-wecom.js"); err != nil {

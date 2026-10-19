@@ -32,6 +32,13 @@ func TestUnitTextKeepsBasePath(t *testing.T) {
 	}
 }
 
+func TestUnitTextKeepsConfigPath(t *testing.T) {
+	text := unitText(Options{Launcher: "/home/u/.local/bin/siagent", DataDir: "/home/u/.local/share/siagent/data", Listen: "127.0.0.1:8080", ConfigPath: "/home/u/.config/SiAgent/config.json"})
+	if !strings.Contains(text, `Environment="SIAGENT_CONFIG=/home/u/.config/SiAgent/config.json"`) {
+		t.Fatalf("unit missing config path:\n%s", text)
+	}
+}
+
 func TestUnitQuoteEscapesSpecifiersAndQuotes(t *testing.T) {
 	got := quote(`/tmp/a"b%c`)
 	if got != `"/tmp/a\"b%%c"` {

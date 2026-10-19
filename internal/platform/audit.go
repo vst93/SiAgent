@@ -9,15 +9,23 @@ import (
 
 // advancedToolsDisabled reports the deployment-level kill switch. Any of the
 // usual truthy values disables read/write/edit/bash for every Agent.
-func advancedToolsDisabled() bool {
+func advancedToolsDisabled() bool { return advancedToolsDisabledConfig(nil) }
+
+func advancedToolsDisabledConfig(options []ServerOptions) bool {
 	value := strings.ToLower(strings.TrimSpace(os.Getenv("SIAGENT_DISABLE_ADVANCED_TOOLS")))
-	if value == "" || value == "0" || value == "false" || value == "no" {
-		return false
+	if value != "" {
+		if value == "0" || value == "false" || value == "no" {
+			return false
+		}
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			return parsed
+		}
+		return true
 	}
-	if parsed, err := strconv.ParseBool(value); err == nil {
-		return parsed
+	if len(options) > 0 && options[0].AdvancedToolsDisabled != nil {
+		return *options[0].AdvancedToolsDisabled
 	}
-	return true
+	return false
 }
 
 // audit appends one administrator action. Detail must never contain message

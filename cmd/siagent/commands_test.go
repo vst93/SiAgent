@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 )
 
 func TestCommandsPreserveLauncherOptionsAndRestartAsServer(t *testing.T) {
+	t.Setenv("SIAGENT_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	defaults := installation{DataDir: "data", Node: "node", Runtime: "runtime/dist/index.js", ChannelWorker: "runtime/dist/channel-wecom.js"}
 	for _, tc := range []struct {
 		args                  []string
@@ -36,6 +40,8 @@ func TestCommandsPreserveLauncherOptionsAndRestartAsServer(t *testing.T) {
 }
 
 func TestServiceCommandParsing(t *testing.T) {
+	t.Setenv("SIAGENT_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	defaults := installation{DataDir: "data", Node: "node", Runtime: "runtime/dist/index.js", ChannelWorker: "runtime/dist/channel-wecom.js"}
 	for _, tc := range []struct {
 		args   []string
@@ -58,6 +64,8 @@ func TestServiceCommandParsing(t *testing.T) {
 }
 
 func TestHelpAliasesWorkBeforeOrAfterInstallerFlags(t *testing.T) {
+	t.Setenv("SIAGENT_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	for _, args := range [][]string{{"help"}, {"-h"}, {"--help"}, {"-help"}, {"-data-dir", "/installer/data", "help"}, {"update", "-h"}} {
 		var output bytes.Buffer
 		_, err := parseCommand(args, installation{}, &output)
@@ -69,5 +77,38 @@ func TestHelpAliasesWorkBeforeOrAfterInstallerFlags(t *testing.T) {
 		if _, err := parseCommand(args, installation{}, &bytes.Buffer{}); err == nil {
 			t.Fatal("invalid command accepted", args)
 		}
+	}
+}
+
+func TestExternalConfigPrecedence(t *testing.T) {
+	t.Setenv("SIAGENT_CONFIG", "")
+	base := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", base)
+	dir := filepath.Join(base, "SiAgent")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{
+  "data_dir": "/config/data",
+  "listen": "127.0.0.1:9100",
+  "attachments": {"max_message_count": 5}
+}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	defaults := installation{DataDir: "installed-data", Node: "node", Runtime: "runtime/dist/index.js", ChannelWorker: "runtime/dist/channel-wecom.js"}
+	options, err := parseCommand(nil, defaults, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.DataDir != "/config/data" || options.Listen != "127.0.0.1:9100" || options.Attachments.MaxMessageCount != 5 {
+		t.Fatalf("config not applied: %+v", options)
+	}
+	t.Setenv("SIAGENT_LISTEN", "127.0.0.1:9200")
+	options, err = parseCommand([]string{"-listen", "127.0.0.1:9300"}, defaults, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.Listen != "127.0.0.1:9300" || options.DataDir != "/config/data" {
+		t.Fatalf("precedence wrong: %+v", options)
 	}
 }

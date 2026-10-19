@@ -16,13 +16,6 @@ import (
 	"siagent/internal/knowledge"
 )
 
-const (
-	maxAttachmentBytes = 10 << 20
-	maxExtractedRunes  = 300000
-	maxAttachments     = 8
-	maxAttachmentTotal = 40 << 20
-)
-
 type Attachment struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
@@ -71,7 +64,7 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "对话不存在，或渠道会话不能添加附件。")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxAttachmentBytes+1<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, s.attachmentLimits.MaxFileBytes+1<<20)
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		fail(w, 400, "请选择要上传的图片或文件。")
@@ -100,12 +93,12 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		internal(w)
 		return
 	}
-	if existingCount >= 40 || existingBytes+int64(header.Size) > 100<<20 {
+	if existingCount >= s.attachmentLimits.MaxConversationCount || existingBytes+int64(header.Size) > s.attachmentLimits.MaxConversationBytes {
 		fail(w, 413, "每个对话最多保留 40 个附件、总计 100 MiB；请删除未发送附件或新建对话。")
 		return
 	}
-	data, err := io.ReadAll(io.LimitReader(file, maxAttachmentBytes+1))
-	if err != nil || int64(len(data)) > maxAttachmentBytes {
+	data, err := io.ReadAll(io.LimitReader(file, s.attachmentLimits.MaxFileBytes+1))
+	if err != nil || int64(len(data)) > s.attachmentLimits.MaxFileBytes {
 		fail(w, 413, "单个附件不能超过 10 MiB。")
 		return
 	}
@@ -114,7 +107,7 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if kind == "image" {
-		if int64(len(data)) > 4<<20 {
+		if int64(len(data)) > s.attachmentLimits.MaxImageBytes {
 			fail(w, 413, "单张图片不能超过 4 MiB，请压缩后重试。")
 			return
 		}
@@ -147,7 +140,7 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		extracted = strings.TrimSpace(extracted)
-		if len([]rune(extracted)) > maxExtractedRunes {
+		if len([]rune(extracted)) > s.attachmentLimits.MaxExtractedRunes {
 			_ = os.Remove(path)
 			fail(w, 413, "文件提取文本超过 300,000 字符，请拆分后重试。")
 			return
@@ -255,8 +248,8 @@ func (s *Server) loadAttachments(conversationID string, ids []string) ([]storedA
 	if len(ids) == 0 {
 		return []storedAttachment{}, nil
 	}
-	if len(ids) > maxAttachments {
-		return nil, fmt.Errorf("单条消息最多 %d 个附件。", maxAttachments)
+	if len(ids) > s.attachmentLimits.MaxMessageCount {
+		return nil, fmt.Errorf("单条消息最多 %d 个附件。", s.attachmentLimits.MaxMessageCount)
 	}
 	seen := map[string]bool{}
 	values := make([]storedAttachment, 0, len(ids))
@@ -285,10 +278,10 @@ func (s *Server) loadAttachments(conversationID string, ids []string) ([]storedA
 		item.Linked = true
 		values = append(values, item)
 	}
-	if total > maxAttachmentTotal {
+	if total > s.attachmentLimits.MaxMessageBytes {
 		return nil, fmt.Errorf("单条消息附件总大小不能超过 40 MiB。")
 	}
-	if imageBytes > 5<<20 {
+	if imageBytes > s.attachmentLimits.MaxMessageImageBytes {
 		return nil, fmt.Errorf("单条消息图片总大小不能超过 5 MiB，请减少或压缩图片。")
 	}
 	return values, nil
@@ -340,4 +333,70 @@ func (s *Server) runtimeAttachments(items []storedAttachment) ([]map[string]any,
 		result = append(result, value)
 	}
 	return result, nil
+}
+
+// AttachmentLimits are runtime values loaded from the external system config.
+// Zero fields fall back to the defaults documented in docs/chat-attachments.md.
+type AttachmentLimits struct {
+	MaxFileBytes         int64
+	MaxImageBytes        int64
+	MaxMessageImageBytes int64
+	MaxExtractedRunes    int
+	MaxMessageCount      int
+	MaxMessageBytes      int64
+	MaxConversationCount int
+	MaxConversationBytes int64
+	OrphanTTLHours       int
+}
+
+type ServerOptions struct {
+	Attachments           AttachmentLimits
+	Limits                *Limits
+	AdvancedToolsDisabled *bool
+}
+
+func defaultAttachmentLimits() AttachmentLimits {
+	return AttachmentLimits{
+		MaxFileBytes:         10 << 20,
+		MaxImageBytes:        4 << 20,
+		MaxMessageImageBytes: 5 << 20,
+		MaxExtractedRunes:    300000,
+		MaxMessageCount:      8,
+		MaxMessageBytes:      40 << 20,
+		MaxConversationCount: 40,
+		MaxConversationBytes: 100 << 20,
+		OrphanTTLHours:       24,
+	}
+}
+
+func mergeAttachmentLimits(value AttachmentLimits) AttachmentLimits {
+	defaults := defaultAttachmentLimits()
+	if value.MaxFileBytes > 0 {
+		defaults.MaxFileBytes = value.MaxFileBytes
+	}
+	if value.MaxImageBytes > 0 {
+		defaults.MaxImageBytes = value.MaxImageBytes
+	}
+	if value.MaxMessageImageBytes > 0 {
+		defaults.MaxMessageImageBytes = value.MaxMessageImageBytes
+	}
+	if value.MaxExtractedRunes > 0 {
+		defaults.MaxExtractedRunes = value.MaxExtractedRunes
+	}
+	if value.MaxMessageCount > 0 {
+		defaults.MaxMessageCount = value.MaxMessageCount
+	}
+	if value.MaxMessageBytes > 0 {
+		defaults.MaxMessageBytes = value.MaxMessageBytes
+	}
+	if value.MaxConversationCount > 0 {
+		defaults.MaxConversationCount = value.MaxConversationCount
+	}
+	if value.MaxConversationBytes > 0 {
+		defaults.MaxConversationBytes = value.MaxConversationBytes
+	}
+	if value.OrphanTTLHours > 0 {
+		defaults.OrphanTTLHours = value.OrphanTTLHours
+	}
+	return defaults
 }

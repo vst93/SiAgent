@@ -49,6 +49,9 @@ func unitText(options Options) string {
 	}
 	b.WriteString("\nEnvironment=" + quote("SIAGENT_SERVICE=systemd") + "\n")
 	b.WriteString("Environment=" + quote("SIAGENT_DATA_DIR="+options.DataDir) + "\n")
+	if options.ConfigPath != "" {
+		b.WriteString("Environment=" + quote("SIAGENT_CONFIG="+options.ConfigPath) + "\n")
+	}
 	b.WriteString("KillMode=process\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=30\n\n")
 	b.WriteString("[Install]\nWantedBy=default.target\n")
 	return b.String()

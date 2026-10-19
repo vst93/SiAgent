@@ -52,6 +52,9 @@ func plistText(options Options) string {
 	b.WriteString("\t<key>EnvironmentVariables</key>\n\t<dict>\n")
 	b.WriteString("\t\t<key>SIAGENT_SERVICE</key><string>launchd</string>\n")
 	b.WriteString("\t\t<key>SIAGENT_DATA_DIR</key><string>" + escape(options.DataDir) + "</string>\n")
+	if options.ConfigPath != "" {
+		b.WriteString("\t\t<key>SIAGENT_CONFIG</key><string>" + escape(options.ConfigPath) + "</string>\n")
+	}
 	b.WriteString("\t</dict>\n")
 	b.WriteString("\t<key>RunAtLoad</key><true/>\n\t<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n")
 	b.WriteString("\t<key>ThrottleInterval</key><integer>5</integer>\n\t<key>ProcessType</key><string>Background</string>\n")

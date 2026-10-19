@@ -14,28 +14,51 @@ import (
 	"syscall"
 	"time"
 
+	appconfig "siagent/internal/config"
 	"siagent/internal/selfupdate"
 	"siagent/internal/service"
 )
 
 type commandOptions struct {
 	Command, DataDir, Listen, PublicURL, BasePath, Runtime, Node, ChannelWorker, Probe, Conversation string
-	ServiceAction, ServiceManager                                                                    string
+	ConfigPath, ServiceAction, ServiceManager                                                        string
+	Attachments                                                                                      appconfig.Attachments
+	Limits                                                                                           *appconfig.Limits
+	AdvancedToolsDisabled                                                                            *bool
 	ProbeTool                                                                                        bool
 	ServerArgs                                                                                       []string
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func parseCommand(args []string, installed installation, output io.Writer) (commandOptions, error) {
 	options := commandOptions{Command: "serve"}
+	file, configPath, err := appconfig.Load(env("SIAGENT_CONFIG", ""))
+	if err != nil {
+		return options, err
+	}
+	if _, err := os.Stat(configPath); err == nil {
+		options.ConfigPath = configPath
+	}
+	options.Attachments = file.Attachments
+	options.Limits = file.Limits
+	options.AdvancedToolsDisabled = file.AdvancedToolsDisabled
 	flags := flag.NewFlagSet("siagent", flag.ContinueOnError)
 	flags.SetOutput(output)
-	flags.StringVar(&options.DataDir, "data-dir", env("SIAGENT_DATA_DIR", installed.DataDir), "persistent data directory")
-	flags.StringVar(&options.Listen, "listen", env("SIAGENT_LISTEN", "127.0.0.1:8080"), "HTTP address")
-	flags.StringVar(&options.PublicURL, "public-url", env("SIAGENT_PUBLIC_URL", ""), "public HTTP(S) origin; HTTPS enables Secure cookies")
-	flags.StringVar(&options.BasePath, "base-path", env("SIAGENT_BASE_PATH", ""), "URL path prefix, for example /siagent; empty means the site root")
-	flags.StringVar(&options.Runtime, "runtime", installed.Runtime, "runtime adapter entrypoint")
-	flags.StringVar(&options.Node, "node", env("SIAGENT_NODE", installed.Node), "Node.js executable")
-	flags.StringVar(&options.ChannelWorker, "channel-worker", env("SIAGENT_CHANNEL_WORKER", installed.ChannelWorker), "bundled channel plugin entrypoint")
+	flags.StringVar(&options.DataDir, "data-dir", env("SIAGENT_DATA_DIR", firstNonEmpty(file.DataDir, installed.DataDir)), "persistent data directory")
+	flags.StringVar(&options.Listen, "listen", env("SIAGENT_LISTEN", firstNonEmpty(file.Listen, "127.0.0.1:8080")), "HTTP address")
+	flags.StringVar(&options.PublicURL, "public-url", env("SIAGENT_PUBLIC_URL", file.PublicURL), "public HTTP(S) origin; HTTPS enables Secure cookies")
+	flags.StringVar(&options.BasePath, "base-path", env("SIAGENT_BASE_PATH", file.BasePath), "URL path prefix, for example /siagent; empty means the site root")
+	flags.StringVar(&options.Runtime, "runtime", env("SIAGENT_RUNTIME", firstNonEmpty(file.Runtime, installed.Runtime)), "runtime adapter entrypoint")
+	flags.StringVar(&options.Node, "node", env("SIAGENT_NODE", firstNonEmpty(file.Node, installed.Node)), "Node.js executable")
+	flags.StringVar(&options.ChannelWorker, "channel-worker", env("SIAGENT_CHANNEL_WORKER", firstNonEmpty(file.ChannelWorker, installed.ChannelWorker)), "bundled channel plugin entrypoint")
 	flags.StringVar(&options.Probe, "probe", "", "run a model prompt through the private protocol, then exit")
 	flags.StringVar(&options.Conversation, "conversation", "probe", "probe conversation identifier")
 	flags.BoolVar(&options.ProbeTool, "probe-tool", false, "enable the harmless add tool for a probe")
@@ -243,7 +266,7 @@ func runService(options commandOptions, executable string, installed installatio
 		return err
 	}
 	options.ServiceManager = service.Detect()
-	serviceOptions := service.Options{Launcher: launcher, DataDir: dataDir, Listen: options.Listen, BasePath: basePath}
+	serviceOptions := service.Options{Launcher: launcher, DataDir: dataDir, Listen: options.Listen, BasePath: basePath, ConfigPath: options.ConfigPath}
 	var status service.Status
 	switch options.ServiceAction {
 	case "install":

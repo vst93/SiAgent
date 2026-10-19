@@ -14,6 +14,14 @@
 
 验证：`make test`（Runtime 39 项 + Go `-race`）、`python3 tests/e2e.py`、`SIAGENT_CHROMIUM=... npm --prefix web run test:browser` 全部通过；迁移测试覆盖 schema 1–20 升级并保留既有数据。
 
+## 外置系统配置
+
+- [x] 新增 `SiAgent/config.json`：Linux `~/.config/SiAgent/`，macOS `~/Library/Application Support/SiAgent/`，Windows `%AppData%\SiAgent\`；可用 `SIAGENT_CONFIG` 覆盖。
+- [x] 支持数据目录、监听地址、公开地址、子路径、Runtime、Node、渠道入口等启动参数外置；环境变量和命令行可逐层覆盖。
+- [x] 新增附件限额与孤件清理 TTL、首次运行限制默认值；未知字段/非法值阻止启动，默认文件缺失不报错，显式路径缺失报错。
+- [x] 服务单元保存配置路径；JSON 不含密钥，业务配置仍由管理界面保存。
+- [x] 文档说明字段、应用顺序、限制优先级和重启生效规则，见 [configuration.md](configuration.md)。
+
 ## 对话附件、视觉模型与 Agent fallback
 
 - [x] 模型连接新增输入类型声明：文本固定支持，可选图片；Runtime 的模型定义同步传递 `input`。

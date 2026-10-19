@@ -25,7 +25,10 @@ func (l Limits) valid() bool {
 	return l.Concurrent >= 1 && l.Concurrent <= 8 && l.ConversationQueue >= 1 && l.ConversationQueue <= 1000 && l.GlobalQueue >= l.ConversationQueue && l.GlobalQueue <= 10000 && l.RunTimeout >= 1 && l.RunTimeout <= 3600 && l.ToolTimeout >= 1 && l.ToolTimeout <= 600 && l.ToolRounds >= 1 && l.ToolRounds <= 100
 }
 func (s *Server) loadLimits() (Limits, error) {
-	l := defaultLimits()
+	l := s.configuredLimits
+	if l.Concurrent == 0 {
+		l = defaultLimits()
+	}
 	var data string
 	err := s.store.db.QueryRow("SELECT config FROM settings WHERE id=1").Scan(&data)
 	if err == sql.ErrNoRows {

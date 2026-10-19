@@ -115,7 +115,22 @@ func runServer(options commandOptions, executable string, installed installation
 		return err
 	}
 	defer store.Close()
-	api, err := platform.New(store, supervisor, supervisor.Ready.Load, *publicURL)
+	serverOptions := platform.ServerOptions{Attachments: platform.AttachmentLimits{
+		MaxFileBytes:         options.Attachments.MaxFileBytes,
+		MaxImageBytes:        options.Attachments.MaxImageBytes,
+		MaxMessageImageBytes: options.Attachments.MaxMessageImageBytes,
+		MaxExtractedRunes:    options.Attachments.MaxExtractedRunes,
+		MaxMessageCount:      options.Attachments.MaxMessageCount,
+		MaxMessageBytes:      options.Attachments.MaxMessageBytes,
+		MaxConversationCount: options.Attachments.MaxConversationCount,
+		MaxConversationBytes: options.Attachments.MaxConversationBytes,
+		OrphanTTLHours:       options.Attachments.OrphanTTLHours,
+	}}
+	if options.Limits != nil {
+		serverOptions.Limits = &platform.Limits{Concurrent: options.Limits.Concurrent, ConversationQueue: options.Limits.ConversationQueue, GlobalQueue: options.Limits.GlobalQueue, RunTimeout: options.Limits.RunTimeout, ToolTimeout: options.Limits.ToolTimeout, ToolRounds: options.Limits.ToolRounds}
+	}
+	serverOptions.AdvancedToolsDisabled = options.AdvancedToolsDisabled
+	api, err := platform.New(store, supervisor, supervisor.Ready.Load, *publicURL, serverOptions)
 	if err != nil {
 		return err
 	}
