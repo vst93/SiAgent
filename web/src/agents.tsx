@@ -122,7 +122,7 @@ export function AgentWorkspace({
   return (
     <div className="agents-workspace">
       <section className="agents-list">
-        <div className="knowledge-section-head">
+        <div className="knowledge-section-head pane-heading">
           <h2>Agent 列表</h2>
           <button
             disabled={pending}

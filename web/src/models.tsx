@@ -232,7 +232,7 @@ export function ModelsWorkspace({
   return (
     <div className="model-console">
       <aside className="model-catalog-panel" aria-label="模型连接列表">
-        <div className="model-catalog-heading">
+        <div className="model-catalog-heading pane-heading">
           <h2>
             连接列表 <span>{models.length}</span>
           </h2>

@@ -79,8 +79,8 @@ function KnowledgeUploadSettings({ request }: { request: Api }) {
       )
     : [];
   return (
-    <section className="settings-section" aria-labelledby="knowledge-limits-title">
-      <header className="settings-section-head">
+    <section className="panel settings-panel" aria-labelledby="knowledge-limits-title">
+      <header className="panel-head">
         <div>
           <h2 id="knowledge-limits-title">知识库上传限制</h2>
           <p>
@@ -89,6 +89,7 @@ function KnowledgeUploadSettings({ request }: { request: Api }) {
           </p>
         </div>
       </header>
+      <div className="panel-body">
       {value && (
         <form onSubmit={save}>
           <div className="limits-grid">
@@ -231,6 +232,7 @@ function KnowledgeUploadSettings({ request }: { request: Api }) {
           {feedback}
         </p>
       )}
+      </div>
     </section>
   );
 }
@@ -400,38 +402,25 @@ export function ConversationMaintenance({
   );
 }
 
-export function ExecutionSettings({ request }: { request: Api }) {
+function RunLimitsSettings({ request }: { request: Api }) {
   const [limits, setLimits] = useState<Limits | null>(null);
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [storage, setStorage] = useState<Storage | null>(null);
-  const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [pending, setPending] = useState(false);
-  async function refresh() {
-    const state = await request<{
-      limits: Limits;
-      counts: Record<string, number>;
-      runtime_ready: boolean;
-    }>("/diagnostics");
-    setLimits(state.limits);
-    setCounts(state.counts);
-    setReady(state.runtime_ready);
-    setStorage(await request<Storage>("/storage"));
-  }
   useEffect(() => {
-    void refresh().catch((error) => setError(message(error)));
+    void request<Limits>("/limits")
+      .then(setLimits)
+      .catch((error) => setError(message(error)));
   }, []);
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (!limits) return;
     setError("");
     setFeedback("");
     setPending(true);
     try {
       setLimits(await request<Limits>("/limits", "PUT", limits));
-      setFeedback(
-        "限制已保存。并发与队列上限立即生效，时限和工具轮数用于新提交的任务。",
-      );
+      setFeedback("运行限制已保存。并发与队列立即生效，时限和工具轮数用于新提交的任务。");
     } catch (error) {
       setError(message(error));
     } finally {
@@ -439,38 +428,14 @@ export function ExecutionSettings({ request }: { request: Api }) {
     }
   }
   return (
-    <section className="system-settings">
-      <div className="execution-settings">
-        <ApplicationUpdates request={request} />
-        <p className="muted">
-          {ready ? "对话服务已就绪" : "对话服务正在恢复"} · 执行中{" "}
-          {counts.running ?? 0} · 取消中 {counts.cancelling ?? 0} · 等待{" "}
-          {counts.queued ?? 0}
-        </p>
-        {storage && (
-          <section className="storage-usage" aria-label="磁盘使用">
-            <p>
-              数据目录使用 <strong>{bytes(storage.data_bytes)}</strong> ·{" "}
-              {storage.files.toLocaleString()} 个文件
-              {!storage.complete ? "（部分统计）" : ""}
-            </p>
-            <p>
-              所在磁盘可用 {bytes(storage.disk_available_bytes)} /{" "}
-              {bytes(storage.disk_total_bytes)} · 待清理会话{" "}
-              {storage.cleanup_pending}
-            </p>
-            {storage.warning && (
-              <p className="context-warning" role="status">
-                {storage.warning}
-              </p>
-            )}
-            <small>
-              统计包含数据库、模型上下文、知识文件和工作区；不会自动删除业务历史。SQLite
-              删除记录后可能保留空闲页，数据大小不等于立即可回收空间。
-            </small>
-          </section>
-        )}
-        <KnowledgeUploadSettings request={request} />
+    <section className="panel settings-panel" aria-labelledby="run-limits-title">
+      <header className="panel-head">
+        <div>
+          <h2 id="run-limits-title">运行限制</h2>
+          <p>并发、队列与超时。并发和队列立即生效，时限用于新提交的任务。</p>
+        </div>
+      </header>
+      <div className="panel-body">
         {limits && (
           <form onSubmit={save}>
             <div className="limits-grid">
@@ -494,20 +459,12 @@ export function ExecutionSettings({ request }: { request: Api }) {
                 </label>
               ))}
             </div>
-            <small>
-              总等待数不能小于单个会话的等待数。上下文策略在 Agent
-              中配置，窗口与最大输出由模型连接决定。
-            </small>
+            <p className="field-note">
+              总等待数不能小于单个会话的等待数。上下文策略在 Agent 中配置，窗口与最大输出由模型连接决定。
+            </p>
             <div className="form-actions">
-              <button disabled={pending}>保存运行限制</button>
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() =>
-                  void refresh().catch((error) => setError(message(error)))
-                }
-              >
-                刷新状态
+              <button className="primary" disabled={pending}>
+                {pending ? "正在保存…" : "保存运行限制"}
               </button>
             </div>
           </form>
@@ -524,6 +481,154 @@ export function ExecutionSettings({ request }: { request: Api }) {
         )}
       </div>
     </section>
+  );
+}
+
+export function ExecutionSettings({ request }: { request: Api }) {
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [storage, setStorage] = useState<Storage | null>(null);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  async function refresh() {
+    setRefreshing(true);
+    setError("");
+    try {
+      const state = await request<{
+        limits: Limits;
+        counts: Record<string, number>;
+        runtime_ready: boolean;
+      }>("/diagnostics");
+      setCounts(state.counts);
+      setReady(state.runtime_ready);
+      setStorage(await request<Storage>("/storage"));
+    } catch (error) {
+      setError(message(error));
+    } finally {
+      setRefreshing(false);
+    }
+  }
+  useEffect(() => {
+    void refresh();
+  }, []);
+  const used =
+    storage && storage.disk_total_bytes > 0
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            ((storage.disk_total_bytes - storage.disk_available_bytes) /
+              storage.disk_total_bytes) *
+              100,
+          ),
+        )
+      : 0;
+  return (
+    <div className="settings-page">
+      <div className="overview-grid">
+        <section className="panel" aria-labelledby="runtime-status-title">
+          <header className="panel-head">
+            <div>
+              <h2 id="runtime-status-title">运行状态</h2>
+              <p>对话服务就绪状态与当前任务队列。</p>
+            </div>
+            <button
+              type="button"
+              disabled={refreshing}
+              onClick={() => void refresh()}
+            >
+              {refreshing ? "正在刷新…" : "刷新"}
+            </button>
+          </header>
+          <div className="panel-body">
+            <p className={`status-row ${ready ? "" : "is-warning"}`}>
+              <span className={ready ? "status-dot" : "status-dot offline"} />
+              {ready ? "对话服务已就绪" : "对话服务正在恢复"}
+            </p>
+            <div className="stat-grid">
+              <div className="stat">
+                <span>执行中</span>
+                <strong>{counts.running ?? 0}</strong>
+              </div>
+              <div className="stat">
+                <span>取消中</span>
+                <strong>{counts.cancelling ?? 0}</strong>
+              </div>
+              <div className="stat">
+                <span>等待</span>
+                <strong>{counts.queued ?? 0}</strong>
+              </div>
+            </div>
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+        </section>
+        <section className="panel" aria-labelledby="storage-title">
+          <header className="panel-head">
+            <div>
+              <h2 id="storage-title">存储</h2>
+              <p>数据目录占用与所在磁盘可用空间。</p>
+            </div>
+          </header>
+          <div className="panel-body">
+            {storage ? (
+              <>
+                <div className="stat-grid">
+                  <div className="stat">
+                    <span>数据目录</span>
+                    <strong>{bytes(storage.data_bytes)}</strong>
+                  </div>
+                  <div className="stat">
+                    <span>文件</span>
+                    <strong>{storage.files.toLocaleString()}</strong>
+                  </div>
+                  <div className="stat">
+                    <span>磁盘可用</span>
+                    <strong>{bytes(storage.disk_available_bytes)}</strong>
+                  </div>
+                  <div className="stat">
+                    <span>待清理会话</span>
+                    <strong>{storage.cleanup_pending}</strong>
+                  </div>
+                </div>
+                <div
+                  className="usage-meter"
+                  role="img"
+                  aria-label={`磁盘已使用 ${used.toFixed(1)}%`}
+                >
+                  <span style={{ width: `${used}%` }} />
+                </div>
+                <p className="field-note">
+                  共 {bytes(storage.disk_total_bytes)}，已使用 {used.toFixed(1)}%
+                  {!storage.complete ? "；部分目录统计失败，数值仅供参考" : ""}
+                </p>
+                {storage.warning && (
+                  <p className="context-warning" role="status">
+                    {storage.warning}
+                  </p>
+                )}
+                <p className="field-note">
+                  统计包含数据库、模型上下文、知识文件和工作区，不会自动删除业务历史。SQLite
+                  删除记录后可能保留空闲页，数据大小不等于立即可回收空间。
+                </p>
+              </>
+            ) : (
+              <p className="muted" role="status">
+                正在读取存储信息…
+              </p>
+            )}
+          </div>
+        </section>
+      </div>
+      <ApplicationUpdates request={request} />
+      <div className="settings-grid">
+        <RunLimitsSettings request={request} />
+        <KnowledgeUploadSettings request={request} />
+      </div>
+    </div>
   );
 }
 

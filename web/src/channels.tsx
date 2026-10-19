@@ -426,7 +426,7 @@ export function ChannelsWorkspace({
       <header className="plugin-section-heading">
         <div>
           <h2>
-            聊天渠道 <span>{channels.length}</span>
+            已接入渠道 <span>{channels.length}</span>
           </h2>
           <p>选择渠道适配器，连接聊天平台并绑定 Agent。</p>
         </div>

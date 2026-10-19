@@ -82,16 +82,32 @@ export function ApplicationUpdates({ request }: { request: Api }) {
   }
   if (!status)
     return (
-      <section className="application-updates">
-        <h2>应用更新</h2>
-        <p className="muted">{error || "正在读取更新状态…"}</p>
+      <section className="application-updates panel">
+        <header className="panel-head">
+          <div>
+            <h2>应用更新</h2>
+            <p>检查版本、下载校验并在空闲时备份重启。</p>
+          </div>
+        </header>
+        <div className="panel-body">
+          <p className="muted">{error || "正在读取更新状态…"}</p>
+        </div>
       </section>
     );
   const busy =
     pending || ["checking", "downloading", "waiting", "restarting"].includes(status.phase) || status.automatic;
   return (
-    <section className="application-updates" aria-label="应用更新">
-      <h2>应用更新</h2>
+    <section className="application-updates panel" aria-label="应用更新">
+      <header className="panel-head">
+        <div>
+          <h2>应用更新</h2>
+          <p>检查版本、下载校验并在空闲时备份重启。</p>
+        </div>
+        <span className={`update-phase phase-${status.phase}`}>
+          {phases[status.phase] ?? status.phase}
+        </span>
+      </header>
+      <div className="panel-body">
       <p>
         当前版本 <strong>{status.current}</strong>
         {status.latest && (
@@ -99,8 +115,7 @@ export function ApplicationUpdates({ request }: { request: Api }) {
             {" "}
             · 最新版本 <strong>{status.latest}</strong>
           </>
-        )}{" "}
-        <span className="muted">{phases[status.phase] ?? status.phase}</span>
+        )}
       </p>
       <p
         className={
@@ -169,6 +184,7 @@ export function ApplicationUpdates({ request }: { request: Api }) {
         </p>
       )}
       <small>命令行可使用 <code>siagent update</code> 更新，或 <code>siagent help</code> 查看帮助。</small>
+      </div>
     </section>
   );
 }

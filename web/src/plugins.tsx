@@ -638,6 +638,11 @@ function SkillCatalog({ request }: { request: Api }) {
       ) : skills.length ? (
         <div className="skill-catalog-layout">
           <aside className="skill-catalog-list">
+            <div className="pane-heading">
+              <h2>
+                技能列表 <span>{skills.length}</span>
+              </h2>
+            </div>
             <input
               type="search"
               aria-label="搜索技能"

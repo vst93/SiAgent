@@ -505,6 +505,12 @@ try {
     .getByRole("link", { name: /完整接口说明/ })
     .waitFor();
   await config("运行与维护");
+  // The maintenance page groups status, storage, updates and both limit forms
+  // into labeled panels instead of one flat column.
+  for (const name of ["运行状态", "存储", "应用更新", "运行限制", "知识库上传限制"]) {
+    await page.getByRole("heading", { name, exact: true }).waitFor();
+  }
+  assert.equal(await page.locator(".settings-page .panel").count(), 5);
   await page.getByRole("heading", { name: "应用更新", exact: true }).waitFor();
   const updateState = await page.evaluate(() =>
     fetch("/api/updates").then((response) => response.json()),
@@ -1968,6 +1974,31 @@ try {
   assert(
     storage.disk_total_bytes > 0 && storage.data_bytes > 0 && storage.files > 0,
   );
+  // Every configuration page must fit its content pane at desktop widths.
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  for (const name of [
+    "Agent",
+    "知识库",
+    "模型连接",
+    "插件接入",
+    "扩展",
+    "渠道接入",
+    "集成接口",
+    "接口文档",
+    "运行与维护",
+  ]) {
+    await config(name);
+    const overflow = await page.evaluate(() => {
+      const content = document.querySelector(".configuration-content");
+      return content ? content.scrollWidth - content.clientWidth : 0;
+    });
+    assert(overflow <= 1, `${name} overflows its content pane by ${overflow}px`);
+  }
+  await page
+    .getByRole("navigation", { name: "主模块" })
+    .getByRole("button", { name: "Agent 对话", exact: true })
+    .click();
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(async () => {
     const state = await fetch("/api/auth/status").then((response) =>
       response.json(),
@@ -1977,7 +2008,7 @@ try {
       headers: { "X-CSRF-Token": state.csrf },
     });
   });
-  await page.getByRole("button", { name: "新对话", exact: true }).click();
+  await page.locator(".new-chat").click();
   await page.getByRole("heading", { name: "欢迎回来" }).waitFor();
   await page.getByLabel("管理员密码").fill("browser-long-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();

@@ -842,17 +842,6 @@ summary {
   grid-template-columns: 1fr 1fr;
   gap: 0 18px;
 }
-.execution-settings {
-  padding-top: 18px;
-}
-.execution-settings > .muted {
-  font-size: 12px;
-  line-height: 1.7;
-}
-.execution-settings label {
-  font-size: 12.5px;
-  margin: 12px 0;
-}
 .context-warning {
   max-width: 780px;
   margin: 8px auto 0;
@@ -1292,15 +1281,6 @@ summary {
   .agents-workspace {
     padding: 16px;
   }
-}
-
-.storage-usage {
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 12px;
-  margin-bottom: 14px;
-}
-.storage-usage p {
-  margin: 5px 0;
 }
 
 /* Application navigation and the two workspaces share a single frame. */
@@ -2263,7 +2243,7 @@ summary {
 }
 .confirmation-dialog {
   color: var(--ink);
-  width: min(440px, calc(100vw - 32px));
+  width: min(480px, calc(100vw - 32px));
   max-height: calc(100dvh - 40px);
   overflow: auto;
   border: 1px solid var(--line);
@@ -2283,7 +2263,7 @@ summary {
   margin-bottom: 14px;
 }
 .confirmation-heading h2 {
-  font-size: 20px;
+  font-size: 18px;
 }
 .delete-symbol {
   display: grid;
@@ -4303,15 +4283,6 @@ details[open] > summary > .disclosure-icon {
   }
 }
 
-.application-updates {
-  padding-bottom: 18px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid var(--line);
-  overflow-wrap: anywhere;
-}
-.application-updates h2 {
-  margin-bottom: 8px;
-}
 .application-updates p {
   margin: 8px 0;
 }
@@ -4321,6 +4292,29 @@ details[open] > summary > .disclosure-icon {
 }
 .application-updates small {
   color: var(--muted);
+}
+.update-phase {
+  flex-shrink: 0;
+  align-self: flex-start;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-raised);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+.update-phase.phase-failed,
+.update-phase.phase-rolled_back {
+  border-color: #dcc4c1;
+  background: #fbf1ef;
+  color: var(--danger);
+}
+.update-phase.phase-completed {
+  border-color: #cfe0d9;
+  background: var(--teal-soft);
+  color: var(--teal-strong);
 }
 .update-confirmation {
   display: grid;
@@ -6005,4 +5999,426 @@ select option:disabled {
 .extension-actions,
 .channel-detail-actions {
   flex-wrap: wrap;
+}
+
+
+/* Configuration pages share one panel and section geometry. */
+.settings-page {
+  display: grid;
+  gap: 16px;
+  max-width: 1200px;
+  min-width: 0;
+}
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.panel-head > div {
+  min-width: 0;
+}
+.panel-head h2 {
+  font-size: 14.5px;
+  letter-spacing: -0.1px;
+  line-height: 1.4;
+}
+.panel-head p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+.panel-body {
+  padding: 14px 16px 16px;
+}
+.panel-body > :first-child {
+  margin-top: 0;
+}
+.panel-body > :last-child {
+  margin-bottom: 0;
+}
+.panel .form-actions {
+  margin-top: 14px;
+}
+.panel .error,
+.panel .success {
+  margin-top: 10px;
+  font-size: 12px;
+}
+.between-panels {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 6px 0 -6px;
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.status-row.is-warning {
+  color: var(--warning);
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--line);
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px 11px;
+  background: var(--paper);
+}
+.stat > span {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.stat > strong {
+  color: var(--ink-strong);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.usage-meter {
+  height: 5px;
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface);
+}
+.usage-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--teal);
+  border-radius: inherit;
+}
+.field-note {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.settings-panel .limits-grid {
+  gap: 0 16px;
+}
+.settings-panel label {
+  font-size: 12px;
+  margin: 10px 0;
+}
+.settings-panel input[type="number"] {
+  max-width: 220px;
+}
+
+@media (max-width: 900px) {
+  .overview-grid,
+  .settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 520px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Configuration page shells share one width and one pane rhythm. */
+.configuration-content > .agents-workspace,
+.configuration-content > .model-console,
+.configuration-content > .plugins-workspace,
+.configuration-content > .channels-workspace,
+.configuration-content > .knowledge-workspace,
+.configuration-content > .apikeys-workspace,
+.configuration-content > .extensions-workspace {
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+}
+.pane-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 9px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid var(--line);
+}
+.pane-heading h2,
+.agents-list .pane-heading h2,
+.model-catalog-heading h2 {
+  margin: 0;
+  font-size: 13.5px;
+  letter-spacing: -0.05px;
+}
+.pane-heading h2 span,
+.model-catalog-heading h2 span {
+  margin-left: 6px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+}
+.pane-heading > button {
+  font-size: 11.5px;
+  padding: 0 9px;
+}
+
+/* Catalogs and editors read as matched panes instead of loose page sections. */
+.agents-list,
+.agent-editor,
+.model-catalog-panel,
+.skill-catalog-list,
+.channel-catalog {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  padding: 12px;
+}
+.agents-list {
+  padding: 14px 12px;
+}
+.agents-list .pane-heading {
+  margin-right: 2px;
+  margin-left: 2px;
+}
+.agent-editor {
+  padding: 16px 18px;
+}
+.agent-editor > h2 {
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+.model-catalog-panel,
+.skill-catalog-list {
+  padding: 12px;
+}
+.skill-catalog-list > .pane-heading {
+  flex-shrink: 0;
+}
+.skill-catalog-list > input {
+  flex-shrink: 0;
+}
+.channel-catalog {
+  padding: 8px;
+  border-top: 1px solid var(--line);
+}
+.channel-catalog > button {
+  border-bottom: 0;
+  border-radius: var(--radius-sm);
+  margin: 1px 0;
+}
+.channel-catalog > button + button {
+  border-top: 1px solid var(--line);
+}
+.channel-catalog > button[aria-current="true"] {
+  border-color: transparent;
+}
+.agent-card {
+  border-radius: var(--radius-sm);
+  border-bottom: 0;
+  margin: 1px 0;
+}
+.agent-card + .agent-card {
+  border-top: 1px solid var(--line);
+}
+.model-catalog-panel .model-catalog-note {
+  margin-bottom: 0;
+}
+.skill-catalog-layout {
+  align-items: start;
+}
+
+/* API and extension pages use the same section containers. */
+.apikeys-workspace,
+.extensions-workspace {
+  max-width: 1000px;
+}
+.apikeys-section,
+.extensions-section {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+.apikeys-section:first-of-type,
+.extensions-section:first-of-type {
+  margin-top: 0;
+}
+.apikeys-section > h2,
+.extensions-section > h2 {
+  margin-bottom: 12px;
+  font-size: 14.5px;
+}
+.apikeys-workspace > .kb-help {
+  margin-bottom: 4px;
+}
+
+/* The plugin and knowledge tab strips share one geometry. */
+.plugin-tabs,
+.kb-tabs {
+  gap: 18px;
+}
+.plugin-tabs button,
+.kb-tabs button {
+  min-height: 36px;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--muted);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.plugin-tabs button[aria-selected="true"],
+.kb-tabs button[aria-selected="true"] {
+  color: var(--teal-strong);
+  box-shadow: inset 0 -2px 0 var(--teal);
+}
+.plugin-tabs button:hover,
+.kb-tabs button:hover {
+  background: transparent;
+  color: var(--ink);
+}
+
+/* Editor tabs use the same underline pattern as page tabs. */
+.editor-tabs {
+  gap: 18px;
+  flex-wrap: wrap;
+  padding-bottom: 0;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.editor-tabs button {
+  min-height: 36px;
+  padding: 0 0 9px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+.editor-tabs button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--ink);
+}
+.editor-tabs button[aria-pressed="true"] {
+  color: var(--teal-strong);
+  background: transparent;
+  box-shadow: inset 0 -2px 0 var(--teal);
+}
+
+/* Extension sections already group cards; avoid a card inside a card. */
+.extensions-section .extension-card {
+  margin: 0;
+  padding: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+.extensions-section .extension-card:last-child {
+  padding-bottom: 0;
+}
+.extensions-section .extension-card:first-of-type {
+  border-top: 0;
+}
+.extensions-section .extension-card h3 {
+  font-size: 13px;
+}
+.extensions-section > p.muted {
+  margin-top: 2px;
+}
+.extension-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+.extension-upload label {
+  margin: 0;
+}
+.extension-upload > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* Empty and loading states sit inside the same page rhythm. */
+.kb-loading,
+.plugin-feedback,
+.agents-feedback,
+.channel-feedback {
+  margin-top: 12px;
+}
+
+/* Maintenance panels keep their action rows visually anchored. */
+.panel .form-actions {
+  padding-top: 4px;
+  border-top: 0;
+}
+.panel .limits-grid + .field-note {
+  margin-top: 2px;
+}
+
+@media (max-width: 700px) {
+  .agents-list,
+  .agent-editor,
+  .model-catalog-panel,
+  .skill-catalog-list,
+  .channel-catalog,
+  .apikeys-section,
+  .extensions-section {
+    padding: 12px;
+  }
+  .settings-page {
+    gap: 12px;
+  }
+  .overview-grid,
+  .settings-grid {
+    gap: 12px;
+  }
+  .panel-head {
+    padding: 12px 14px 10px;
+  }
+  .panel-body {
+    padding: 12px 14px 14px;
+  }
 }
