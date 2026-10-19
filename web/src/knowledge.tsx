@@ -295,6 +295,29 @@ function UploadDialog({
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  function addFiles(selected: File[]) {
+    if (replacement) {
+      setFiles(selected.slice(0, 1));
+      return;
+    }
+    setFiles((current) => {
+      const known = new Set(
+        current.map(
+          (file) => `${file.name}:${file.size}:${file.lastModified}`,
+        ),
+      );
+      const next = [...current];
+      for (const file of selected) {
+        const key = `${file.name}:${file.size}:${file.lastModified}`;
+        if (!known.has(key)) {
+          known.add(key);
+          next.push(file);
+        }
+      }
+      return next;
+    });
+  }
   async function upload(event: FormEvent) {
     event.preventDefault();
     if (!files.length) return;
@@ -346,23 +369,46 @@ function UploadDialog({
           <label>
             选择文档
             <input
-              required
+              ref={inputRef}
               type="file"
               multiple={!replacement}
               accept=".txt,.md,.markdown,.pdf,.docx"
               disabled={pending}
               onChange={(event) => {
-                setFiles(Array.from(event.target.files ?? []));
+                addFiles(Array.from(event.target.files ?? []));
                 setError("");
+                event.target.value = "";
               }}
             />
           </label>
+          {!replacement && (
+            <button
+              type="button"
+              className="kb-add-more"
+              disabled={pending}
+              onClick={() => inputRef.current?.click()}
+            >
+              <Icon name="plus" size={14} /> 继续添加文件
+            </button>
+          )}
           {!!files.length && (
             <ul className="kb-file-list">
               {files.map((file, index) => (
-                <li key={`${file.name}-${file.lastModified}-${index}`}>
+                <li key={`${file.name}-${file.size}-${file.lastModified}-${index}`}>
                   <span>{file.name}</span>
                   <small>{size(file.size)}</small>
+                  <button
+                    type="button"
+                    aria-label={`移除 ${file.name}`}
+                    disabled={pending}
+                    onClick={() =>
+                      setFiles((current) =>
+                        current.filter((_, position) => position !== index),
+                      )
+                    }
+                  >
+                    <Icon name="close" size={14} />
+                  </button>
                 </li>
               ))}
             </ul>

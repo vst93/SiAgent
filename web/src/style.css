@@ -5480,3 +5480,27 @@ select option:disabled {
 .kb-upload-error {
   white-space: pre-line;
 }
+
+.kb-add-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--teal-strong);
+  font-size: 11px;
+  cursor: pointer;
+}
+.kb-add-more:hover {
+  background: var(--surface);
+}
+.kb-file-list li > button {
+  display: inline-flex;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  padding: 0;
+  cursor: pointer;
+}

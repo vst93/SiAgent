@@ -698,6 +698,9 @@ export const exact: Record<string, string> = {
   "兜底模型最多配置 5 个。": "Configure at most 5 fallback models.",
   "兜底模型必须存在且未归档。": "Fallback models must exist and must not be archived.",
   "关联模型已归档或不存在，请重新选择模型。": "The linked model is archived or missing. Select another model.",
+  "继续添加文件": "Add more files",
+  "可一次选择多个文件，系统会逐个上传并建立索引。": "You can select multiple files at once; SiAgent uploads and indexes them one by one.",
+  "正在上传": "Uploading",
 };
 
 export const terms: [string, string][] = [
