@@ -39,8 +39,8 @@ export function Configuration({
     <section className="configuration-workspace" aria-label="配置工作区">
       <main className="configuration-main">
         <header className="configuration-heading">
-          <h1>{current.title}</h1>
-          <p>{current.description}</p>
+          <h1 title={current.title}>{current.title}</h1>
+          <p title={current.description}>{current.description}</p>
         </header>
         <div className="configuration-content" key={section}>
           {section === "models" && (

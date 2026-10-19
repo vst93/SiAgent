@@ -1,3 +1,4 @@
+import { ArrowDownIcon } from "@phosphor-icons/react/dist/csr/ArrowDown";
 import { ArrowLeftIcon } from "@phosphor-icons/react/dist/csr/ArrowLeft";
 import { ArrowRightIcon } from "@phosphor-icons/react/dist/csr/ArrowRight";
 import { ArrowUpIcon } from "@phosphor-icons/react/dist/csr/ArrowUp";
@@ -17,7 +18,9 @@ import { PackageIcon } from "@phosphor-icons/react/dist/csr/Package";
 import { PlugsConnectedIcon } from "@phosphor-icons/react/dist/csr/PlugsConnected";
 import { PlusIcon } from "@phosphor-icons/react/dist/csr/Plus";
 import { PuzzlePieceIcon } from "@phosphor-icons/react/dist/csr/PuzzlePiece";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";
 import { RobotIcon } from "@phosphor-icons/react/dist/csr/Robot";
+import { SidebarSimpleIcon } from "@phosphor-icons/react/dist/csr/SidebarSimple";
 import { SignOutIcon } from "@phosphor-icons/react/dist/csr/SignOut";
 import { StarIcon } from "@phosphor-icons/react/dist/csr/Star";
 import { SunIcon } from "@phosphor-icons/react/dist/csr/Sun";
@@ -31,6 +34,7 @@ import { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight";
 
 // System icons belong to one family. Add future icons here; keep the logo separate.
 const icons = {
+  "arrow-down": ArrowDownIcon,
   "arrow-left": ArrowLeftIcon,
   "arrow-right": ArrowRightIcon,
   "arrow-up": ArrowUpIcon,
@@ -45,7 +49,9 @@ const icons = {
   more: DotsThreeIcon,
   file: FileTextIcon,
   folder: FolderIcon,
+  search: MagnifyingGlassIcon,
   settings: GearSixIcon,
+  sidebar: SidebarSimpleIcon,
   models: PlugsConnectedIcon,
   menu: ListIcon,
   moon: MoonIcon,

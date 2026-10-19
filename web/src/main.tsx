@@ -9,13 +9,14 @@ import {
   type Run,
 } from "./chat";
 import { Configuration } from "./configuration";
+import { CommandPalette, type CommandItem } from "./command-palette";
 import {
   configSections,
   pageName,
   useNavigation,
   type ConfigSection,
 } from "./navigation";
-import { FormEvent, Fragment, useEffect, useState } from "react";
+import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { appURL } from "./urls";
 import {
   applyLanguage,
@@ -35,6 +36,8 @@ import {
 } from "./theme";
 
 applyTheme(storedTheme());
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+const commandKey = isMac ? "⌘K" : "Ctrl K";
 
 type Auth = {
   initialized: boolean;
@@ -244,6 +247,10 @@ const sourceID = new URLSearchParams(window.location.search).get("source");
 function App() {
   const [maintenanceFeedback, setMaintenanceFeedback] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuCloseRef = useRef<HTMLButtonElement>(null);
+  const menuWasOpen = useRef(false);
   const [language, setLanguage] = useState<Language>(storedLanguage);
   const [theme, setTheme] = useState<Theme>(storedTheme);
   const navigation = useNavigation();
@@ -272,6 +279,33 @@ function App() {
     applyTheme(theme);
     rememberTheme(theme);
   }, [theme]);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen((value) => !value);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [menuOpen]);
+  useEffect(() => {
+    if (menuOpen) {
+      menuWasOpen.current = true;
+      window.setTimeout(() => menuCloseRef.current?.focus(), 0);
+    } else if (menuWasOpen.current) {
+      menuWasOpen.current = false;
+      menuButtonRef.current?.focus();
+    }
+  }, [menuOpen]);
   async function refreshAuth() {
     const state = await api<Auth>("/auth/status");
     csrf = state.csrf;
@@ -557,10 +591,58 @@ function App() {
     );
   if (sourceID) return <KnowledgeSource request={api} sourceID={sourceID} />;
   const isDefaultPage = navigation.defaultPage === navigation.page;
+  const commandItems: CommandItem[] = [
+    {
+      id: "chat",
+      label: "Agent 对话",
+      hint: "工作区",
+      icon: "chat",
+      run: () => navigation.navigate("chat"),
+    },
+    ...configSections.map((item) => ({
+      id: `settings/${item.id}`,
+      label: item.title,
+      hint: item.group,
+      icon: item.icon,
+      run: () => navigation.navigate(`settings/${item.id}`),
+    })),
+    {
+      id: "new-chat",
+      label: "新对话",
+      hint: "操作",
+      icon: "plus",
+      run: () => {
+        navigation.navigate("chat");
+        void newConversation();
+      },
+    },
+    {
+      id: "pin",
+      label: isDefaultPage ? "当前页已是默认页" : "将当前页设为默认页",
+      hint: "导航",
+      icon: "star",
+      run: () => navigation.pin(navigation.page),
+    },
+    {
+      id: "theme",
+      label: theme === "light" ? "切换到深色模式" : "切换到浅色模式",
+      hint: "外观",
+      icon: theme === "light" ? "moon" : "sun",
+      run: () => setTheme(theme === "light" ? "dark" : "light"),
+    },
+    {
+      id: "logout",
+      label: "退出登录",
+      hint: "账户",
+      icon: "logout",
+      run: () => void logout(),
+    },
+  ];
   return (
     <div className="app-shell">
       <header className="mobile-topbar">
         <button
+          ref={menuButtonRef}
           className="mobile-menu-button"
           aria-label="打开导航"
           aria-expanded={menuOpen}
@@ -569,6 +651,14 @@ function App() {
           <Icon name="menu" size={18} />
         </button>
         <span className="mobile-title">{pageName(navigation.page)}</span>
+        <button
+          type="button"
+          className="mobile-command-button"
+          aria-label="搜索或跳转"
+          onClick={() => setCommandOpen(true)}
+        >
+          <Icon name="search" size={16} />
+        </button>
         <ThemeToggle
           theme={theme}
           onChange={setTheme}
@@ -585,6 +675,16 @@ function App() {
           <span>SiAgent</span>
           <span className="rail-version">自托管</span>
         </a>
+        <button
+          type="button"
+          className="rail-command"
+          aria-keyshortcuts="Control+K Meta+K"
+          onClick={() => setCommandOpen(true)}
+        >
+          <Icon name="search" size={16} />
+          <span>搜索或跳转</span>
+          <kbd>{commandKey}</kbd>
+        </button>
         <nav className="rail-nav" aria-label="主导航">
           <p className="rail-group">工作区</p>
           <button
@@ -666,6 +766,7 @@ function App() {
             SiAgent
           </span>
           <button
+            ref={menuCloseRef}
             className="icon-button"
             aria-label="关闭导航"
             onClick={() => setMenuOpen(false)}
@@ -812,6 +913,11 @@ function App() {
           )}
         </div>
       </div>
+      <CommandPalette
+        open={commandOpen}
+        items={commandItems}
+        onClose={() => setCommandOpen(false)}
+      />
     </div>
   );
 }

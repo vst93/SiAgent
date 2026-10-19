@@ -268,8 +268,10 @@ export function ModelsWorkspace({
                 <Icon name="models" size={18} />
               </span>
               <span className="model-connection-copy">
-                <strong>{model.options.display_name || model.name}</strong>
-                <span>{model.name}</span>
+                <strong title={model.options.display_name || model.name}>
+                  {model.options.display_name || model.name}
+                </strong>
+                <span title={model.name}>{model.name}</span>
                 <small>
                   {model.archived
                     ? "已归档"
@@ -302,7 +304,7 @@ export function ModelsWorkspace({
                   ? `连接 #${editor.id} · v${editor.version}`
                   : "新增连接"}
             </p>
-            <h2>
+            <h2 title={first ? undefined : o.display_name || editor.name}>
               {first
                 ? "连接你的模型"
                 : o.display_name || editor.name || "新增模型连接"}
@@ -540,7 +542,7 @@ export function ModelsWorkspace({
               {packs.map((pack) => (
                 <div className="model-pack" key={pack.id}>
                   <div>
-                    <strong>{pack.name}</strong>
+                    <strong title={pack.name}>{pack.name}</strong>
                     <p>{pack.description}</p>
                   </div>
                   {pack.installed ? (

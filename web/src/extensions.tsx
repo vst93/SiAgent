@@ -198,7 +198,7 @@ export function ExtensionsWorkspace({ request }: { request: Api }) {
               <article className="extension-card" key={plugin.id}>
                 <header>
                   <div>
-                    <strong>{plugin.name}</strong>
+                    <strong title={plugin.name}>{plugin.name}</strong>
                     <small>
                       {plugin.id} · v{plugin.version} · {plugin.type}
                     </small>
@@ -330,7 +330,7 @@ export function ExtensionsWorkspace({ request }: { request: Api }) {
               <article className="extension-card" key={`${candidate.id}@${candidate.version}`}>
                 <header>
                   <div>
-                    <strong>{candidate.name}</strong>
+                    <strong title={candidate.name}>{candidate.name}</strong>
                     <small>
                       {candidate.id} · v{candidate.version} · {candidate.type}
                     </small>
@@ -367,7 +367,7 @@ export function ExtensionsWorkspace({ request }: { request: Api }) {
               <article className="extension-card" key={item.id}>
                 <header>
                   <div>
-                    <strong>{item.name}</strong>
+                    <strong title={item.name}>{item.name}</strong>
                     <small>
                       {item.id} · {item.type}
                     </small>

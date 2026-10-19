@@ -187,14 +187,39 @@ export function ChatWorkspace({
   onRemoveAttachment: (id: string) => void;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyCollapsed, setHistoryCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("siagent.history-collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [showJump, setShowJump] = useState(false);
   const [mobile, setMobile] = useState(() =>
-    window.matchMedia("(max-width: 760px)").matches,
+    window.matchMedia("(max-width: 980px)").matches,
   );
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 760px)");
+    const query = window.matchMedia("(max-width: 980px)");
     const handler = () => setMobile(query.matches);
     query.addEventListener("change", handler);
     return () => query.removeEventListener("change", handler);
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "siagent.history-collapsed",
+        String(historyCollapsed),
+      );
+    } catch {
+      // The layout still changes for this session.
+    }
+  }, [historyCollapsed]);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setHistoryOpen(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -223,10 +248,13 @@ export function ChatWorkspace({
   }, [input, loading, model?.id]);
   useEffect(() => {
     nearBottom.current = true;
+    setShowJump(false);
   }, [selected]);
   useEffect(() => {
-    if (nearBottom.current && scrollRef.current)
+    if (nearBottom.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      setShowJump(false);
+    }
   }, [snapshot]);
   const actions = (
     <>
@@ -285,14 +313,33 @@ export function ChatWorkspace({
         <Icon name="history" size={16} />
         <span>对话记录</span>
       </button>
+      <button
+        type="button"
+        className="desktop-history-toggle"
+        aria-expanded={!historyCollapsed}
+        aria-controls="chat-history"
+        aria-label={historyCollapsed ? "展开对话记录" : "收起对话记录"}
+        title={historyCollapsed ? "展开对话记录" : "收起对话记录"}
+        onClick={() => setHistoryCollapsed((value) => !value)}
+      >
+        <Icon name="sidebar" size={16} />
+      </button>
     </>
   );
   return (
-    <section className="chat-workspace" aria-label="Agent 对话工作区">
+    <section
+      className={`chat-workspace ${historyCollapsed ? "history-collapsed" : ""}`}
+      aria-label="Agent 对话工作区"
+    >
       <header className="chat-header">
         <div className="chat-heading">
-          <h1>{conversation?.title ?? "开始一段对话"}</h1>
-          <p className="chat-subtitle">
+          <h1 title={conversation?.title ?? undefined}>
+            {conversation?.title ?? "开始一段对话"}
+          </h1>
+          <p
+            className="chat-subtitle"
+            title={`${agent?.name ?? "尚未选择 Agent"}${model ? ` · ${model.name}` : ""}`}
+          >
             {agent?.name ?? "尚未选择 Agent"}
             {model ? ` · ${model.name}` : ""}
           </p>
@@ -386,17 +433,19 @@ export function ChatWorkspace({
           </div>
         ) : (
           <>
-            <div
-              className="message-scroll"
-              ref={scrollRef}
+            <div className="chat-stream">
+              <div
+                className="message-scroll"
+                ref={scrollRef}
               onScroll={() => {
                 const element = scrollRef.current;
-                if (element)
-                  nearBottom.current =
-                    element.scrollHeight -
-                      element.scrollTop -
-                      element.clientHeight <
-                    100;
+                if (!element) return;
+                const distance =
+                  element.scrollHeight -
+                  element.scrollTop -
+                  element.clientHeight;
+                nearBottom.current = distance < 100;
+                setShowJump(distance > 240);
               }}
             >
               {!snapshot?.messages.length ? (
@@ -503,6 +552,7 @@ export function ChatWorkspace({
                                     className="message-file"
                                     target="_blank"
                                     rel="noopener noreferrer"
+                                    title={attachment.name}
                                   >
                                     <Icon name="file" size={14} />
                                     {attachment.name}
@@ -652,6 +702,29 @@ export function ChatWorkspace({
                     );
                   })}
                 </div>
+              )}
+            </div>
+              {showJump && (
+                <button
+                  type="button"
+                  className="jump-to-latest"
+                  onClick={() => {
+                    const element = scrollRef.current;
+                    if (!element) return;
+                    const reduced = window.matchMedia(
+                      "(prefers-reduced-motion: reduce)",
+                    ).matches;
+                    element.scrollTo({
+                      top: element.scrollHeight,
+                      behavior: reduced ? "auto" : "smooth",
+                    });
+                    nearBottom.current = true;
+                    setShowJump(false);
+                  }}
+                >
+                  <Icon name="arrow-down" size={14} />
+                  回到最新
+                </button>
               )}
             </div>
             {mobile && <div className="chat-mobile-actions">{actions}</div>}

@@ -475,7 +475,7 @@ export function ChannelsWorkspace({
                   setFeedback("");
                 }}
               >
-                <strong>{channel.name}</strong>
+                <strong title={channel.name}>{channel.name}</strong>
                 <span>
                   {providers.find((value) => value.id === channel.provider)
                     ?.name ?? channel.provider}
@@ -493,7 +493,7 @@ export function ChannelsWorkspace({
           <div className="channel-detail" key={current.id}>
             <header>
               <div>
-                <h2>{current.name}</h2>
+                <h2 title={current.name}>{current.name}</h2>
                 <p>
                   {provider?.name ?? current.provider} ·{" "}
                   {current.archived

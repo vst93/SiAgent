@@ -420,7 +420,7 @@ function SkillDetail({
     <section className="skill-detail" aria-label="技能详情">
       <header className="skill-detail-head">
         <div className="skill-title">
-          <h2>{skill.name}</h2>
+          <h2 title={skill.name}>{skill.name}</h2>
           <p className="skill-meta">
             <span>{skill.files.length} 个文件</span>
             <span>{size(skill.files.reduce((sum, file) => sum + file.size, 0))}</span>
@@ -657,8 +657,8 @@ function SkillCatalog({ request }: { request: Api }) {
                   aria-current={current?.id === skill.id ? "true" : undefined}
                   onClick={() => setSelected(skill.id)}
                 >
-                  <strong>{skill.name}</strong>
-                  <span>{skill.description}</span>
+                  <strong title={skill.name}>{skill.name}</strong>
+                  <span title={skill.description}>{skill.description}</span>
                   <small>{skill.files.length} 个文件</small>
                 </button>
               ))}

@@ -151,8 +151,19 @@ export function AgentWorkspace({
                 setFeedback("");
               }}
             >
-              <strong>{agent.name}</strong>
-              <small>
+              <strong title={agent.name}>{agent.name}</strong>
+              <small
+                title={
+                  (agent.archived
+                    ? "已归档"
+                    : agent.enabled
+                      ? "接收新任务"
+                      : "已停用") +
+                  " · " +
+                  (models.find((model) => model.id === agent.model_id)?.name ??
+                    "模型不可用")
+                }
+              >
                 {agent.archived
                   ? "已归档"
                   : agent.enabled
@@ -179,7 +190,9 @@ export function AgentWorkspace({
         </p>
       </section>
       <section className="agent-editor">
-        <h2>{editor.id ? editor.name : "新建助手"}</h2>
+        <h2 title={editor.id ? editor.name : undefined}>
+          {editor.id ? editor.name : "新建助手"}
+        </h2>
         <nav className="editor-tabs" aria-label="Agent 配置">
           <button
             aria-pressed={tab === "basic"}

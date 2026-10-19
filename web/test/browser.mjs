@@ -2058,6 +2058,14 @@ try {
     "zh",
   );
   await page.getByRole("button", { name: "关闭导航", exact: true }).click();
+  // Command palette navigates without leaving the keyboard.
+  await page.locator(".mobile-command-button").click();
+  await page.locator(".command-input-row input").fill("知识");
+  await page.keyboard.press("Enter");
+  await page
+    .locator(".configuration-heading")
+    .getByRole("heading", { name: "知识库", exact: true })
+    .waitFor();
   // Theme preference survives a reload and can be switched back.
   await page
     .locator(".mobile-topbar")

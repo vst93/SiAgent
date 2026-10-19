@@ -34,6 +34,15 @@ type Key = {
   revealable: boolean;
 };
 
+const keyMeta = (key: Key) =>
+  `${key.prefix}… · ${key.scopes.join(" ")}${
+    key.agent_id ? ` · Agent ${key.agent_id}` : ""
+  }${
+    key.expires
+      ? ` · ${new Date(key.expires * 1000).toLocaleDateString("zh-CN")} 过期`
+      : " · 不过期"
+  }${key.revoked ? " · 已吊销" : ""}`;
+
 const scopes = [
   ["agent:run", "发起 Agent 任务"],
   ["agent:read", "读取任务与会话"],
@@ -349,8 +358,10 @@ export function ApiKeysWorkspace({
         {hooks.map((hook) => (
           <article className="apikey-row" key={hook.id}>
             <div>
-              <strong>{hook.url}</strong>
-              <small>
+              <strong title={hook.url}>{hook.url}</strong>
+              <small
+                title={`${hook.events.join(" ")}${hook.enabled ? " · 已启用" : " · 已停用"}`}
+              >
                 {hook.events.join(" ")}
                 {hook.enabled ? " · 已启用" : " · 已停用"}
               </small>
@@ -372,15 +383,8 @@ export function ApiKeysWorkspace({
         {keys.map((key) => (
           <article className="apikey-row" key={key.id}>
             <div>
-              <strong>{key.name}</strong>
-              <small>
-                {key.prefix}… · {key.scopes.join(" ")}
-                {key.agent_id ? ` · Agent ${key.agent_id}` : ""}
-                {key.expires
-                  ? ` · ${new Date(key.expires * 1000).toLocaleDateString("zh-CN")} 过期`
-                  : " · 不过期"}
-                {key.revoked ? " · 已吊销" : ""}
-              </small>
+              <strong title={key.name}>{key.name}</strong>
+              <small title={keyMeta(key)}>{keyMeta(key)}</small>
             </div>
             <div className="apikey-actions">
               {revealed[key.id] ? (
