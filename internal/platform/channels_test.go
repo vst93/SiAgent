@@ -168,7 +168,7 @@ func TestVersionEightChannelMigrationPreservesDeliveryAndSessionOwnership(t *tes
 	f.store.db.QueryRow("SELECT id,conversation_id FROM channel_inbox WHERE channel_id=?", c.ID).Scan(&inbox, &conversation)
 	downgradeChannelFixture(t, f.store)
 	dropQualityArtifacts(t, f.store.db)
-	if _, err := f.store.db.Exec("DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type; ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause; ALTER TABLE knowledge_chunks DROP COLUMN content_hash; ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state; DROP TABLE answer_feedback; DROP TABLE knowledge_gaps; ALTER TABLE models DROP COLUMN provider; DROP TABLE provider_packs; DROP TABLE audit_log; DROP TABLE plugins; DROP TABLE plugin_events; DROP TABLE api_keys; DROP TABLE api_idempotency; DROP TABLE api_conversations; DROP TABLE knowledge_external; ALTER TABLE agents DROP COLUMN revision; ALTER TABLE runs DROP COLUMN agent_revision; ALTER TABLE runs DROP COLUMN source; DROP TABLE webhook_subscriptions; DROP TABLE webhook_deliveries; PRAGMA user_version=8"); err != nil {
+	if _, err := f.store.db.Exec("DROP TABLE retrieval_traces; DROP TABLE knowledge_eval_runs; DROP TABLE knowledge_eval_questions; ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type; ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause; ALTER TABLE knowledge_chunks DROP COLUMN content_hash; ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state; DROP TABLE IF EXISTS answer_feedback; DROP TABLE knowledge_gaps; ALTER TABLE models DROP COLUMN provider; DROP TABLE provider_packs; DROP TABLE audit_log; DROP TABLE plugins; DROP TABLE plugin_events; DROP TABLE api_keys; DROP TABLE api_idempotency; DROP TABLE api_conversations; DROP TABLE knowledge_external; ALTER TABLE agents DROP COLUMN revision; ALTER TABLE runs DROP COLUMN agent_revision; ALTER TABLE runs DROP COLUMN source; DROP TABLE webhook_subscriptions; DROP TABLE webhook_deliveries; PRAGMA user_version=8"); err != nil {
 		t.Fatal(err)
 	}
 	f.store.Close()
@@ -221,5 +221,67 @@ func TestBrokenOptionalAdapterDoesNotDisableBuiltins(t *testing.T) {
 	}
 	if _, ok := f.server.channelProviders.Get("wecom-app"); !ok {
 		t.Fatal("broken extension removed compatible provider")
+	}
+}
+
+func TestChannelConversationRecordsChatTypeAndSender(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	f.model(t, "fixture", "key")
+	c := createChannel(t, f, true)
+	ctx := context.Background()
+	for _, in := range []channels.Incoming{
+		{ID: "group-alice", ChatType: "group", SenderID: "alice", GroupID: "room-a", Kind: "text", Text: "group question"},
+		{ID: "private-carol", ChatType: "single", SenderID: "carol", Kind: "text", Text: "private question"},
+	} {
+		if err := f.server.receiveChannel(ctx, c.ID, c.Version, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.server.admitChannelInbox(ctx); err != nil {
+		t.Fatal(err)
+	}
+	load := func() (Conversation, Conversation) {
+		response := f.request(t, "GET", "/api/conversations", nil, true, nil)
+		requireStatus(t, response, 200)
+		var list []Conversation
+		if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil {
+			t.Fatal(err)
+		}
+		var group, private Conversation
+		for _, value := range list {
+			switch value.ChannelKind {
+			case "group":
+				group = value
+			case "single":
+				private = value
+			}
+		}
+		return group, private
+	}
+	group, private := load()
+	if group.ChannelSender != "alice" || group.ChannelGroup != "room-a" {
+		t.Fatalf("group identity: %+v", group)
+	}
+	if private.ChannelSender != "carol" || private.ChannelGroup != "" {
+		t.Fatalf("private identity: %+v", private)
+	}
+	snapshot, err := f.server.snapshot(group.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Messages) == 0 || snapshot.Messages[0].Sender != "alice" {
+		t.Fatalf("message sender: %+v", snapshot.Messages)
+	}
+	// A database upgraded from schema 23 has no identity on older conversations.
+	if _, err := f.store.db.Exec("UPDATE conversations SET channel_kind='',channel_sender='',channel_group=''"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.migrateConversationIdentity(); err != nil {
+		t.Fatal(err)
+	}
+	group, private = load()
+	if group.ChannelSender != "alice" || group.ChannelGroup != "room-a" || private.ChannelSender != "carol" {
+		t.Fatalf("identity not backfilled: %+v %+v", group, private)
 	}
 }

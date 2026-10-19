@@ -21,6 +21,13 @@
 - [x] 服务模式回滚先停止失败的新服务并等待数据锁释放，再用 `start` 拉起旧版本；此前失败进程仍占用数据锁，回滚无法执行。
 - [x] `waitReady`、启动标识单次消费、暂存安装参数均有 Go 测试覆盖。
 
+## 渠道会话身份、反馈移除与高级工具下发
+
+- [x] 渠道会话记录聊天类型与参与者：schema 24 在 `conversations` 增加 `channel_kind` / `channel_sender` / `channel_group`，从 `channel_inbox` 与 `channel_sessions` 回填历史会话；`snapshot` 按 run 关联 `channel_inbox`，逐条用户消息返回发送者，共享群聊也能区分成员。
+- [x] 对话记录侧栏用“私聊 · 用户 ID”或“群聊”标签替代泛化的“渠道”，会话头部显示聊天类型与参与者，消息作者显示真实发送者；旧数据缺少身份时回退到原“渠道”文案。
+- [x] 移除回答下方“有用 / 需要改进”反馈：删除前端组件与样式、`/api/runs/{id}/feedback`、`/api/feedback/stats`、`Run.Feedback` 字段和 `answer_feedback` 表（schema 24）；内容缺口功能保留。
+- [x] 修复高级工具未真正下发给模型：Runtime 的 `configure()` 只启用显式列出的扩展与工具名，此前 `coding-tools` 虽已安装但既未加入 `extensions` 也未加入 `tools`，导致开启“本地工作区工具”后模型仍只有知识库/资料/技能读取能力。现在按 `advanced_tools` 把 read / write / edit / bash 一并下发，并新增 Runtime 测试验证工具列表与 bash 实际执行。
+
 ## 技能/MCP 关联、文档下载与详情编辑
 
 - [x] 角色指令等 Markdown 输入增加“编辑 / 预览”切换；预览使用安全 Markdown 渲染。

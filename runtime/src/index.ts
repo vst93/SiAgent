@@ -117,13 +117,13 @@ const open = async (
   config = environmentModel,
   control?: Control,
   capabilityExtension?: Extension,
-  advancedTools = false,
+  codingTools?: Extension,
 ) => {
   const localRegistry = createRegistry();
   localRegistry.install(probe);
   // High-risk workspace tools are installed only for Agents that opted in; the
   // deployment kill switch is enforced by Go before the request is sent.
-  if (advancedTools) localRegistry.install(createCodingTools());
+  if (codingTools) localRegistry.install(codingTools);
   if (capabilityExtension) localRegistry.install(capabilityExtension);
   if (control) {
     control.guard = defineExtension({
@@ -344,12 +344,16 @@ async function execute(req: Request, state: Active) {
             secretValues,
           ),
       ),
+      Boolean(req.advanced_tools && req.workspace),
     );
   } catch {
     control.failure ??= abort.signal.aborted ? undefined : "tool_setup";
     throw new Error("tool_setup");
   }
   let harness: Awaited<ReturnType<typeof open>> | undefined;
+  // configure() selects exactly the extensions and tool names it is given, so an
+  // installed extension that is not listed here is never offered to the model.
+  const codingTools = req.advanced_tools ? createCodingTools() : undefined;
   try {
     if (req.advanced_tools && req.workspace)
       await mkdir(req.workspace, { recursive: true });
@@ -358,7 +362,7 @@ async function execute(req: Request, state: Active) {
       config,
       control,
       capabilities.extension,
-      Boolean(req.advanced_tools),
+      codingTools,
     );
     const conversation = await harness.root(ctx);
     state.conversation = conversation;
@@ -372,11 +376,16 @@ async function execute(req: Request, state: Active) {
             ? "Knowledge excerpts are the only evidence for factual claims. Cite every factual claim with its source link or [n] index from the returned sources. When retrieval returns nothing, say the material does not contain the answer and do not invent sources, numbers or quotations.\n"
             : "") +
           capabilities.instructions,
-        tools: [...(req.probe_tool ? [add, pause] : []), ...capabilities.tools],
+        tools: [
+          ...(req.probe_tool ? [add, pause] : []),
+          ...capabilities.tools,
+          ...(codingTools?.tools ?? []),
+        ],
         ...(req.advanced_tools && req.workspace ? { cwd: req.workspace } : {}),
         extensions: [
           ...(req.probe_tool ? [control.guard!, probe] : [control.guard!]),
           capabilities.extension,
+          ...(codingTools ? [codingTools] : []),
         ],
       },
       ctx,

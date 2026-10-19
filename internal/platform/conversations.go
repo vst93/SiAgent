@@ -13,17 +13,21 @@ import (
 )
 
 type Conversation struct {
-	ChannelID string `json:"channel_id,omitempty"`
-	AgentID   string `json:"agent_id"`
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Created   int64  `json:"created"`
+	ChannelID     string `json:"channel_id,omitempty"`
+	ChannelKind   string `json:"channel_kind,omitempty"`
+	ChannelSender string `json:"channel_sender,omitempty"`
+	ChannelGroup  string `json:"channel_group,omitempty"`
+	AgentID       string `json:"agent_id"`
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	Created       int64  `json:"created"`
 }
 type Message struct {
 	Attachments []Attachment `json:"attachments,omitempty"`
 	ID          int64        `json:"id"`
 	RunID       string       `json:"run_id"`
 	Role        string       `json:"role"`
+	Sender      string       `json:"sender,omitempty"`
 	Content     string       `json:"content"`
 	Created     int64        `json:"created"`
 }
@@ -31,7 +35,6 @@ type Run struct {
 	Output        *OutputPolicy `json:"output,omitempty"`
 	Thinking      string        `json:"thinking,omitempty"`
 	EvidenceState string        `json:"evidence_state,omitempty"`
-	Feedback      string        `json:"feedback,omitempty"`
 	Tools         []ToolCall    `json:"tools,omitempty"`
 	ID            string        `json:"id"`
 	Status        string        `json:"status"`
@@ -51,7 +54,7 @@ type Snapshot struct {
 }
 
 func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.db.Query("SELECT id,title,created,agent_id,channel_id FROM conversations WHERE NOT EXISTS(SELECT 1 FROM conversation_cleanup WHERE conversation_id=conversations.id) ORDER BY created DESC,rowid DESC")
+	rows, err := s.store.db.Query("SELECT id,title,created,agent_id,channel_id,channel_kind,channel_sender,channel_group FROM conversations WHERE NOT EXISTS(SELECT 1 FROM conversation_cleanup WHERE conversation_id=conversations.id) ORDER BY created DESC,rowid DESC")
 	if err != nil {
 		internal(w)
 		return
@@ -60,7 +63,7 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	values := []Conversation{}
 	for rows.Next() {
 		var v Conversation
-		if err := rows.Scan(&v.ID, &v.Title, &v.Created, &v.AgentID, &v.ChannelID); err != nil {
+		if err := rows.Scan(&v.ID, &v.Title, &v.Created, &v.AgentID, &v.ChannelID, &v.ChannelKind, &v.ChannelSender, &v.ChannelGroup); err != nil {
 			internal(w)
 			return
 		}
@@ -112,7 +115,7 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) snapshot(conversationID string) (Snapshot, error) {
 	result := Snapshot{Messages: []Message{}, Runs: []Run{}, Sources: []RunSource{}}
-	err := s.store.db.QueryRow("SELECT id,title,created,agent_id,channel_id FROM conversations WHERE id=? AND NOT EXISTS(SELECT 1 FROM conversation_cleanup WHERE conversation_id=conversations.id)", conversationID).Scan(&result.Conversation.ID, &result.Conversation.Title, &result.Conversation.Created, &result.Conversation.AgentID, &result.Conversation.ChannelID)
+	err := s.store.db.QueryRow("SELECT id,title,created,agent_id,channel_id,channel_kind,channel_sender,channel_group FROM conversations WHERE id=? AND NOT EXISTS(SELECT 1 FROM conversation_cleanup WHERE conversation_id=conversations.id)", conversationID).Scan(&result.Conversation.ID, &result.Conversation.Title, &result.Conversation.Created, &result.Conversation.AgentID, &result.Conversation.ChannelID, &result.Conversation.ChannelKind, &result.Conversation.ChannelSender, &result.Conversation.ChannelGroup)
 	if err != nil {
 		return result, err
 	}
@@ -141,14 +144,14 @@ func (s *Server) snapshot(conversationID string) (Snapshot, error) {
 		return result, err
 	}
 	configs := map[string]runConfig{}
-	rows, err = s.store.db.Query("SELECT r.id,r.status,r.error,r.created,r.config,r.thinking,r.citation_valid,r.evidence_state,coalesce((SELECT rating FROM answer_feedback WHERE run_id=r.id),'') FROM runs r WHERE r.conversation_id=? ORDER BY r.created,r.rowid", conversationID)
+	rows, err = s.store.db.Query("SELECT r.id,r.status,r.error,r.created,r.config,r.thinking,r.citation_valid,r.evidence_state FROM runs r WHERE r.conversation_id=? ORDER BY r.created,r.rowid", conversationID)
 	if err != nil {
 		return result, err
 	}
 	for rows.Next() {
 		var run Run
 		var config, thinking string
-		if err := rows.Scan(&run.ID, &run.Status, &run.Error, &run.Created, &config, &thinking, &run.CitationValid, &run.EvidenceState, &run.Feedback); err != nil {
+		if err := rows.Scan(&run.ID, &run.Status, &run.Error, &run.Created, &config, &thinking, &run.CitationValid, &run.EvidenceState); err != nil {
 			rows.Close()
 			return result, err
 		}
@@ -169,6 +172,35 @@ func (s *Server) snapshot(conversationID string) (Snapshot, error) {
 	rows.Close()
 	if err != nil {
 		return result, err
+	}
+	// Channel history names the sender of every user message, including shared
+	// groups where one conversation holds several participants.
+	if result.Conversation.ChannelID != "" {
+		senders := map[string]string{}
+		rows, err = s.store.db.Query("SELECT run_id,member FROM channel_inbox WHERE conversation_id=? AND run_id<>''", conversationID)
+		if err != nil {
+			return result, err
+		}
+		for rows.Next() {
+			var runID, member string
+			if err := rows.Scan(&runID, &member); err != nil {
+				rows.Close()
+				return result, err
+			}
+			if who := sessionParticipants(member); who.sender != "" {
+				senders[runID] = who.sender
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return result, err
+		}
+		for i := range result.Messages {
+			if result.Messages[i].Role == "user" {
+				result.Messages[i].Sender = senders[result.Messages[i].RunID]
+			}
+		}
 	}
 	rows, err = s.store.db.Query("SELECT t.run_id,t.call_id,t.name,t.status FROM tool_calls t JOIN runs r ON r.id=t.run_id WHERE r.conversation_id=? ORDER BY t.rowid", conversationID)
 	if err != nil {

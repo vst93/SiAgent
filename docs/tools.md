@@ -24,7 +24,7 @@ compatibility: 参考 references/status.md；脚本依赖 Python 3。
 
 关联后，指令和资源清单进入模型上下文。Runtime 通过 Pi Durable 的 `configure` / `defineExtension` / `defineTool` 注册能力；只有选中 Skill 才能通过 `skill_resource` 读取其清单中的资源。管理预览和单次资源读取仅支持 UTF-8 文本，最多 128 KB，不支持任意路径读取。资源是按需发送给当前模型服务的业务数据。超过上下文限制时提示新建会话，不静默截断指令。
 
-脚本目前用于检查和参考。确需执行时，管理员应单独配置可信 MCP 服务，并明确授予对应工具；Skill 导入或正文里的指令不能自行开放 Shell。
+默认只有 `skill_resource` 读取脚本文本，脚本不会自动执行。为 Agent 开启“本地工作区工具”后，模型会同时获得 `read` / `write` / `edit` / `bash`，Skill 目录的绝对路径也会作为只读参考写入上下文；需要运行 Skill 脚本时，应先把文件复制到 `<data>/workspaces/<agent>/` 再执行。Skill 正文里的指令不能自行开启工具，是否开放 Shell 始终由管理员在 Agent 设置中决定；未开启高级工具时，可改用可信 MCP 服务提供执行能力。
 
 ## 本地 stdio MCP
 

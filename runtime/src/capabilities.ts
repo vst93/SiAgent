@@ -269,6 +269,7 @@ export async function loadCapabilities(
   ) => void,
   secretValues: string[],
   additionalTools: ToolRegistration[] = [],
+  workspaceTools = false,
 ) {
   const tools: ToolRegistration[] = [...additionalTools];
   const connections: Awaited<ReturnType<typeof connectMCP>>[] = [];
@@ -348,7 +349,7 @@ export async function loadCapabilities(
         defineTool({
           name: "skill_resource",
           description:
-            "Read a UTF-8 resource from an explicitly enabled Skill. Scripts are displayed as text, never executed.",
+            "Read a UTF-8 resource from an explicitly enabled Skill. This tool returns scripts as text and never executes them; use the workspace bash tool when the Agent has it enabled.",
           parameters: Type.Object({
             skill_id: Type.String(),
             path: Type.String(),
@@ -380,10 +381,14 @@ export async function loadCapabilities(
         }),
       );
     const instructions = skills
-      .map(
-        (skill) =>
-          `\n<skill id="${skill.id}" name=${JSON.stringify(skill.name)}>\n${skill.content}\nAvailable resources: ${JSON.stringify(skill.files.map((file) => file.path))}\n</skill>`,
-      )
+      .map((skill) => {
+        // Workspace tools may run Skill scripts. Expose the managed directory so
+        // the model can copy files into its workspace; Skill files stay inputs.
+        const directory = workspaceTools
+          ? `\nSkill files: ${join(dataRoot, "skills", skill.id)} (treat as read-only; copy files into the workspace before running a script)`
+          : "";
+        return `\n<skill id="${skill.id}" name=${JSON.stringify(skill.name)}>\n${skill.content}\nAvailable resources: ${JSON.stringify(skill.files.map((file) => file.path))}${directory}\n</skill>`;
+      })
       .join("\n");
     return {
       extension: defineExtension({ name: "capabilities", tools }),

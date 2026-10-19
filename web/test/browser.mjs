@@ -317,13 +317,7 @@ try {
     .filter({ hasText: "收到：你好" })
     .waitFor();
   await page.getByText("已完成", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "标记为有用", exact: true }).first().click();
-  await page.getByText("已标记有用", { exact: false }).waitFor();
-  await page.getByRole("button", { name: "清除", exact: true }).first().click();
-  await page.getByRole("button", { name: "标记为需要改进", exact: true }).first().click();
-  await page.getByLabel("反馈原因", { exact: true }).selectOption("no_evidence");
-  await page.getByRole("button", { name: "提交", exact: true }).click();
-  await page.getByText("已标记需要改进", { exact: false }).waitFor();
+  assert.equal(await page.locator(".run-feedback").count(), 0);
   await page.screenshot({
     path: join(artifacts, "desktop.png"),
     fullPage: true,
@@ -1470,11 +1464,12 @@ try {
   await page.locator(".channel-catalog button").filter({ hasText: "浏览器渠道对话" }).click();
   await page.getByRole("button", { name: "查看会话", exact: true }).waitFor();
   await page.getByRole("button", { name: "查看会话", exact: true }).click();
-  await page.getByText("渠道对话 · 只读", { exact: true }).waitFor();
+  await page.getByText("私聊 · remote-member · 只读", { exact: true }).waitFor();
   await page.locator(".message.assistant .message-text").filter({ hasText: "渠道处理中…" }).waitFor();
   assert.equal(await page.getByLabel("发送给助手的消息").count(), 0);
   assert.equal(await page.getByRole("button", { name: "发送", exact: false }).count(), 0);
-  assert.equal(await page.locator(".message.user .message-meta strong").textContent(), "渠道用户");
+  assert.equal(await page.locator(".message.user .message-meta strong").textContent(), "remote-member");
+  assert.equal(await page.locator(".conversation .channel-tag").textContent(), "私聊 · remote-member");
   assert.match(await page.locator(".message.user time").textContent(), /202\d/);
   await page.screenshot({ path: join(artifacts, "channel-chat-desktop.png"), fullPage: true });
   for (const width of [390, 320]) {

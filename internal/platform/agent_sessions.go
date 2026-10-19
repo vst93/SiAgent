@@ -39,6 +39,23 @@ func normalizeIncoming(in *channels.Incoming) error {
 	in.Session = string(raw)
 	return nil
 }
+
+// participants describe who a channel session belongs to. Shared group keys keep
+// only the chat type and group, so the per-message sender comes from the inbox.
+type participants struct{ kind, group, sender string }
+
+func sessionParticipants(session string) participants {
+	var parts []string
+	if json.Unmarshal([]byte(session), &parts) == nil && len(parts) >= 2 && (parts[0] == "single" || parts[0] == "group") {
+		value := participants{kind: parts[0], group: parts[1]}
+		if len(parts) == 3 {
+			value.sender = parts[2]
+		}
+		return value
+	}
+	return participants{kind: "single", sender: session}
+}
+
 func sessionAdmission(policy SessionPolicy, member string, reset bool) error {
 	kind, _, _ := channelIdentity(member)
 	if (kind == "group" && policy.Types == "private") || (kind != "group" && policy.Types == "group") {
@@ -91,7 +108,8 @@ func (s *Server) channelConversation(ctx context.Context, channel, member, agent
 	}
 	defer tx.Rollback()
 	conversation = id()
-	if _, err := tx.ExecContext(ctx, "INSERT INTO conversations(id,title,created,agent_id,channel_id) VALUES(?,'新对话',?,?,?)", conversation, time.Now().UnixMilli(), agent, channel); err != nil {
+	who := sessionParticipants(member)
+	if _, err := tx.ExecContext(ctx, "INSERT INTO conversations(id,title,created,agent_id,channel_id,channel_kind,channel_sender,channel_group) VALUES(?,'新对话',?,?,?,?,?,?)", conversation, time.Now().UnixMilli(), agent, channel, who.kind, who.sender, who.group); err != nil {
 		return "", err
 	}
 	if _, err := tx.ExecContext(ctx, "INSERT INTO channel_sessions VALUES(?,?,?,?) ON CONFLICT(channel_id,member,agent_id) DO UPDATE SET conversation_id=excluded.conversation_id", channel, key, agent, conversation); err != nil {

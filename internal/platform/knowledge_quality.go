@@ -53,17 +53,18 @@ func (s *Store) migrateAnswerEvidence() error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	return s.migrateFeedback()
+	return s.migrateKnowledgeGaps()
 }
 
-// migrateFeedback adds answer ratings and content-gap tracking.
-func (s *Store) migrateFeedback() error {
+// migrateKnowledgeGaps adds content-gap tracking. Answer feedback was removed
+// from the product, so no rating table is created for new databases.
+func (s *Store) migrateKnowledgeGaps() error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(FeedbackSchema + knowledge.GapSchema + "\n PRAGMA user_version=14;"); err != nil {
+	if _, err := tx.Exec(knowledge.GapSchema + "\n PRAGMA user_version=14;"); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {

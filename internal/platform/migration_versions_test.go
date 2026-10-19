@@ -9,6 +9,8 @@ import (
 // downgradeSteps removes the artifacts of each migration, newest first. Index i
 // downgrades from version i+1 to i.
 var downgradeSteps = map[int]string{
+	24: `ALTER TABLE conversations DROP COLUMN channel_kind; ALTER TABLE conversations DROP COLUMN channel_sender;
+ ALTER TABLE conversations DROP COLUMN channel_group;`,
 	23: `DROP TABLE attachments; ALTER TABLE messages DROP COLUMN attachments; ALTER TABLE agents DROP COLUMN fallback_model_ids;`,
 	22: `ALTER TABLE api_keys DROP COLUMN secret;`,
 	21: `ALTER TABLE knowledge_eval_runs DROP COLUMN kind;`,
@@ -19,7 +21,7 @@ var downgradeSteps = map[int]string{
 	17: `DROP TABLE plugins; DROP TABLE plugin_events;`,
 	16: `DROP TABLE audit_log;`,
 	15: `ALTER TABLE models DROP COLUMN provider; DROP TABLE provider_packs;`,
-	14: `DROP TABLE answer_feedback; DROP TABLE knowledge_gaps;`,
+	14: `DROP TABLE IF EXISTS answer_feedback; DROP TABLE knowledge_gaps;`,
 	13: `ALTER TABLE runs DROP COLUMN citation_valid; ALTER TABLE runs DROP COLUMN evidence_state;`,
 	12: `ALTER TABLE knowledge_chunks DROP COLUMN parent_id; ALTER TABLE knowledge_chunks DROP COLUMN block_type;
  ALTER TABLE knowledge_chunks DROP COLUMN section_path; ALTER TABLE knowledge_chunks DROP COLUMN clause;
@@ -31,7 +33,7 @@ var downgradeSteps = map[int]string{
 // for Open() to migrate forward again.
 func downgradeTo(t *testing.T, db *sql.DB, target int) {
 	t.Helper()
-	for version := 23; version > target; version-- {
+	for version := 24; version > target; version-- {
 		step, ok := downgradeSteps[version]
 		if !ok {
 			t.Fatalf("missing downgrade step for %d", version)
@@ -46,7 +48,7 @@ func downgradeTo(t *testing.T, db *sql.DB, target int) {
 }
 
 func TestUpgradeFromEveryRecentVersionPreservesData(t *testing.T) {
-	for target := 10; target <= 22; target++ {
+	for target := 10; target <= 23; target++ {
 		t.Run(fmt.Sprintf("from-v%d", target), func(t *testing.T) {
 			f := newFixture(t)
 			f.setup(t)
@@ -64,8 +66,8 @@ func TestUpgradeFromEveryRecentVersionPreservesData(t *testing.T) {
 			}
 			defer upgraded.Close()
 			var version int
-			if err := upgraded.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 23 {
-				t.Fatalf("expected schema 22, got %d (%v)", version, err)
+			if err := upgraded.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 24 {
+				t.Fatalf("expected schema 24, got %d (%v)", version, err)
 			}
 			var admin int
 			if err := upgraded.db.QueryRow("SELECT count(*) FROM admin").Scan(&admin); err != nil || admin != 1 {

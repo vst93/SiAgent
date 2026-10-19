@@ -53,6 +53,10 @@ async function fixture(t) {
       send({ tool_calls: [{ index: 0, id: 'skill-call-'+requests.length, type: 'function', function: { name:'skill_resource', arguments: JSON.stringify({skill_id:mode==='unselected'?'another-skill':'skill',path:mode==='escape'?'../master.key':'reference.md'}) } }] });
       send({},'tool_calls');res.end('data: [DONE]\n\n');return;
     }
+    if (last?.content === 'bash-tool') {
+      send({ tool_calls: [{ index: 0, id: 'bash-call-'+requests.length, type: 'function', function: { name: 'bash', arguments: JSON.stringify({ command: 'printf advanced-ok' }) } }] });
+      send({}, 'tool_calls'); res.end('data: [DONE]\n\n'); return;
+    }
     const loop = body.messages.some(message => message.role === 'user' && message.content === 'loop');
     if ((last?.content === 'tool' || last?.content === 'wait' || loop) && body.tools?.length) {
       send({ tool_calls: [{ index: 0, id: 'tool-'+requests.length, type: 'function', function: { name: last?.content === 'wait' ? 'wait' : 'add', arguments: last?.content === 'wait' ? '{"milliseconds":2000}' : '{"a":2,"b":3}' } }] });
@@ -189,6 +193,26 @@ test('invalid protocol input does not kill the adapter', { timeout: 15000 }, asy
   assert.equal(f.requests.length, 0);
 });
 
+
+test('workspace coding tools are offered only when the agent opts in', { timeout: 20000 }, async t => {
+  const f = await fixture(t);
+  const r = f.start();
+  await r.wait(e => e.type === 'ready');
+  const capabilities = { skills: [{ id: 'skill', name: 'example', description: 'Skill', content: 'Run the script when asked.', files: [{ path: 'scripts/query.js', size: 16 }] }], mcps: [] };
+  r.send('start', { run_id: 'plain', conversation_id: 'plain', input: 'hello', capabilities });
+  assert.equal((await r.wait(terminal('plain'))).type, 'run_completed');
+  assert.deepEqual((f.requests.at(-1).tools ?? []).map(tool => tool.function.name), ['skill_resource']);
+  assert.doesNotMatch(JSON.stringify(f.requests.at(-1).messages), /skills\/skill/);
+
+  const workspace = join(f.directory, 'workspaces', 'default');
+  r.send('start', { run_id: 'advanced', conversation_id: 'advanced', input: 'bash-tool', capabilities, advanced_tools: true, workspace });
+  const result = await r.wait(terminal('advanced'));
+  assert.equal(result.type, 'run_completed');
+  assert.deepEqual((f.requests.at(-1).tools ?? []).map(tool => tool.function.name).sort(), ['bash', 'edit', 'read', 'skill_resource', 'write']);
+  assert(r.events.some(e => e.run_id === 'advanced' && e.type === 'tool_end'));
+  assert.match(JSON.stringify(result.data.entries), /advanced-ok/);
+  assert.match(JSON.stringify(f.requests.at(-1).messages), /skills\/skill/);
+});
 
 test('tool crash after an external effect: abort on reopen does not repeat that effect', { timeout: 20000 }, async t => {
   const f = await fixture(t);
