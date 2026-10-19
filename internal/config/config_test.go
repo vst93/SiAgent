@@ -14,7 +14,8 @@ func TestLoadAndValidate(t *testing.T) {
   "listen": "127.0.0.1:9000",
   "base_path": "/siagent",
   "attachments": {"max_image_bytes": 2097152, "max_message_count": 4},
-  "limits": {"concurrent": 2, "conversation_queue": 3, "global_queue": 10, "run_timeout_seconds": 60, "tool_timeout_seconds": 20, "tool_rounds": 4}
+  "limits": {"concurrent": 2, "conversation_queue": 3, "global_queue": 10, "run_timeout_seconds": 60, "tool_timeout_seconds": 20, "tool_rounds": 4},
+  "knowledge": {"max_file_bytes": 52428800, "allowed_extensions": ["txt", ".PDF"]}
 }`), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -28,6 +29,14 @@ func TestLoadAndValidate(t *testing.T) {
 	if value.Limits == nil || value.Limits.Concurrent != 2 {
 		t.Fatalf("limits missing: %+v", value.Limits)
 	}
+	limits := value.Knowledge.Limits().Normalize()
+	if limits.MaxUploadBytes != 52428800 || len(limits.Extensions) != 2 || limits.Extensions[0] != "pdf" || limits.Extensions[1] != "txt" {
+		t.Fatalf("knowledge limits not normalized: %+v", limits)
+	}
+	// Unset fields keep the defaults instead of becoming zero.
+	if limits.MaxCharacters != 1000000 || limits.MaxChunks != 5000 || limits.MaxPDFPages != 1000 {
+		t.Fatalf("knowledge defaults not applied: %+v", limits)
+	}
 }
 
 func TestLoadRejectsUnknownAndOutOfRange(t *testing.T) {
@@ -36,11 +45,13 @@ func TestLoadRejectsUnknownAndOutOfRange(t *testing.T) {
 		`{"unknown": true}`,
 		`{"attachments": {"max_file_bytes": -1}}`,
 		`{"limits": {"concurrent": 99, "conversation_queue": 1, "global_queue": 1, "run_timeout_seconds": 60, "tool_timeout_seconds": 20, "tool_rounds": 4}}`,
+		`{"knowledge": {"max_file_bytes": 1024}}`,
+		`{"knowledge": {"allowed_extensions": ["../txt"]}}`,
 	} {
 		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := Load(path); err == nil || !strings.Contains(err.Error(), "config") && !strings.Contains(err.Error(), "limits") && !strings.Contains(err.Error(), "attachments") {
+		if _, _, err := Load(path); err == nil || !strings.Contains(err.Error(), "config") && !strings.Contains(err.Error(), "limits") && !strings.Contains(err.Error(), "attachments") && !strings.Contains(err.Error(), "knowledge") {
 			t.Fatalf("accepted invalid config %s: %v", body, err)
 		}
 	}

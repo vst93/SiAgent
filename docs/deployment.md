@@ -72,7 +72,7 @@ location /siagent/ {
 }
 ```
 
-如果实例自身已用 `-base-path /siagent` 挂载，代理直接把 `/siagent/` 转发到 `http://127.0.0.1:8080/siagent/`，不要再剥掉前缀。证书和 TLS server 配置由部署环境提供。SSE 依赖关闭缓冲和持续连接。文档文件上限为 20 MiB，代理需允许 multipart 的额外大小。企微回调路径不加管理员登录或 CSRF 层，其自身验签解密；企业还需配置应用可见范围和可信 IP/域名，见 [wecom.md](wecom.md)。
+如果实例自身已用 `-base-path /siagent` 挂载，代理直接把 `/siagent/` 转发到 `http://127.0.0.1:8080/siagent/`，不要再剥掉前缀。证书和 TLS server 配置由部署环境提供。SSE 依赖关闭缓冲和持续连接。文档文件默认上限为 20 MiB（可用 `knowledge.max_file_bytes` 调整），代理需允许 multipart 的额外大小。企微回调路径不加管理员登录或 CSRF 层，其自身验签解密；企业还需配置应用可见范围和可信 IP/域名，见 [wecom.md](wecom.md)。
 
 `/health/live` 表示 Go 存活，`/health/ready` 要求平台和 Runtime 就绪。异常重复退出应检查服务退出码、普通日志和认证诊断；不要持续无上限重放失败任务。日志不应被配置为记录请求正文、Cookie、模型密钥或回调密文/明文。
 

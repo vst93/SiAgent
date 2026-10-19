@@ -212,8 +212,14 @@ func TestWecomHintRetryUnknownAndRecoveryNeverReplay(t *testing.T) {
 	now := time.Now()
 	requireStatus(t, callback(t, f, c, "100", "member", "slow question"), 200)
 	tickChannel(t, f, now)
-	tickChannel(t, f, now.Add(11*time.Second))
-	tickChannel(t, f, now.Add(12*time.Second))
+	// The run starts immediately, so the short queue notice never fires and the
+	// processing notice waits for the long-run threshold.
+	tickChannel(t, f, now.Add(89*time.Second))
+	if len(sent) != 0 {
+		t.Fatal("processing notice sent before the threshold")
+	}
+	tickChannel(t, f, now.Add(91*time.Second))
+	tickChannel(t, f, now.Add(92*time.Second))
 	if len(sent) != 1 {
 		t.Fatal("processing hint was not sent exactly once")
 	}
@@ -221,14 +227,14 @@ func TestWecomHintRetryUnknownAndRecoveryNeverReplay(t *testing.T) {
 	run := f.runtime.requests[0]["run_id"].(string)
 	completeChannelRun(t, f, run, strings.Repeat("answer ", 600))
 	modes <- "retry"
-	tickChannel(t, f, now.Add(13*time.Second))
-	tickChannel(t, f, now.Add(14*time.Second))
+	tickChannel(t, f, now.Add(93*time.Second))
+	tickChannel(t, f, now.Add(94*time.Second))
 	if len(sent) != 1 {
 		t.Fatal("retry ignored backoff")
 	}
 	modes <- "unknown"
-	tickChannel(t, f, now.Add(16*time.Second))
-	tickChannel(t, f, now.Add(30*time.Second))
+	tickChannel(t, f, now.Add(96*time.Second))
+	tickChannel(t, f, now.Add(110*time.Second))
 	if len(sent) != 2 {
 		t.Fatal("unknown outcome retried or later segment was sent")
 	}

@@ -351,6 +351,7 @@ type AttachmentLimits struct {
 
 type ServerOptions struct {
 	Attachments           AttachmentLimits
+	Knowledge             *knowledge.Limits
 	Limits                *Limits
 	AdvancedToolsDisabled *bool
 }

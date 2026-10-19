@@ -29,7 +29,7 @@ func TestMarkdownBlocksKeepHeadingHierarchyAndTables(t *testing.T) {
 	if !strings.Contains(table, "P5 | 400") || !strings.Contains(table, "P6 | 500") {
 		t.Fatalf("table rows lost: %q", table)
 	}
-	chunks, _, err := chunkBlocks("doc", 1, blocks)
+	chunks, _, err := chunkBlocks("doc", 1, blocks, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestDOCXExtractsHeadingsTablesAndLists(t *testing.T) {
 			t.Fatalf("docx table rows lost: %q", b.Text)
 		}
 	}
-	chunks, _, err := chunkBlocks("doc", 1, blocks)
+	chunks, _, err := chunkBlocks("doc", 1, blocks, DefaultLimits())
 	if err != nil || len(chunks) < 3 {
 		t.Fatalf("docx chunking failed: %d %v", len(chunks), err)
 	}
@@ -108,7 +108,7 @@ func TestLongSectionSplitsIntoChildrenWithParent(t *testing.T) {
 	long := strings.Repeat("这是制度条款的详细说明。", 120)
 	blocks := blocksFromMarkdown("# 制度\n\n"+long, 1)
 	assignSections(blocks)
-	chunks, _, err := chunkBlocks("doc", 1, blocks)
+	chunks, _, err := chunkBlocks("doc", 1, blocks, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}

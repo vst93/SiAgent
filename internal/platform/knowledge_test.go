@@ -319,3 +319,97 @@ func TestKnowledgeTraceAndEvaluationAPI(t *testing.T) {
 	requireStatus(t, f.request(t, "DELETE", "/api/knowledge/eval/questions/"+question.ID, nil, true, nil), 200)
 	requireStatus(t, f.request(t, "POST", "/api/knowledge/bases/"+base.ID+"/eval/run", nil, true, nil), 400)
 }
+
+func TestBatchDeleteDocumentsDeletesSelectedAndReportsMissing(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	knowledgeWorker(t, f)
+	response := f.request(t, "POST", "/api/knowledge/bases", map[string]string{"name": "Batch", "description": ""}, true, nil)
+	requireStatus(t, response, 201)
+	var base knowledge.Base
+	json.Unmarshal(response.Body.Bytes(), &base)
+	ids := []string{}
+	for _, name := range []string{"one.md", "two.md", "three.md"} {
+		response = f.uploadKnowledge(t, base.ID, name, "# "+name+"\n\n批量删除测试内容。", true)
+		requireStatus(t, response, 202)
+		var document knowledge.Document
+		json.Unmarshal(response.Body.Bytes(), &document)
+		waitDocument(t, f, document.ID)
+		ids = append(ids, document.ID)
+	}
+	requireStatus(t, f.request(t, "POST", "/api/knowledge/documents/batch-delete", map[string]any{"ids": ids, "confirm": false}, true, nil), 400)
+	requireStatus(t, f.request(t, "POST", "/api/knowledge/documents/batch-delete", map[string]any{"ids": []string{}, "confirm": true}, true, nil), 400)
+	response = f.request(t, "POST", "/api/knowledge/documents/batch-delete", map[string]any{"ids": append(ids, "missing-document"), "confirm": true}, true, nil)
+	requireStatus(t, response, 200)
+	var result struct {
+		Deleted []string `json:"deleted"`
+		Failed  []struct {
+			ID      string `json:"id"`
+			Message string `json:"message"`
+		} `json:"failed"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Deleted) != len(ids) || len(result.Failed) != 1 || result.Failed[0].ID != "missing-document" {
+		t.Fatalf("unexpected batch result: %s", response.Body.String())
+	}
+	// Cleaned-up deletions leave the list entirely; nothing stays searchable.
+	response = f.request(t, "GET", "/api/knowledge/bases/"+base.ID+"/documents", nil, true, nil)
+	requireStatus(t, response, 200)
+	var documents []knowledge.Document
+	json.Unmarshal(response.Body.Bytes(), &documents)
+	if len(documents) != 0 {
+		t.Fatalf("deleted documents still listed: %s", response.Body.String())
+	}
+	for _, id := range ids {
+		document, err := f.server.knowledge.Document(t.Context(), id)
+		if err != nil || !document.Deleted {
+			t.Fatalf("document %s not marked deleted: %+v %v", id, document, err)
+		}
+	}
+}
+
+func TestKnowledgeUploadLimitsAndFormatsAreConfigurable(t *testing.T) {
+	limits := knowledge.Limits{MaxUploadBytes: 1 << 20, Extensions: []string{"txt"}, MaxCharacters: 2000, MaxChunks: 10, MaxPDFPages: 5}
+	f := newFixture(t, ServerOptions{Knowledge: &limits})
+	f.setup(t)
+	knowledgeWorker(t, f)
+	response := f.request(t, "GET", "/api/knowledge/status", nil, true, nil)
+	requireStatus(t, response, 200)
+	var status struct {
+		MaxFileBytes      int64    `json:"max_file_bytes"`
+		MaxCharacters     int      `json:"max_characters"`
+		MaxChunks         int      `json:"max_chunks"`
+		MaxPDFPages       int      `json:"max_pdf_pages"`
+		AllowedExtensions []string `json:"allowed_extensions"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.MaxFileBytes != 1<<20 || status.MaxCharacters != 2000 || status.MaxChunks != 10 || status.MaxPDFPages != 5 ||
+		len(status.AllowedExtensions) != 1 || status.AllowedExtensions[0] != "txt" {
+		t.Fatalf("configured limits not reported: %s", response.Body.String())
+	}
+	response = f.request(t, "POST", "/api/knowledge/bases", map[string]string{"name": "Limited", "description": ""}, true, nil)
+	requireStatus(t, response, 201)
+	var base knowledge.Base
+	json.Unmarshal(response.Body.Bytes(), &base)
+	// A format outside the configured list is rejected before any parser runs.
+	response = f.uploadKnowledge(t, base.ID, "guide.pdf", "%PDF-1.4", true)
+	requireStatus(t, response, 400)
+	if !strings.Contains(response.Body.String(), "TXT") {
+		t.Fatalf("format error does not name the allowed formats: %s", response.Body.String())
+	}
+	// The configured size limit is enforced instead of the default 20 MiB.
+	response = f.uploadKnowledge(t, base.ID, "large.txt", strings.Repeat("x", (1<<20)+1), true)
+	requireStatus(t, response, 413)
+	if !strings.Contains(response.Body.String(), "1 MiB") {
+		t.Fatalf("size error does not report the configured limit: %s", response.Body.String())
+	}
+	response = f.uploadKnowledge(t, base.ID, "small.txt", "Allowed text.", true)
+	requireStatus(t, response, 202)
+	var document knowledge.Document
+	json.Unmarshal(response.Body.Bytes(), &document)
+	waitDocument(t, f, document.ID)
+}

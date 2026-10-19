@@ -17,7 +17,7 @@ func ExtractText(ctx context.Context, path, kind string) (string, error) {
 		_, text, err := blocksFromDOCX(data)
 		return text, err
 	}
-	pages, err := parse(ctx, path, kind)
+	pages, err := parse(ctx, path, kind, DefaultLimits())
 	if err != nil {
 		return "", err
 	}

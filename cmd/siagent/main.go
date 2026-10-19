@@ -133,6 +133,10 @@ func runServer(options commandOptions, executable string, installed installation
 		MaxConversationBytes: options.Attachments.MaxConversationBytes,
 		OrphanTTLHours:       options.Attachments.OrphanTTLHours,
 	}}
+	if options.Knowledge != nil {
+		limits := options.Knowledge.Limits()
+		serverOptions.Knowledge = &limits
+	}
 	if options.Limits != nil {
 		serverOptions.Limits = &platform.Limits{Concurrent: options.Limits.Concurrent, ConversationQueue: options.Limits.ConversationQueue, GlobalQueue: options.Limits.GlobalQueue, RunTimeout: options.Limits.RunTimeout, ToolTimeout: options.Limits.ToolTimeout, ToolRounds: options.Limits.ToolRounds}
 	}

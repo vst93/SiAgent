@@ -2,6 +2,7 @@ import { Icon } from "./icons";
 import { appURL } from "./urls";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { KnowledgeDialog } from "./knowledge-dialog";
+import { RowMenu } from "./row-menu";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 type Base = {
@@ -25,6 +26,34 @@ type Document = {
   cleanup_pending: boolean;
   updated: number;
 };
+export type KnowledgeLimits = {
+  max_file_bytes: number;
+  max_characters: number;
+  max_chunks: number;
+  max_pdf_pages: number;
+  allowed_extensions: string[];
+  allowed_formats: string;
+};
+const defaultKnowledgeLimits: KnowledgeLimits = {
+  max_file_bytes: 20 * 1024 * 1024,
+  max_characters: 1000000,
+  max_chunks: 5000,
+  max_pdf_pages: 1000,
+  allowed_extensions: ["txt", "markdown", "pdf", "docx"],
+  allowed_formats: "TXT、Markdown、PDF、DOCX",
+};
+const extensionKind = (name: string) => {
+  const extension = name.slice(name.lastIndexOf(".")).toLowerCase();
+  if (extension === ".md" || extension === ".markdown") return "markdown";
+  return extension.replace(".", "");
+};
+const acceptFor = (limits: KnowledgeLimits) =>
+  limits.allowed_extensions
+    .map((kind) => (kind === "markdown" ? ".md,.markdown" : `.${kind}`))
+    .join(",");
+const formatFor = (limits: KnowledgeLimits) =>
+  limits.allowed_formats || defaultKnowledgeLimits.allowed_formats;
+
 export type KnowledgeHit = {
   source_id: string;
   knowledge_id: string;
@@ -291,6 +320,7 @@ function UploadDialog({
   baseID,
   replacement,
   pdf,
+  limits,
   onClose,
   onUploaded,
 }: {
@@ -298,9 +328,12 @@ function UploadDialog({
   baseID: string;
   replacement: Document | null;
   pdf: boolean | null;
+  limits: KnowledgeLimits;
   onClose: () => void;
   onUploaded: (document: Document) => void;
 }) {
+  const maxFileBytes = limits.max_file_bytes || defaultKnowledgeLimits.max_file_bytes;
+  const allowed = limits.allowed_extensions ?? defaultKnowledgeLimits.allowed_extensions;
   const [files, setFiles] = useState<File[]>([]);
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState("");
@@ -331,8 +364,17 @@ function UploadDialog({
   async function upload(event: FormEvent) {
     event.preventDefault();
     if (!files.length) return;
-    if (files.some((file) => file.size > 20 * 1024 * 1024)) {
-      setError("单个文件不能超过 20 MiB，请拆分后上传。");
+    const unsupported = files.find(
+      (file) => !allowed.includes(extensionKind(file.name)),
+    );
+    if (unsupported) {
+      setError(
+        `“${unsupported.name}”不是允许的格式；当前支持 ${formatFor(limits)}。`,
+      );
+      return;
+    }
+    if (files.some((file) => file.size > maxFileBytes)) {
+      setError(`单个文件不能超过 ${size(maxFileBytes)}，请拆分后上传。`);
       return;
     }
     setPending(true);
@@ -382,7 +424,7 @@ function UploadDialog({
               ref={inputRef}
               type="file"
               multiple={!replacement}
-              accept=".txt,.md,.markdown,.pdf,.docx"
+              accept={acceptFor(limits)}
               disabled={pending}
               onChange={(event) => {
                 addFiles(Array.from(event.target.files ?? []));
@@ -425,18 +467,19 @@ function UploadDialog({
           )}
         </div>
         <p className="kb-help">
-          UTF-8 TXT、Markdown、DOCX、文本 PDF，单文件最多 20 MiB。
+          {formatFor(limits)}，单文件最多 {size(maxFileBytes)}。
           {!replacement && " 可一次选择多个文件，系统会逐个上传并建立索引。"}
-          不支持扫描件、旧版 .doc 与 OCR。
+          {allowed.includes("pdf") ? " PDF 仅支持可提取文本的版本，不支持扫描件与 OCR。" : ""}
+          {allowed.includes("docx") ? " 不支持旧版 .doc。" : ""}
         </p>
         {replacement && (
           <p className="kb-help">
             新版本处理成功后切换；失败时仍使用已发布版本。
           </p>
         )}
-        {pdf === false && (
+        {pdf === false && allowed.includes("pdf") && (
           <p className="error">
-            PDF 解析依赖未就绪；TXT、Markdown 与 DOCX 可正常上传。
+            PDF 解析依赖未就绪；其他已允许格式仍可正常上传。
           </p>
         )}
         <details className="kb-limits">
@@ -445,7 +488,9 @@ function UploadDialog({
             查看处理限制
           </summary>
           <p>
-            提取最多 100 万字符、5000 个片段；PDF 最多 1000
+            提取最多 {limits.max_characters.toLocaleString()} 字符、
+            {limits.max_chunks.toLocaleString()} 个片段；PDF 最多{" "}
+            {limits.max_pdf_pages.toLocaleString()}
             页。文档在本地提取与建立索引，不会在上传时发送给模型。
           </p>
         </details>
@@ -483,6 +528,7 @@ export function KnowledgeWorkspace({ request }: { request: Api }) {
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [pdf, setPDF] = useState<boolean | null>(null);
+  const [limits, setLimits] = useState<KnowledgeLimits>(defaultKnowledgeLimits);
   const [editor, setEditor] = useState<{ base: Base | null } | null>(null);
   const [deleting, setDeleting] = useState<Base | null>(null);
   const current = bases.find((base) => base.id === selected);
@@ -499,13 +545,14 @@ export function KnowledgeWorkspace({ request }: { request: Api }) {
     mounted.current = true;
     void Promise.all([
       request<Base[]>("/knowledge/bases"),
-      request<{ pdf_available: boolean }>("/knowledge/status"),
+      request<{ pdf_available: boolean } & KnowledgeLimits>("/knowledge/status"),
     ])
       .then(([values, status]) => {
         if (!mounted.current) return;
         setBases(values);
         setSelected(values[0]?.id ?? "");
         setPDF(status.pdf_available);
+        setLimits({ ...defaultKnowledgeLimits, ...status });
       })
       .catch((error) => {
         if (mounted.current) setError(message(error));
@@ -548,41 +595,23 @@ export function KnowledgeWorkspace({ request }: { request: Api }) {
             </label>
             <div className="kb-library-controls">
               {current && (
-                <details
-                  className="kb-actions kb-library-actions"
-                  onBlur={(event) => {
-                    if (!event.currentTarget.contains(event.relatedTarget))
-                      event.currentTarget.open = false;
-                  }}
-                >
-                  <summary>
-                    <Icon
-                      name="caret-right"
-                      size={14}
-                      className="disclosure-icon"
-                    />
-                    管理知识库
-                  </summary>
-                  <div>
-                    <button
-                      onClick={(event) => {
-                        event.currentTarget.closest("details")!.open = false;
-                        setEditor({ base: current });
-                      }}
-                    >
-                      编辑知识库
-                    </button>
-                    <button
-                      className="kb-danger"
-                      onClick={(event) => {
-                        event.currentTarget.closest("details")!.open = false;
-                        setDeleting(current);
-                      }}
-                    >
-                      删除知识库
-                    </button>
-                  </div>
-                </details>
+                <RowMenu
+                  label="管理知识库"
+                  summary={
+                    <>
+                      <Icon
+                        name="caret-right"
+                        size={14}
+                        className="disclosure-icon"
+                      />
+                      管理知识库
+                    </>
+                  }
+                  items={[
+                    { label: "编辑知识库", onSelect: () => setEditor({ base: current }) },
+                    { label: "删除知识库", danger: true, onSelect: () => setDeleting(current) },
+                  ]}
+                />
               )}
               <button
                 className="primary"
@@ -620,6 +649,7 @@ export function KnowledgeWorkspace({ request }: { request: Api }) {
               request={request}
               base={current}
               pdf={pdf}
+              limits={limits}
               onChanged={() => {
                 void refresh().catch((error) => {
                   if (mounted.current) setError(message(error));
@@ -684,11 +714,13 @@ function LibraryDocuments({
   request,
   base,
   pdf,
+  limits,
   onChanged,
 }: {
   request: Api;
   base: Base;
   pdf: boolean | null;
+  limits: KnowledgeLimits;
   onChanged: () => void;
 }) {
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -707,6 +739,8 @@ function LibraryDocuments({
   const [detail, setDetail] = useState<string | null>(null);
   const [pending, setPending] = useState("");
   const [pollError, setPollError] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [batchDeleting, setBatchDeleting] = useState(false);
   const mounted = useRef(true);
   const reads = useRef(0);
   const busy = documents.some(
@@ -731,6 +765,28 @@ function LibraryDocuments({
             : doc.state === status))),
   );
   const selectedDoc = documents.find((doc) => doc.id === detail);
+  // Selection only covers documents that still exist; a refresh or deletion must
+  // never leave an invisible id in the bulk action bar.
+  const selectedDocs = documents.filter(
+    (doc) => !doc.deleted && selected.includes(doc.id),
+  );
+  const selectable = visible.filter((doc) => !doc.deleted);
+  const allSelected =
+    selectable.length > 0 &&
+    selectable.every((doc) => selected.includes(doc.id));
+  function toggleSelected(id: string) {
+    setSelected((ids) =>
+      ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id],
+    );
+  }
+  function toggleAll() {
+    const ids = selectable.map((doc) => doc.id);
+    setSelected((current) =>
+      allSelected
+        ? current.filter((id) => !ids.includes(id))
+        : [...new Set([...current, ...ids])],
+    );
+  }
   async function refresh() {
     const sequence = ++reads.current;
     try {
@@ -755,6 +811,14 @@ function LibraryDocuments({
       mounted.current = false;
     };
   }, []);
+  useEffect(() => {
+    setSelected((ids) => {
+      const kept = ids.filter((id) =>
+        documents.some((doc) => doc.id === id && !doc.deleted),
+      );
+      return kept.length === ids.length ? ids : kept;
+    });
+  }, [documents]);
   useEffect(() => {
     if (!busy) return;
     let active = true;
@@ -799,6 +863,44 @@ function LibraryDocuments({
     } finally {
       if (mounted.current) setPending("");
     }
+  }
+  async function deleteSelected() {
+    const ids = selectedDocs.map((doc) => doc.id);
+    if (!ids.length) return;
+    setError("");
+    setFeedback("");
+    const result = await request<{
+      deleted: string[];
+      failed: { id: string; message: string }[];
+    }>("/knowledge/documents/batch-delete", "POST", {
+      ids,
+      confirm: true,
+    });
+    reads.current++;
+    const removed = new Set(result.deleted);
+    setDocuments((values) =>
+      values.map((doc) =>
+        removed.has(doc.id)
+          ? { ...doc, deleted: true, active_version: 0, cleanup_pending: true }
+          : doc,
+      ),
+    );
+    setSelected(result.failed.map((item) => item.id));
+    if (result.failed.length) {
+      setError(
+        `已删除 ${result.deleted.length} 份文档，${result.failed.length} 份未能删除：${result.failed
+          .map((item) => item.message)
+          .join("；")}`,
+      );
+    } else {
+      setFeedback(
+        `已删除 ${result.deleted.length} 份文档，不再参与新检索；已有来源链接显示已删除。`,
+      );
+    }
+    onChanged();
+    void refresh().catch((error) => {
+      if (mounted.current) setError(message(error));
+    });
   }
   function changeTab(value: typeof tab) {
     setTab(value);
@@ -961,6 +1063,25 @@ function LibraryDocuments({
             </button>
           </div>
         </div>
+        {!!selectedDocs.length && (
+          <div className="kb-bulk-bar" role="region" aria-label="批量操作">
+            <strong>已选 {selectedDocs.length} 份文档</strong>
+            <button disabled={!!pending} onClick={toggleAll}>
+              {allSelected ? "取消全选" : "全选当前筛选"}
+            </button>
+            <span className="kb-bulk-spacer" />
+            <button disabled={!!pending} onClick={() => setSelected([])}>
+              取消选择
+            </button>
+            <button
+              className="kb-danger"
+              disabled={!!pending}
+              onClick={() => setBatchDeleting(true)}
+            >
+              删除所选
+            </button>
+          </div>
+        )}
         {loading ? (
           <p className="kb-loading" role="status">
             正在读取文档…
@@ -978,6 +1099,15 @@ function LibraryDocuments({
             aria-label="知识库文档"
           >
             <div className="kb-document-row kb-table-heading" role="row">
+              <span role="columnheader" className="kb-document-select">
+                <input
+                  type="checkbox"
+                  aria-label="全选当前筛选的文档"
+                  checked={allSelected}
+                  disabled={!selectable.length}
+                  onChange={toggleAll}
+                />
+              </span>
               <span role="columnheader">文档</span>
               <span role="columnheader">索引状态</span>
               <span role="columnheader">检索版本</span>
@@ -986,7 +1116,20 @@ function LibraryDocuments({
               </span>
             </div>
             {visible.map((doc) => (
-              <div className="kb-document-row" role="row" key={doc.id}>
+              <div
+                className={`kb-document-row${selected.includes(doc.id) ? " is-selected" : ""}`}
+                role="row"
+                key={doc.id}
+              >
+                <div role="cell" className="kb-document-select">
+                  <input
+                    type="checkbox"
+                    aria-label={`选择 ${doc.title}`}
+                    checked={selected.includes(doc.id)}
+                    disabled={doc.deleted}
+                    onChange={() => toggleSelected(doc.id)}
+                  />
+                </div>
                 <div role="cell" className="kb-document-name">
                   <button onClick={() => setDetail(doc.id)} title={doc.title}>
                     {doc.title}
@@ -1022,68 +1165,54 @@ function LibraryDocuments({
                     <small>最新 v{doc.version}</small>
                   )}
                 </div>
-                <div role="cell">
-                  <details
-                    className="kb-actions"
-                    onBlur={(event) => {
-                      if (!event.currentTarget.contains(event.relatedTarget))
-                        event.currentTarget.open = false;
-                    }}
-                  >
-                    <summary aria-label={`${doc.title}的更多操作`}>
-                      <Icon name="more" />
-                    </summary>
-                    <div
-                      onClick={(event) => {
-                        const details = event.currentTarget.closest("details");
-                        if (details) details.open = false;
-                      }}
-                    >
-                      <button onClick={() => setDetail(doc.id)}>
-                        文档详情
-                      </button>
-                      {!doc.deleted && doc.active_version > 0 && (
-                        <a
-                          className="kb-download"
-                          href={appURL(
-                            `/api/knowledge/documents/${doc.id}/download`,
-                          )}
-                          download
-                        >
-                          下载原文件
-                        </a>
-                      )}
-                      {!doc.deleted && (
-                        <>
-                          <button
-                            disabled={
-                              !!pending ||
-                              ["queued", "processing"].includes(doc.state)
-                            }
-                            onClick={() => setUpload({ replacement: doc })}
-                          >
-                            替换文件
-                          </button>
-                          <button
-                            disabled={
-                              !!pending ||
-                              ["queued", "processing"].includes(doc.state)
-                            }
-                            onClick={() => void retry(doc)}
-                          >
-                            {doc.state === "failed" ? "重试处理" : "重新索引"}
-                          </button>
-                        </>
-                      )}
-                      <button
-                        className="kb-danger"
-                        disabled={!!pending}
-                        onClick={() => setDeleting(doc)}
-                      >
-                        {doc.cleanup_pending ? "重试文件清理" : "删除文档"}
-                      </button>
-                    </div>
-                  </details>
+                <div role="cell" className="kb-row-actions">
+                  <RowMenu
+                    label={`${doc.title}的更多操作`}
+                    items={[
+                      {
+                        label: "文档详情",
+                        onSelect: () => setDetail(doc.id),
+                      },
+                      ...(!doc.deleted && doc.active_version > 0
+                        ? [
+                            {
+                              label: "下载原文件",
+                              href: appURL(
+                                `/api/knowledge/documents/${doc.id}/download`,
+                              ),
+                              download: true,
+                            },
+                          ]
+                        : []),
+                      ...(!doc.deleted
+                        ? [
+                            {
+                              label: "替换文件",
+                              disabled:
+                                !!pending ||
+                                ["queued", "processing"].includes(doc.state),
+                              onSelect: () => setUpload({ replacement: doc }),
+                            },
+                            {
+                              label:
+                                doc.state === "failed" ? "重试处理" : "重新索引",
+                              disabled:
+                                !!pending ||
+                                ["queued", "processing"].includes(doc.state),
+                              onSelect: () => void retry(doc),
+                            },
+                          ]
+                        : []),
+                      {
+                        label: doc.cleanup_pending
+                          ? "重试文件清理"
+                          : "删除文档",
+                        danger: true,
+                        disabled: !!pending,
+                        onSelect: () => setDeleting(doc),
+                      },
+                    ]}
+                  />
                 </div>
               </div>
             ))}
@@ -1156,6 +1285,7 @@ function LibraryDocuments({
           baseID={base.id}
           replacement={upload.replacement}
           pdf={pdf}
+          limits={limits}
           onClose={() => setUpload(null)}
           onUploaded={(doc) => {
             reads.current++;
@@ -1187,6 +1317,14 @@ function LibraryDocuments({
               if (mounted.current) setError(message(error));
             });
           }}
+        />
+      )}
+      {batchDeleting && (
+        <DeleteDialog
+          title={`删除所选 ${selectedDocs.length} 份文档？`}
+          description="所选文档将退出检索，已有来源链接保留删除标记；文件清理失败会保留待重试状态。其他文档不受影响。"
+          onClose={() => setBatchDeleting(false)}
+          onDelete={deleteSelected}
         />
       )}
       {selectedDoc && (

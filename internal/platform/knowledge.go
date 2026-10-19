@@ -10,7 +10,6 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -22,7 +21,7 @@ import (
 func knowledgeError(w http.ResponseWriter, err error) {
 	var fault *knowledge.Fault
 	if errors.As(err, &fault) {
-		status := map[string]int{"invalid": 400, "forbidden": 403, "not_found": 404, "conflict": 409, "unavailable": 503}[fault.Kind]
+		status := map[string]int{"invalid": 400, "forbidden": 403, "not_found": 404, "conflict": 409, "too_large": 413, "unavailable": 503}[fault.Kind]
 		if status == 0 {
 			status = 500
 		}
@@ -77,7 +76,7 @@ func (s *Server) listDocuments(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, values)
 }
 func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, knowledge.MaxUpload+(1<<20))
+	r.Body = http.MaxBytesReader(w, r.Body, s.knowledgeLimits.MaxUploadBytes+(1<<20))
 	reader, err := r.MultipartReader()
 	if err != nil {
 		fail(w, 400, "请选择要上传的文档。")
@@ -89,8 +88,8 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer part.Close()
-	if !s.uploadExtensionSupported(part.FileName()) {
-		fail(w, 400, "该文件格式需要先在“扩展”中安装并启用解析扩展。")
+	if !s.uploadExtensionAllowed(part.FileName()) {
+		fail(w, 400, s.uploadExtensionMessage(part.FileName()))
 		return
 	}
 	if r.PathValue("document") != "" && r.URL.Query().Get("force") != "1" && s.evalGateBlocked(r.Context(), r.PathValue("id")) {
@@ -101,7 +100,7 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var maxBytes *http.MaxBytesError
 		if errors.As(err, &maxBytes) {
-			fail(w, 413, "文件超过 20 MiB 上限。")
+			fail(w, 413, "文件超过 "+knowledge.HumanSize(s.knowledgeLimits.MaxUploadBytes)+" 上限。")
 			return
 		}
 		knowledgeError(w, err)
@@ -111,19 +110,27 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	respond(w, 202, value)
 }
 
-// uploadExtensionSupported reports whether a built-in parser handles the file,
-// or an enabled parser extension declares its extension.
-func (s *Server) uploadExtensionSupported(filename string) bool {
-	extension := strings.ToLower(filepath.Ext(filename))
-	switch extension {
-	case ".txt", ".md", ".markdown", ".pdf", ".docx":
-		return true
-	}
-	if extension == "" {
+// uploadExtensionAllowed reports whether the deployment accepts this format and
+// a parser exists for it: a built-in one for the default extensions, or an
+// installed parser extension for anything else.
+func (s *Server) uploadExtensionAllowed(filename string) bool {
+	kind, ok := s.knowledgeLimits.Accepts(filename)
+	if !ok {
 		return false
 	}
-	_, ok := s.plugins.ParserFor(extension)
+	switch kind {
+	case "txt", "markdown", "pdf", "docx":
+		return true
+	}
+	_, ok = s.plugins.ParserFor("." + kind)
 	return ok
+}
+
+func (s *Server) uploadExtensionMessage(filename string) string {
+	if _, allowed := s.knowledgeLimits.Accepts(filename); !allowed {
+		return "当前知识库允许的格式为 " + s.knowledgeLimits.Description() + "；管理员可通过 knowledge.allowed_extensions 调整。"
+	}
+	return "该文件格式需要先在“扩展”中安装并启用解析扩展。"
 }
 
 func (s *Server) downloadDocument(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +150,61 @@ func (s *Server) deleteDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 200, map[string]bool{"deleted": true})
+}
+
+// batchDeleteDocuments deletes several documents with one confirmed request.
+// Each document keeps the single-delete semantics, and a failure does not undo
+// the documents that were already removed; the response reports both lists so
+// the administrator can retry only what failed.
+func (s *Server) batchDeleteDocuments(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		IDs     []string `json:"ids"`
+		Confirm bool     `json:"confirm"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if !input.Confirm {
+		fail(w, 400, "请确认批量删除所选文档。")
+		return
+	}
+	if len(input.IDs) == 0 {
+		fail(w, 400, "请选择要删除的文档。")
+		return
+	}
+	if len(input.IDs) > 200 {
+		fail(w, 400, "单次最多删除 200 份文档。")
+		return
+	}
+	seen := map[string]bool{}
+	ids := make([]string, 0, len(input.IDs))
+	for _, id := range input.IDs {
+		id = strings.TrimSpace(id)
+		if id == "" || len(id) > 128 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		fail(w, 400, "请选择要删除的文档。")
+		return
+	}
+	deleted := []string{}
+	type failure struct {
+		ID      string `json:"id"`
+		Message string `json:"message"`
+	}
+	failed := []failure{}
+	for _, id := range ids {
+		if err := s.knowledge.DeleteDocument(r.Context(), id); err != nil {
+			failed = append(failed, failure{ID: id, Message: err.Error()})
+			continue
+		}
+		deleted = append(deleted, id)
+	}
+	s.audit("knowledge.documents.batch_delete", "", fmt.Sprintf("%d deleted, %d failed", len(deleted), len(failed)))
+	respond(w, 200, map[string]any{"deleted": deleted, "failed": failed})
 }
 func (s *Server) retryDocument(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("force") != "1" {

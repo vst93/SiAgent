@@ -37,7 +37,7 @@ type fixture struct {
 	csrf      string
 }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t *testing.T, options ...ServerOptions) *fixture {
 	t.Helper()
 	directory := t.TempDir()
 	store, err := Open(directory)
@@ -46,7 +46,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { store.Close() })
 	runtime := &fakeRuntime{}
-	server, err := New(store, runtime, func() bool { return true }, "")
+	server, err := New(store, runtime, func() bool { return true }, "", options...)
 	if err != nil {
 		t.Fatal(err)
 	}

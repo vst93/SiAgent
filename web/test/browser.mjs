@@ -894,12 +894,23 @@ try {
     .waitFor();
   assert.equal(await page.locator(".kb-document-name").count(), 2);
   await page.unroute(oldListURL);
+  // The row menu must escape the list card: the last row keeps a clickable,
+  // on-screen menu instead of a dropdown clipped by the scroll container.
+  const lastMenu = page
+    .locator(".kb-document-row:not(.kb-table-heading) .row-menu-trigger")
+    .last();
+  await lastMenu.scrollIntoViewIfNeeded();
+  await lastMenu.click();
+  const menuBox = await page.getByRole("menu").boundingBox();
+  const viewport = page.viewportSize();
+  assert(menuBox && viewport && menuBox.y >= 0 && menuBox.y + menuBox.height <= viewport.height + 1);
+  await page.keyboard.press("Escape");
   await page
     .locator(".kb-document-row")
     .filter({ hasText: "并发校验.md" })
-    .locator(".kb-actions > summary")
+    .locator(".row-menu-trigger")
     .click();
-  await page.getByRole("button", { name: "删除文档", exact: true }).click();
+  await page.getByRole("menuitem", { name: "删除文档", exact: true }).click();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "确认删除", exact: true })
@@ -908,6 +919,42 @@ try {
     .locator(".kb-document-name > button")
     .filter({ hasText: "并发校验.md" })
     .waitFor({ state: "hidden" });
+
+  // Bulk deletion: multi-select replaces deleting documents one by one.
+  for (const name of ["批量一.md", "批量二.md"]) {
+    await page.getByRole("button", { name: "上传文档", exact: true }).click();
+    await page.getByLabel("选择文档", { exact: true }).setInputFiles({
+      name,
+      mimeType: "text/markdown",
+      buffer: Buffer.from(`${name} 批量删除校验资料。`),
+    });
+    await page
+      .getByRole("button", { name: "上传并建立索引", exact: true })
+      .click();
+    await page
+      .locator(".kb-document-name > button")
+      .filter({ hasText: name })
+      .waitFor();
+  }
+  for (const name of ["批量一.md", "批量二.md"]) {
+    await page
+      .locator(".kb-document-row")
+      .filter({ hasText: name })
+      .locator('input[type="checkbox"]')
+      .check();
+  }
+  await page.getByText("已选 2 份文档", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "删除所选", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "确认删除", exact: true })
+    .click();
+  for (const name of ["批量一.md", "批量二.md"]) {
+    await page
+      .locator(".kb-document-name > button")
+      .filter({ hasText: name })
+      .waitFor({ state: "hidden" });
+  }
 
   await page.getByRole("button", { name: "新建知识库", exact: false }).click();
   await page.getByLabel("知识库名称", { exact: true }).fill("独立测试资料");
@@ -972,16 +1019,16 @@ try {
   await page.mouse.click(1, 1);
   await uploadDialog.waitFor({ state: "hidden" });
   await libraryPicker.selectOption(isolatedLibrary);
-  await page.locator(".kb-library-actions > summary").click();
-  await page.getByRole("button", { name: "删除知识库", exact: true }).click();
+  await page.locator(".kb-library-controls .row-menu-trigger").click();
+  await page.getByRole("menuitem", { name: "删除知识库", exact: true }).click();
   assert.equal(
     await page.evaluate(() => document.activeElement.textContent),
     "取消",
   );
   await page.keyboard.press("Escape");
   assert.equal(await libraryPicker.inputValue(), isolatedLibrary);
-  await page.locator(".kb-library-actions > summary").click();
-  await page.getByRole("button", { name: "删除知识库", exact: true }).click();
+  await page.locator(".kb-library-controls .row-menu-trigger").click();
+  await page.getByRole("menuitem", { name: "删除知识库", exact: true }).click();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "确认删除", exact: true })
@@ -997,9 +1044,11 @@ try {
     assert(
       await page.evaluate(() => {
         const group = document.querySelector(".kb-library-controls");
-        const manage = group.querySelector("summary").getBoundingClientRect();
+        const manage = group
+          .querySelector(".row-menu-trigger")
+          .getBoundingClientRect();
         const create = group
-          .querySelector(":scope > button")
+          .querySelector(":scope > button.primary")
           .getBoundingClientRect();
         return (
           Math.abs(manage.top - create.top) < 0.5 &&
@@ -1167,10 +1216,10 @@ try {
   await config("知识库");
   await page.getByRole("tab", { name: "文档管理", exact: false }).click();
   await page
-    .locator(".kb-document-row:not(.kb-table-heading) .kb-actions > summary")
+    .locator(".kb-document-row:not(.kb-table-heading) .row-menu-trigger")
     .first()
     .click();
-  await page.getByRole("button", { name: "替换文件", exact: true }).click();
+  await page.getByRole("menuitem", { name: "替换文件", exact: true }).click();
   await page.getByLabel("选择文档", { exact: true }).setInputFiles({
     name: "bad.md",
     mimeType: "text/markdown",
@@ -1194,10 +1243,10 @@ try {
     .waitFor();
   await page.getByRole("tab", { name: "文档管理", exact: false }).click();
   await page
-    .locator(".kb-document-row:not(.kb-table-heading) .kb-actions > summary")
+    .locator(".kb-document-row:not(.kb-table-heading) .row-menu-trigger")
     .first()
     .click();
-  await page.getByRole("button", { name: "替换文件", exact: true }).click();
+  await page.getByRole("menuitem", { name: "替换文件", exact: true }).click();
   await page.getByLabel("选择文档", { exact: true }).setInputFiles({
     name: "updated.md",
     mimeType: "text/markdown",
@@ -1228,10 +1277,10 @@ try {
   await historical.close();
   await page.getByRole("tab", { name: "文档管理", exact: false }).click();
   await page
-    .locator(".kb-document-row:not(.kb-table-heading) .kb-actions > summary")
+    .locator(".kb-document-row:not(.kb-table-heading) .row-menu-trigger")
     .first()
     .click();
-  await page.getByRole("button", { name: "删除文档", exact: true }).click();
+  await page.getByRole("menuitem", { name: "删除文档", exact: true }).click();
   await page
     .getByRole("dialog", { name: "删除文档？" })
     .getByRole("button", { name: "确认删除", exact: true })
@@ -1677,7 +1726,7 @@ try {
   await page.getByLabel("回复预设", { exact: true }).selectOption("concise");
   assert(
     !(await page
-      .getByLabel("渠道等待超过 10 秒时发送处理中提示", { exact: true })
+      .getByLabel("渠道排队超过 30 秒或处理超过 90 秒时发送提示", { exact: true })
       .isChecked()),
   );
   await page.getByLabel("回复预设", { exact: true }).selectOption("balanced");

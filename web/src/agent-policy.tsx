@@ -352,7 +352,7 @@ export function AgentPolicySettings({
           checked={output.progress}
           onChange={(e) => setOutput({ progress: e.target.checked })}
         />
-        渠道等待超过 10 秒时发送处理中提示
+        渠道排队超过 30 秒或处理超过 90 秒时发送提示
       </label>
       <p className="muted">
         这些设置用于新任务的 Web

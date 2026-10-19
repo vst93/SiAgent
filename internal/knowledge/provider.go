@@ -7,16 +7,13 @@ import (
 	"fmt"
 )
 
-const MaxUpload int64 = 20 << 20
-const MaxCharacters = 1000000
-const MaxChunks = 5000
-
 type Fault struct{ Kind, Message string }
 
 func (e *Fault) Error() string         { return e.Message }
 func invalid(message string) error     { return &Fault{"invalid", message} }
 func missing() error                   { return &Fault{"not_found", "知识库、文档或来源不存在。"} }
 func conflict(message string) error    { return &Fault{"conflict", message} }
+func tooLarge(message string) error    { return &Fault{"too_large", message} }
 func unavailable(message string) error { return &Fault{"unavailable", message} }
 
 type Location struct {

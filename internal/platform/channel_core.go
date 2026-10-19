@@ -203,6 +203,15 @@ func (s *Server) queueChannelText(tx *sql.Tx, inbox, channel, member, kind, text
 	}
 	return nil
 }
+
+// A queued message can look lost once it waits behind other work, while a task
+// the model is already running will answer on its own. Notices therefore use
+// separate thresholds and text, so ordinary questions see no notice at all.
+const (
+	queuedNoticeDelay     = 30 * time.Second
+	processingNoticeDelay = 90 * time.Second
+)
+
 func (s *Server) prepareChannelReplies(ctx context.Context, now time.Time) error {
 	rows, err := s.store.db.QueryContext(ctx, "SELECT i.id,i.channel_id,i.member,i.state,i.error,i.run_id,i.created,i.hinted,i.agent_id FROM channel_inbox i JOIN channels c ON c.id=i.channel_id WHERE i.finalized=0 AND c.archived=0 AND (i.hinted=0 OR i.state='rejected' OR EXISTS(SELECT 1 FROM runs r WHERE r.id=i.run_id AND r.status NOT IN ('queued','running','cancelling'))) ORDER BY i.created,i.rowid LIMIT 200")
 	if err != nil {
@@ -231,6 +240,8 @@ func (s *Server) prepareChannelReplies(ctx context.Context, now time.Time) error
 		done := i.state == "rejected"
 		text := i.reason
 		progress := true
+		// started tells a queued message from one the model is already working on.
+		started := false
 		if i.run == "" && !done {
 			a, err := s.agentByID(i.agent)
 			if err != nil {
@@ -243,6 +254,7 @@ func (s *Server) prepareChannelReplies(ctx context.Context, now time.Time) error
 			if err := s.store.db.QueryRowContext(ctx, "SELECT r.status,r.error,m.content,r.config,r.thinking FROM runs r JOIN messages m ON m.run_id=r.id AND m.role='assistant' WHERE r.id=?", i.run).Scan(&status, &reason, &answer, &config, &thinking); err != nil {
 				return err
 			}
+			started = status != "queued"
 			var snapshot runConfig
 			if err := json.Unmarshal([]byte(config), &snapshot); err != nil {
 				return err
@@ -317,14 +329,26 @@ func (s *Server) prepareChannelReplies(ctx context.Context, now time.Time) error
 			}
 			continue
 		}
-		if !done && (i.hinted || now.UnixMilli()-i.created < 10000) {
-			continue
+		// A waiting message gets one short notice, but a running task stays silent
+		// until it either answers or clearly exceeds the long processing threshold.
+		// This keeps the common case free of a generic "still processing" message
+		// that arrives before the real answer.
+		if !done {
+			threshold := queuedNoticeDelay
+			if started {
+				threshold = processingNoticeDelay
+			}
+			if i.hinted || now.Sub(time.UnixMilli(i.created)) < threshold {
+				continue
+			}
 		}
 		kind := "hint"
 		if done {
 			kind = "final"
+		} else if started {
+			text = "仍在处理中，请稍候；完成后会发送回答。"
 		} else {
-			text = "消息已收到，仍在排队或处理中，请稍候。"
+			text = "消息已收到，正在排队等待处理，请稍候。"
 		}
 		tx, err := s.store.db.BeginTx(ctx, nil)
 		if err != nil {

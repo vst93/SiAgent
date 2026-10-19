@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -61,14 +62,19 @@ type Core struct {
 	reranker Reranker
 	external func(context.Context, string, string) (string, error)
 	wake     chan struct{}
+	limits   Limits
 }
 
-func New(db *sql.DB, dataDirectory string) (*Core, error) {
+func New(db *sql.DB, dataDirectory string, options ...Limits) (*Core, error) {
 	root := filepath.Join(dataDirectory, "knowledge")
 	if err := os.MkdirAll(filepath.Join(root, "staging"), 0700); err != nil {
 		return nil, err
 	}
-	core := &Core{db: db, root: root, wake: make(chan struct{}, 1)}
+	limits := DefaultLimits()
+	if len(options) > 0 {
+		limits = options[0]
+	}
+	core := &Core{db: db, root: root, wake: make(chan struct{}, 1), limits: limits.Normalize()}
 	core.provider = &LocalProvider{db: db, root: root}
 	// Startup runs before HTTP admission. Temporary files never represent ready data.
 	if err := os.RemoveAll(filepath.Join(root, "staging")); err != nil {
@@ -395,21 +401,9 @@ func (c *Core) Upload(ctx context.Context, baseID, documentID, filename string, 
 	if filename == "." || filename == "" || len(filename) > 240 {
 		return Document{}, invalid("文件名无效，最多 240 字节。")
 	}
-	kind := strings.ToLower(filepath.Ext(filename))
-	switch kind {
-	case ".txt":
-		kind = "txt"
-	case ".md", ".markdown":
-		kind = "markdown"
-	case ".pdf":
-		kind = "pdf"
-	case ".docx":
-		kind = "docx"
-	default:
-		if c.external == nil || len(kind) < 2 || len(kind) > 17 {
-			return Document{}, invalid("仅支持 UTF-8 TXT、Markdown、DOCX 和可提取文本的 PDF；其他格式需要安装并启用解析扩展。")
-		}
-		kind = strings.TrimPrefix(kind, ".")
+	kind, allowed := c.limits.Accepts(filename)
+	if !allowed {
+		return Document{}, invalid("当前知识库允许的格式为 " + c.limits.Description() + "；如需其他格式请安装并启用解析扩展，或由管理员调整 knowledge.allowed_extensions。")
 	}
 	staging := filepath.Join(c.root, "staging", rand.Text())
 	if err := os.Mkdir(staging, 0700); err != nil {
@@ -420,7 +414,7 @@ func (c *Core) Upload(ctx context.Context, baseID, documentID, filename string, 
 	if err != nil {
 		return Document{}, err
 	}
-	size, err := io.Copy(file, io.LimitReader(reader, MaxUpload+1))
+	size, err := io.Copy(file, io.LimitReader(reader, c.limits.MaxUploadBytes+1))
 	if err == nil {
 		err = file.Sync()
 	}
@@ -431,8 +425,8 @@ func (c *Core) Upload(ctx context.Context, baseID, documentID, filename string, 
 	if closeErr != nil {
 		return Document{}, closeErr
 	}
-	if size > MaxUpload {
-		return Document{}, invalid("单个文件不能超过 20 MiB。")
+	if size > c.limits.MaxUploadBytes {
+		return Document{}, tooLarge(fmt.Sprintf("单个文件不能超过 %s。", HumanSize(c.limits.MaxUploadBytes)))
 	}
 	if size == 0 {
 		return Document{}, invalid("文件为空，请选择包含内容的文档。")
@@ -748,7 +742,7 @@ func (c *Core) build(ctx context.Context, id string, version int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	chunks, characters, err := chunkBlocks(id, version, blocks)
+	chunks, characters, err := chunkBlocks(id, version, blocks, c.limits)
 	if err != nil {
 		return err
 	}
@@ -825,5 +819,5 @@ func (c *Core) build(ctx context.Context, id string, version int) error {
 
 // DescribeDependencies does not expose filesystem paths or document content.
 func (c *Core) DescribeDependencies() map[string]any {
-	return map[string]any{"provider": "sqlite-fts5", "tokenizer": "gse@1.1.0", "pdf_available": pdfAvailable(), "max_file_bytes": MaxUpload, "max_characters": MaxCharacters, "max_chunks": MaxChunks, "max_pdf_pages": 1000}
+	return map[string]any{"provider": "sqlite-fts5", "tokenizer": "gse@1.1.0", "pdf_available": pdfAvailable(), "max_file_bytes": c.limits.MaxUploadBytes, "max_characters": c.limits.MaxCharacters, "max_chunks": c.limits.MaxChunks, "max_pdf_pages": c.limits.MaxPDFPages, "allowed_extensions": c.limits.Extensions, "allowed_formats": c.limits.Description()}
 }

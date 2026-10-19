@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"siagent/internal/knowledge"
 )
 
 const projectDir = "SiAgent"
@@ -23,8 +25,32 @@ type File struct {
 	Node                  string      `json:"node"`
 	ChannelWorker         string      `json:"channel_worker"`
 	Attachments           Attachments `json:"attachments"`
+	Knowledge             *Knowledge  `json:"knowledge,omitempty"`
 	Limits                *Limits     `json:"limits,omitempty"`
 	AdvancedToolsDisabled *bool       `json:"advanced_tools_disabled,omitempty"`
+}
+
+// Knowledge bounds knowledge-base uploads. Zero values keep the defaults, so a
+// deployment only sets what it needs to change.
+type Knowledge struct {
+	MaxFileBytes      int64    `json:"max_file_bytes"`
+	MaxCharacters     int      `json:"max_characters"`
+	MaxChunks         int      `json:"max_chunks"`
+	MaxPDFPages       int      `json:"max_pdf_pages"`
+	AllowedExtensions []string `json:"allowed_extensions"`
+}
+
+func (k *Knowledge) Limits() knowledge.Limits {
+	if k == nil {
+		return knowledge.DefaultLimits()
+	}
+	return knowledge.Limits{
+		MaxUploadBytes: k.MaxFileBytes,
+		MaxCharacters:  k.MaxCharacters,
+		MaxChunks:      k.MaxChunks,
+		MaxPDFPages:    k.MaxPDFPages,
+		Extensions:     k.AllowedExtensions,
+	}
 }
 
 type Attachments struct {
@@ -113,6 +139,11 @@ func (f File) Validate() error {
 	} {
 		if value < 0 {
 			return fmt.Errorf("%s cannot be negative", name)
+		}
+	}
+	if f.Knowledge != nil {
+		if err := f.Knowledge.Limits().Validate(); err != nil {
+			return err
 		}
 	}
 	if f.Limits != nil {

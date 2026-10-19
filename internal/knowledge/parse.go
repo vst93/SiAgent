@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -66,7 +67,7 @@ func parserCommand(ctx context.Context, program string, limit int, args ...strin
 	}
 	return output.String(), nil
 }
-func parse(ctx context.Context, path, kind string) ([]page, error) {
+func parse(ctx context.Context, path, kind string, limits Limits) ([]page, error) {
 	if kind != "pdf" {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -78,8 +79,8 @@ func parse(ctx context.Context, path, kind string) ([]page, error) {
 		text := strings.TrimPrefix(string(data), "\ufeff")
 		text = strings.ReplaceAll(text, "\r\n", "\n")
 		text = strings.ReplaceAll(text, "\r", "\n")
-		if utf8.RuneCountInString(text) > MaxCharacters {
-			return nil, invalid("提取文本超过 100 万字符，请拆分文档。")
+		if utf8.RuneCountInString(text) > limits.MaxCharacters {
+			return nil, invalid(fmt.Sprintf("提取文本超过 %d 字符上限，请拆分文档或由管理员调整 knowledge.max_characters。", limits.MaxCharacters))
 		}
 		if strings.TrimSpace(text) == "" {
 			return nil, invalid("文档没有可检索文本。")
@@ -104,15 +105,15 @@ func parse(ctx context.Context, path, kind string) ([]page, error) {
 		return nil, invalid("无法确定 PDF 页数，请检查文件。")
 	}
 	count, _ := strconv.Atoi(match[1])
-	if count < 1 || count > 1000 {
-		return nil, invalid("PDF 页数须在 1–1000 页，请拆分文件后重试。")
+	if count < 1 || count > limits.MaxPDFPages {
+		return nil, invalid(fmt.Sprintf("PDF 页数须在 1–%d 页，请拆分文件后重试。", limits.MaxPDFPages))
 	}
-	text, err := parserCommand(pdfCtx, program, 4*MaxCharacters+1, "-enc", "UTF-8", "-eol", "unix", "-layout", path, "-")
+	text, err := parserCommand(pdfCtx, program, 4*limits.MaxCharacters+1, "-enc", "UTF-8", "-eol", "unix", "-layout", path, "-")
 	if err != nil {
 		return nil, err
 	}
-	if !utf8.ValidString(text) || utf8.RuneCountInString(text) > MaxCharacters {
-		return nil, invalid("PDF 提取文本超过 100 万字符或编码无效，请拆分文件。")
+	if !utf8.ValidString(text) || utf8.RuneCountInString(text) > limits.MaxCharacters {
+		return nil, invalid(fmt.Sprintf("PDF 提取文本超过 %d 字符上限或编码无效，请拆分文件。", limits.MaxCharacters))
 	}
 	parts := strings.Split(text, "\f")
 	if len(parts) > 0 && strings.TrimSpace(parts[len(parts)-1]) == "" {
@@ -161,14 +162,14 @@ func chunkEnd(text []rune, start int) int {
 	return end
 }
 
-func split(ctx context.Context, documentID string, version int, pages []page) ([]chunk, int, error) {
+func split(ctx context.Context, documentID string, version int, pages []page, limits Limits) ([]chunk, int, error) {
 	chunks := []chunk{}
 	characters := 0
 	paragraph := 0
 	for _, page := range pages {
 		characters += utf8.RuneCountInString(page.Text)
-		if characters > MaxCharacters {
-			return nil, 0, invalid("提取文本超过 100 万字符。")
+		if characters > limits.MaxCharacters {
+			return nil, 0, invalid(fmt.Sprintf("提取文本超过 %d 字符上限。", limits.MaxCharacters))
 		}
 		for _, block := range paragraphBreak.Split(page.Text, -1) {
 			block = strings.TrimSpace(block)
@@ -182,8 +183,8 @@ func split(ctx context.Context, documentID string, version int, pages []page) ([
 					return nil, 0, err
 				}
 				end := chunkEnd(runes, start)
-				if len(chunks) >= MaxChunks {
-					return nil, 0, invalid("文档超过 5000 个片段，请合并过短段落或拆分文档后重试。")
+				if len(chunks) >= limits.MaxChunks {
+					return nil, 0, invalid(fmt.Sprintf("文档超过 %d 个片段，请合并过短段落或拆分文档后重试。", limits.MaxChunks))
 				}
 				position := len(chunks)
 				chunks = append(chunks, chunk{ID: sourceID(documentID, version, position), Text: string(runes[start:end]), Location: Location{Page: page.Number, Paragraph: paragraph, Start: start, End: end}, Position: position})

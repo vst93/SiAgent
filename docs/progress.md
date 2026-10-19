@@ -28,6 +28,14 @@
 - [x] 移除回答下方“有用 / 需要改进”反馈：删除前端组件与样式、`/api/runs/{id}/feedback`、`/api/feedback/stats`、`Run.Feedback` 字段和 `answer_feedback` 表（schema 24）；内容缺口功能保留。
 - [x] 修复高级工具未真正下发给模型：Runtime 的 `configure()` 只启用显式列出的扩展与工具名，此前 `coding-tools` 虽已安装但既未加入 `extensions` 也未加入 `tools`，导致开启“本地工作区工具”后模型仍只有知识库/资料/技能读取能力。现在按 `advanced_tools` 把 read / write / edit / bash 一并下发，并新增 Runtime 测试验证工具列表与 bash 实际执行。
 
+## 渠道提示阈值、列表菜单与批量操作、知识库上传限制
+
+- [x] 渠道“正在处理”提示改为按状态分档：消息排队超过 30 秒发送一次“正在排队”，模型已开始处理时只在运行超过 90 秒后发送一次“仍在处理”。普通问答只收到最终回复，不再先看到泛化的处理中提示；关闭该开关后不发送任何中间提示。测试覆盖排队与运行两种阈值。
+- [x] 列表行操作菜单改用 portal + fixed 定位（`web/src/row-menu.tsx`），不再被卡片或滚动容器的 `overflow: hidden` 裁剪；菜单在视口底部自动上翻、跟随滚动重新定位、限制最大高度，并支持 Escape、方向键和焦点回到触发按钮。知识库文档行与“管理知识库”已迁移。
+- [x] 知识库文档列表改为桌面式结构：内部滚动、吸顶表头、行悬停/选中态、固定操作列；新增多选与批量删除（后端 `POST /api/knowledge/documents/batch-delete`，单次最多 200 份），部分失败逐项返回并在界面提示，只重试失败项。
+- [x] 知识库上传限制改为外置配置 `knowledge`：`max_file_bytes`、`max_characters`、`max_chunks`、`max_pdf_pages`、`allowed_extensions`；省略格式时保留内置格式并接受解析扩展格式，显式列出后仅接受所列格式。上传前按格式与大小拒绝，`/api/knowledge/status` 返回同一组值，上传弹窗动态显示大小、格式与 accept 列表；超限返回 413。
+- [x] Go 测试覆盖批量删除与部分失败、配置化大小/格式、配置校验与默认值合并；浏览器测试覆盖行菜单在列表底部可点击、多选批量删除与工具栏对齐。
+
 ## 技能/MCP 关联、文档下载与详情编辑
 
 - [x] 角色指令等 Markdown 输入增加“编辑 / 预览”切换；预览使用安全 Markdown 渲染。

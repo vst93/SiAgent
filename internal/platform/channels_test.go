@@ -285,3 +285,74 @@ func TestChannelConversationRecordsChatTypeAndSender(t *testing.T) {
 		t.Fatalf("identity not backfilled: %+v %+v", group, private)
 	}
 }
+
+func TestChannelProgressNoticesOnlyWaitForQueueOrLongRuns(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	f.model(t, "fixture", "key")
+	c := createChannel(t, f, true)
+	ctx := context.Background()
+	count := func(msgID string) int {
+		t.Helper()
+		var value int
+		if err := f.store.db.QueryRow("SELECT count(*) FROM channel_outbox WHERE kind='hint' AND inbox_id IN(SELECT id FROM channel_inbox WHERE msg_id=?)", msgID).Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	hint := func(msgID string) string {
+		t.Helper()
+		var value string
+		f.store.db.QueryRow("SELECT content FROM channel_outbox WHERE kind='hint' AND inbox_id IN(SELECT id FROM channel_inbox WHERE msg_id=?)", msgID).Scan(&value)
+		return value
+	}
+	// A waiting message stays quiet for the first few seconds, then reports that
+	// it is queued instead of claiming the model is already working on it.
+	requireStatus(t, callback(t, f, c, "801", "member", "queued question"), 200)
+	if err := f.server.prepareChannelReplies(ctx, time.Now().Add(10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if count("801") != 0 {
+		t.Fatal("queue notice sent before the delay")
+	}
+	if err := f.server.prepareChannelReplies(ctx, time.Now().Add(queuedNoticeDelay+time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if value := hint("801"); count("801") != 1 || !strings.Contains(value, "排队") {
+		t.Fatalf("queue notice missing or wrong: %d %q", count("801"), value)
+	}
+	if err := f.server.admitChannelInbox(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// A running task sends nothing at the queue threshold; only a genuinely long
+	// run gets one "still processing" notice.
+	requireStatus(t, callback(t, f, c, "802", "another-member", "running question"), 200)
+	if err := f.server.admitChannelInbox(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var run string
+	if err := f.store.db.QueryRow("SELECT run_id FROM channel_inbox WHERE msg_id='802'").Scan(&run); err != nil {
+		t.Fatal(err)
+	}
+	// Dispatching moves the run out of the queue without finishing it.
+	if err := f.server.Tick(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := f.store.db.QueryRow("SELECT status FROM runs WHERE id=?", run).Scan(&status); err != nil || status != "running" {
+		t.Fatalf("run not dispatched: %q %v", status, err)
+	}
+	if err := f.server.prepareChannelReplies(ctx, time.Now().Add(queuedNoticeDelay+time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if count("802") != 0 {
+		t.Fatal("running task sent the queue notice")
+	}
+	if err := f.server.prepareChannelReplies(ctx, time.Now().Add(processingNoticeDelay+time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if value := hint("802"); count("802") != 1 || !strings.Contains(value, "仍在处理") {
+		t.Fatalf("long-running notice missing or wrong: %d %q", count("802"), value)
+	}
+}

@@ -218,7 +218,7 @@ func TestDocumentLimitsAndReindexVersion(t *testing.T) {
 	if _, err := c.Upload(context.Background(), b.ID, "", "bad.pdf", strings.NewReader("not a PDF")); err == nil {
 		t.Fatal("PDF content type mismatch accepted")
 	}
-	d := upload(t, c, b.ID, "", "large.txt", strings.Repeat("x", MaxCharacters+1))
+	d := upload(t, c, b.ID, "", "large.txt", strings.Repeat("x", DefaultLimits().MaxCharacters+1))
 	process(t, c)
 	state, _ := c.Document(context.Background(), d.ID)
 	if state.State != "failed" || state.ActiveVersion != 0 {
@@ -285,13 +285,13 @@ func testPDF(first, second string) string {
 func TestOversizeTextFailsBeforeIndexPublication(t *testing.T) {
 	c := fixture(t)
 	base := base(t, c, "Bounded parsing")
-	document := upload(t, c, base.ID, "", "too-large.txt", strings.Repeat("x", MaxCharacters+1))
+	document := upload(t, c, base.ID, "", "too-large.txt", strings.Repeat("x", DefaultLimits().MaxCharacters+1))
 	process(t, c)
 	failed, err := c.Document(context.Background(), document.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failed.State != "failed" || failed.ActiveVersion != 0 || !strings.Contains(failed.Error, "100 万") {
+	if failed.State != "failed" || failed.ActiveVersion != 0 || !strings.Contains(failed.Error, "字符上限") {
 		t.Fatal("size limit did not fail clearly", failed)
 	}
 	var chunks int

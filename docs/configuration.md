@@ -38,6 +38,13 @@ SiAgent 的系统级配置可以放在操作系统用户 config 目录中，使�
     "max_conversation_bytes": 104857600,
     "orphan_ttl_hours": 24
   },
+  "knowledge": {
+    "max_file_bytes": 20971520,
+    "max_characters": 1000000,
+    "max_chunks": 5000,
+    "max_pdf_pages": 1000,
+    "allowed_extensions": ["txt", "markdown", "pdf", "docx"]
+  },
   "limits": {
     "concurrent": 2,
     "conversation_queue": 10,
@@ -81,6 +88,20 @@ SiAgent 的系统级配置可以放在操作系统用户 config 目录中，使�
 - `orphan_ttl_hours`：未发送附件清理时间，默认 24 小时。
 
 文件仍存放在数据目录 `attachments/`，不会因为改配置目录而迁移；修改 `data_dir` 时请同时迁移数据和附件。
+
+### 知识库上传
+
+`knowledge` 控制知识库文档的接收范围，修改后重启生效；界面上的提示和单文件校验会读取同一组值：
+
+| 字段 | 默认 | 范围 | 说明 |
+| --- | --- | --- | --- |
+| `max_file_bytes` | 20 MiB | 1 MiB–1 GiB | 单个文档上限。放大后解析时间、内存与磁盘占用同比增加，PDF 还会受 `max_pdf_pages` 限制。 |
+| `max_characters` | 1,000,000 | 1,000–50,000,000 | 单文档提取文本上限 |
+| `max_chunks` | 5,000 | 1–200,000 | 单文档片段上限，影响索引大小与检索延迟 |
+| `max_pdf_pages` | 1,000 | 1–10,000 | PDF 页数上限 |
+| `allowed_extensions` | `txt`、`markdown`、`pdf`、`docx` | 每项 1–16 个字符 | 允许上传的格式，不带点；`markdown` 同时接受 `.md` 与 `.markdown` |
+
+`allowed_extensions` 省略时使用内置格式，并额外接受已安装解析扩展声明的格式；显式填写后只接受列出的格式（解析扩展格式也必须列出）。不在列表内的文件会在解析前被拒绝，返回 413/400 并说明允许的格式。修改上限不会重新处理已有文档，但重新索引会按新上限校验。
 
 ### 运行限制
 

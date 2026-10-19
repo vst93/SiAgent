@@ -30,7 +30,7 @@ Runtime 注册 `knowledge_search` / `knowledge_read`，内部操作对应 `knowl
 
 ## 解析、切分与检索
 
-支持 UTF-8 TXT、Markdown、可提取文本的 PDF。文件上限 20 MiB，提取上限 100 万字符、片段最多 5000 个、PDF 最多 1000 页；拒绝扫描件、加密或损坏 PDF、Office 和二进制文本。PDF 复用 Poppler 的 pdfinfo / pdftotext 子进程，限制时间和输出，不经 Shell；容器安装 poppler-utils。本地缺少依赖时明确报告，TXT/Markdown 及基础对话照常可用。
+支持 UTF-8 TXT、Markdown、可提取文本的 PDF。默认文件上限 20 MiB、提取上限 100 万字符、片段最多 5000 个、PDF 最多 1000 页，均可通过 `knowledge` 配置调整；默认接受 TXT、Markdown、DOCX 与文本 PDF，可用 `knowledge.allowed_extensions` 限制格式；拒绝扫描件、加密或损坏 PDF 和二进制文本。PDF 复用 Poppler 的 pdfinfo / pdftotext 子进程，限制时间和输出，不经 Shell；容器安装 poppler-utils。本地缺少依赖时明确报告，TXT/Markdown 及基础对话照常可用。
 
 中文使用固定版本 gse 及嵌入词典，离线分词后写入 FTS5；英文归一化后使用相同索引。按页和解析文本段落切分，长段落采用最多 600 字符、重叠 80 字符的窗口，优先句末、换行和词间空白，保留真实页码、段落序号及字符范围。先尝试所有有效查询词，必要时退回任一查询词，返回真实 BM25 排序及实际文本片段，不提供虚构的语义相似度。管理测试使用 140/220 字符紧凑摘要，Agent 保留 600 字符摘要预算；来源读取不受摘要缩短影响。发布事务复用插入语句，已有文档重新索引时才应用新切片规则，性能小样见 [knowledge-tuning.md](knowledge-tuning.md)。
 

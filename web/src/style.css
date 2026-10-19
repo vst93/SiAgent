@@ -2421,7 +2421,7 @@ summary {
   flex-shrink: 0;
 }
 .kb-library-controls > button,
-.kb-library-controls > details > summary {
+.kb-library-controls > .row-menu-trigger {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2520,23 +2520,84 @@ summary {
 }
 .kb-document-table {
   min-width: 0;
+  max-height: min(64vh, 640px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 .kb-document-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px 90px 34px;
+  grid-template-columns: 26px minmax(0, 1fr) 104px 76px 32px;
   align-items: start;
-  gap: 14px;
-  padding: 12px 18px;
+  gap: 12px;
+  padding: 10px 16px;
   border-top: 1px solid var(--line);
   font-size: 12px;
 }
+.kb-document-row:hover {
+  background: var(--surface-raised);
+}
+.kb-document-row.is-selected {
+  background: var(--teal-soft);
+}
+.kb-document-select {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 1px;
+}
+.kb-row-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.kb-document-select input {
+  width: 15px;
+  min-width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  accent-color: var(--teal);
+}
 .kb-table-heading {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   color: var(--faint);
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.04em;
   background: var(--surface-raised);
   padding-block: 9px;
+  border-top: 0;
+}
+.kb-table-heading:hover {
+  background: var(--surface-raised);
+}
+.kb-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 9px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+  font-size: 12px;
+}
+.kb-bulk-bar strong {
+  font-weight: 600;
+}
+.kb-bulk-bar .kb-bulk-spacer {
+  margin-left: auto;
+}
+.kb-bulk-bar button {
+  font-size: 11.5px;
+  padding: 5px 9px;
+  min-height: 28px;
+}
+.kb-bulk-bar button.kb-danger {
+  border-color: #dcc4c1;
+  color: #a44843;
+  background: var(--paper);
 }
 .kb-document-name {
   min-width: 0;
@@ -2581,65 +2642,80 @@ summary {
 .kb-version small {
   font-family: inherit;
 }
-.kb-actions {
-  position: relative;
-  font-size: 12px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.kb-actions > summary {
-  cursor: pointer;
-  list-style: none;
-  padding: 5px 8px;
-  border: 1px solid var(--line);
+.row-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 4px 7px;
+  border: 1px solid transparent;
   border-radius: 6px;
-  white-space: nowrap;
-  text-align: center;
+  background: transparent;
   color: var(--muted);
-  line-height: 1.65;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
 }
-.kb-actions > summary::-webkit-details-marker {
-  display: none;
-}
-.kb-actions > summary:hover {
+.row-menu-trigger:hover,
+.row-menu-trigger[aria-expanded="true"] {
+  border-color: var(--line);
   background: var(--surface);
-}
-.kb-actions[open] > summary {
   color: var(--ink);
-  border-color: #b5c9c1;
 }
-.kb-actions > div {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 5px);
-  z-index: 5;
-  min-width: 145px;
+.row-menu-trigger:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+.row-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 168px;
+  max-width: min(300px, calc(100vw - 16px));
   display: grid;
-  gap: 2px;
-  padding: 5px;
-  background: var(--paper);
-  border: 1px solid var(--line);
+  gap: 1px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-md);
+  background: var(--paper);
   box-shadow: var(--shadow-2);
 }
-.kb-actions > div button {
+.row-menu-item {
+  display: block;
+  width: 100%;
   padding: 7px 10px;
-  text-align: left;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
   font-size: 12px;
   font-weight: 400;
-  border: 0;
-  background: transparent;
+  line-height: 1.5;
+  text-align: left;
+  text-decoration: none;
   white-space: nowrap;
 }
-.kb-actions > div button:hover:not(:disabled) {
+.row-menu-item:hover:not(:disabled):not([aria-disabled="true"]),
+.row-menu-item:focus-visible {
   background: var(--surface);
+  outline: 0;
 }
-.kb-actions .kb-danger {
+.row-menu-item:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--teal);
+}
+.row-menu-item:disabled,
+.row-menu-item[aria-disabled="true"] {
+  color: var(--faint);
+  cursor: default;
+}
+.row-menu-item.danger {
   color: #a44843;
 }
-.kb-library-actions > summary {
-  padding: 7px 10px;
+.row-menu-item.danger:hover:not(:disabled) {
+  background: #fbf1ef;
 }
 .kb-empty {
   text-align: center;
@@ -2885,7 +2961,7 @@ summary {
 }
 @media (max-width: 900px) {
   .kb-document-row {
-    grid-template-columns: minmax(0, 1fr) 100px 72px 34px;
+    grid-template-columns: 26px minmax(0, 1fr) 92px 66px 32px;
     gap: 10px;
   }
   .kb-document-toolbar > input {
@@ -2950,24 +3026,32 @@ summary {
     padding: 0;
     border: 0;
   }
+  .kb-document-table {
+    max-height: none;
+    overflow: visible;
+  }
   .kb-document-row:not(.kb-table-heading) {
-    grid-template-columns: minmax(0, 1fr) auto 32px;
+    grid-template-columns: 22px minmax(0, 1fr) auto 32px;
     gap: 8px;
     padding: 12px;
   }
-  .kb-document-name {
-    grid-column: 1/3;
-  }
-  .kb-document-row > div:last-child {
-    grid-column: 3;
+  .kb-document-select {
+    grid-column: 1;
     grid-row: 1/3;
   }
-  .kb-document-row > div:nth-child(2) {
-    grid-column: 1;
+  .kb-document-name {
+    grid-column: 2/4;
+  }
+  .kb-document-row > div:last-child {
+    grid-column: 4;
+    grid-row: 1/3;
+  }
+  .kb-document-row > div:nth-child(3) {
+    grid-column: 2;
     grid-row: 2;
   }
   .kb-document-row .kb-version {
-    grid-column: 2;
+    grid-column: 3;
     grid-row: 2;
     display: flex;
     gap: 6px;
@@ -3909,13 +3993,18 @@ summary {
   color: var(--teal);
 }
 .kb-library-controls > button,
-.kb-actions > summary {
+.kb-library-controls > .row-menu-trigger {
   gap: 5px;
 }
-.kb-actions > summary {
+.kb-library-controls > .row-menu-trigger {
   display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 34px;
+  padding: 7px 10px;
+  border-color: var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
 }
 .skill-file-tree button {
   align-items: center;

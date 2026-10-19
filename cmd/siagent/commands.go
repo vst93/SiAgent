@@ -23,6 +23,7 @@ type commandOptions struct {
 	Command, DataDir, Listen, PublicURL, BasePath, Runtime, Node, ChannelWorker, Probe, Conversation string
 	ConfigPath, ServiceAction, ServiceManager                                                        string
 	Attachments                                                                                      appconfig.Attachments
+	Knowledge                                                                                        *appconfig.Knowledge
 	Limits                                                                                           *appconfig.Limits
 	AdvancedToolsDisabled                                                                            *bool
 	ProbeTool                                                                                        bool
@@ -48,6 +49,7 @@ func parseCommand(args []string, installed installation, output io.Writer) (comm
 		options.ConfigPath = configPath
 	}
 	options.Attachments = file.Attachments
+	options.Knowledge = file.Knowledge
 	options.Limits = file.Limits
 	options.AdvancedToolsDisabled = file.AdvancedToolsDisabled
 	flags := flag.NewFlagSet("siagent", flag.ContinueOnError)

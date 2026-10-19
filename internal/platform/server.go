@@ -55,6 +55,7 @@ type Server struct {
 	stopping              bool
 	advancedToolsDisabled bool
 	apiRate               map[string]*rateWindow
+	knowledgeLimits       knowledge.Limits
 	apiRateMu             sync.Mutex
 	lastStatus            time.Time
 	restarting            bool
@@ -68,13 +69,17 @@ type Server struct {
 func New(store *Store, runtime Runtime, ready func() bool, publicURL string, options ...ServerOptions) (*Server, error) {
 	configuredLimits := defaultLimits()
 	attachmentLimits := defaultAttachmentLimits()
+	knowledgeLimits := knowledge.DefaultLimits()
 	if len(options) > 0 {
 		if options[0].Limits != nil {
 			configuredLimits = *options[0].Limits
 		}
 		attachmentLimits = mergeAttachmentLimits(options[0].Attachments)
+		if options[0].Knowledge != nil {
+			knowledgeLimits = options[0].Knowledge.Normalize()
+		}
 	}
-	s := &Server{pendingTests: make(map[string]chan agentruntime.Event), schedulerCtx: context.Background(), store: store, runtime: runtime, ready: ready, publicURL: strings.TrimRight(publicURL, "/"), configuredLimits: configuredLimits, attachmentLimits: attachmentLimits, limits: configuredLimits}
+	s := &Server{pendingTests: make(map[string]chan agentruntime.Event), schedulerCtx: context.Background(), store: store, runtime: runtime, ready: ready, publicURL: strings.TrimRight(publicURL, "/"), configuredLimits: configuredLimits, attachmentLimits: attachmentLimits, knowledgeLimits: knowledgeLimits, limits: configuredLimits}
 	s.advancedToolsDisabled = advancedToolsDisabledConfig(options)
 	s.channelConnections.values = make(map[string]channelConnection)
 	s.channelTests = make(map[string]bool)
@@ -101,7 +106,7 @@ func New(store *Store, runtime Runtime, ready func() bool, publicURL string, opt
 		return nil, err
 	}
 	s.limits = limits
-	core, err := knowledge.New(store.db, store.directory)
+	core, err := knowledge.New(store.db, store.directory, knowledgeLimits)
 	if err != nil {
 		return nil, err
 	}
@@ -260,6 +265,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/knowledge/bases/{id}/documents", s.authorize(http.HandlerFunc(s.uploadDocument)))
 	mux.Handle("PUT /api/knowledge/bases/{id}/documents/{document}", s.authorize(http.HandlerFunc(s.uploadDocument)))
 	mux.Handle("DELETE /api/knowledge/documents/{document}", s.authorize(http.HandlerFunc(s.deleteDocument)))
+	mux.Handle("POST /api/knowledge/documents/batch-delete", s.authorize(http.HandlerFunc(s.batchDeleteDocuments)))
 	mux.Handle("POST /api/knowledge/documents/{document}/retry", s.authorize(http.HandlerFunc(s.retryDocument)))
 	mux.Handle("POST /api/knowledge/search", s.authorize(http.HandlerFunc(s.searchKnowledge)))
 	mux.Handle("GET /api/knowledge/bases/{id}/eval/questions", s.authorize(http.HandlerFunc(s.listEvalQuestions)))

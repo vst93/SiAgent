@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"os"
 	"regexp"
@@ -468,13 +469,13 @@ func docxHeadingLevel(style string) (int, bool) {
 // chunkBlocks turns structured blocks into indexable chunks. A chunk never
 // crosses a heading boundary; tables stay whole; long sections split into
 // children that keep a pointer to their section's first chunk.
-func chunkBlocks(documentID string, version int, blocks []block) ([]chunk, int, error) {
+func chunkBlocks(documentID string, version int, blocks []block, limits Limits) ([]chunk, int, error) {
 	chunks := []chunk{}
 	characters := 0
 	for _, b := range blocks {
 		characters += utf8.RuneCountInString(b.Text)
-		if characters > MaxCharacters {
-			return nil, 0, invalid("提取文本超过 100 万字符。")
+		if characters > limits.MaxCharacters {
+			return nil, 0, invalid(fmt.Sprintf("提取文本超过 %d 字符上限。", limits.MaxCharacters))
 		}
 	}
 	pending := []block{}
@@ -494,8 +495,8 @@ func chunkBlocks(documentID string, version int, blocks []block) ([]chunk, int, 
 			parts = splitRunes(runes)
 		}
 		for index, part := range parts {
-			if len(chunks) >= MaxChunks {
-				return invalid("文档超过 5000 个片段，请合并过短段落或拆分文档后重试。")
+			if len(chunks) >= limits.MaxChunks {
+				return invalid(fmt.Sprintf("文档超过 %d 个片段，请合并过短段落或拆分文档后重试。", limits.MaxChunks))
 			}
 			position := len(chunks)
 			parent := ""
@@ -611,8 +612,8 @@ func (c *Core) parseDocument(ctx context.Context, path, kind string) ([]page, []
 		if err != nil {
 			return nil, nil, invalid("解析扩展未能处理该文件，请检查扩展状态后重试。")
 		}
-		if utf8.RuneCountInString(text) > MaxCharacters {
-			return nil, nil, invalid("提取文本超过 100 万字符，请拆分文档。")
+		if utf8.RuneCountInString(text) > c.limits.MaxCharacters {
+			return nil, nil, invalid(fmt.Sprintf("提取文本超过 %d 字符上限，请拆分文档。", c.limits.MaxCharacters))
 		}
 		blocks := blocksFromPlainText(text, 1, 0)
 		assignSections(blocks)
@@ -630,7 +631,7 @@ func (c *Core) parseDocument(ctx context.Context, path, kind string) ([]page, []
 		assignSections(blocks)
 		return []page{{Text: text}}, blocks, nil
 	}
-	pages, err := parse(ctx, path, kind)
+	pages, err := parse(ctx, path, kind, c.limits)
 	if err != nil {
 		return nil, nil, err
 	}

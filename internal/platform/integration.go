@@ -666,7 +666,7 @@ func (s *Server) v1UploadDocument(w http.ResponseWriter, r *http.Request, p prin
 		fail(w, 403, "密钥无权访问该知识库。")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, knowledge.MaxUpload+(1<<20))
+	r.Body = http.MaxBytesReader(w, r.Body, s.knowledgeLimits.MaxUploadBytes+(1<<20))
 	reader, err := r.MultipartReader()
 	if err != nil {
 		fail(w, 400, "请使用 multipart 上传，字段名为 file。")
@@ -683,8 +683,8 @@ func (s *Server) v1UploadDocument(w http.ResponseWriter, r *http.Request, p prin
 		return
 	}
 	defer part.Close()
-	if !s.uploadExtensionSupported(part.FileName()) {
-		fail(w, 400, "该文件格式需要先安装并启用解析扩展。")
+	if !s.uploadExtensionAllowed(part.FileName()) {
+		fail(w, 400, s.uploadExtensionMessage(part.FileName()))
 		return
 	}
 	documentID := ""
@@ -695,7 +695,7 @@ func (s *Server) v1UploadDocument(w http.ResponseWriter, r *http.Request, p prin
 	if err != nil {
 		var maxBytes *http.MaxBytesError
 		if errors.As(err, &maxBytes) {
-			fail(w, 413, "文件超过 20 MiB 上限。")
+			fail(w, 413, "文件超过 "+knowledge.HumanSize(s.knowledgeLimits.MaxUploadBytes)+" 上限。")
 			return
 		}
 		knowledgeError(w, err)

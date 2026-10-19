@@ -9,7 +9,7 @@ import (
 
 func TestSentenceChunksKeepCoverageAndSourceCoordinates(t *testing.T) {
 	text := strings.Repeat("甲", 450) + "。" + strings.Repeat("乙", 450) + "。" + strings.Repeat("丙", 900)
-	chunks, characters, err := split(context.Background(), "doc", 2, []page{{Number: 3, Text: text}})
+	chunks, characters, err := split(context.Background(), "doc", 2, []page{{Number: 3, Text: text}}, DefaultLimits())
 	runes := []rune(text)
 	covered := make([]bool, len(runes))
 	if err != nil || characters != len(runes) || len(chunks) < 3 {
@@ -36,7 +36,7 @@ func TestSentenceChunksKeepCoverageAndSourceCoordinates(t *testing.T) {
 		}
 	}
 	english := strings.Repeat("A sentence with complete words and a price of 3.14. ", 30)
-	chunks, _, err = split(context.Background(), "english", 1, []page{{Text: english}})
+	chunks, _, err = split(context.Background(), "english", 1, []page{{Text: english}}, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestSentenceChunksKeepCoverageAndSourceCoordinates(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, err := split(ctx, "cancelled", 1, []page{{Text: text}}); err == nil {
+	if _, _, err := split(ctx, "cancelled", 1, []page{{Text: text}}, DefaultLimits()); err == nil {
 		t.Fatal("cancellation ignored")
 	}
 }
