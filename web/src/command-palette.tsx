@@ -43,6 +43,18 @@ export function CommandPalette({
   }, [query]);
 
   useEffect(() => {
+    if (!open) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
+  useEffect(() => {
     listRef.current
       ?.querySelector('[aria-selected="true"]')
       ?.scrollIntoView({ block: "nearest" });
@@ -81,11 +93,6 @@ export function CommandPalette({
         aria-label="命令面板"
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onClose();
-            return;
-          }
           if (event.key !== "Tab") return;
           const focusable = Array.from(
             event.currentTarget.querySelectorAll<HTMLElement>(
@@ -126,9 +133,6 @@ export function CommandPalette({
               } else if (event.key === "Enter") {
                 event.preventDefault();
                 choose(visible[active]);
-              } else if (event.key === "Escape") {
-                event.preventDefault();
-                onClose();
               }
             }}
             placeholder="输入页面名称或操作"

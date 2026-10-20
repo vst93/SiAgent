@@ -2066,6 +2066,10 @@ try {
     .locator(".configuration-heading")
     .getByRole("heading", { name: "知识库", exact: true })
     .waitFor();
+  await page.keyboard.press("Control+K");
+  await page.locator(".command-panel").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator(".command-panel").waitFor({ state: "detached" });
   // Theme preference survives a reload and can be switched back.
   await page
     .locator(".mobile-topbar")

@@ -110,6 +110,13 @@ SiAgent 使用 React + CSS 工作区结构，保留青绿色品牌和 `S·` Logo
 - 尊重 `prefers-reduced-motion`。
 - 产品 UI 不使用大面积 spring、视差或滚动动画。
 
+### 毛玻璃
+
+- 只用于有内容透出的浮层表面：命令面板、移动抽屉、行菜单、浮动“回到最新”、吸顶表头、对话框。
+- 使用 `--glass` / `--glass-strong` / `--glass-border` / `--glass-highlight`，配合 `backdrop-filter: blur(12–24px) saturate(1.1–1.2)`。
+- 不支持 `backdrop-filter` 或 `prefers-reduced-transparency: reduce` 时回退到纯色 `--paper`，不能牺牲可读性。
+- 不用于聊天正文、表单背景、大面积内容区或静态侧栏；毛玻璃是功能层的提示，不是装饰。
+
 ## 组件
 
 ### 按钮
@@ -132,6 +139,8 @@ SiAgent 使用 React + CSS 工作区结构，保留青绿色品牌和 `S·` Logo
 
 - 列表行使用底边线或 hover 背景分隔，选中态使用 `--teal-soft` + 左侧 2px 强调线。
 - 对话记录行高 32px；Agent 列表行高约 44px。
+- 长标题使用 `flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap`；需要两行时使用 `-webkit-line-clamp: 2`，并保留 `title`。
+- 对话标题的 flex 子项必须允许收缩，否则长单词或长中文串会顶出历史栏或头部边框。
 - 状态标签使用小号 mono 文字和低饱和背景。
 - loading / empty / error 三种状态都必须存在，不能只做成功态。
 - 空状态包含一句说明、一个主操作或少量建议，不使用大 Logo + eyebrow + 两行说明的模板。

@@ -35,6 +35,10 @@
   --mark-accent: #83e1dc;
   --on-accent: #ffffff;
   --overlay: rgba(10, 20, 16, 0.42);
+  --glass: rgba(251, 252, 250, 0.76);
+  --glass-strong: rgba(251, 252, 250, 0.9);
+  --glass-border: rgba(201, 208, 202, 0.58);
+  --glass-highlight: rgba(255, 255, 255, 0.55);
 
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -79,6 +83,10 @@
   --mark-accent: #83e1dc;
   --on-accent: #06201c;
   --overlay: rgba(0, 0, 0, 0.62);
+  --glass: rgba(18, 21, 19, 0.76);
+  --glass-strong: rgba(18, 21, 19, 0.9);
+  --glass-border: rgba(53, 60, 55, 0.68);
+  --glass-highlight: rgba(255, 255, 255, 0.06);
   --focus-ring: 0 0 0 3px rgba(62, 199, 178, 0.18);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.28);
   --shadow-2: 0 18px 48px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.24);
@@ -383,6 +391,7 @@ textarea {
 }
 .conversation-list {
   overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
   min-height: 0;
 }
@@ -1696,7 +1705,9 @@ summary {
   min-height: var(--toolbar-h);
 }
 .chat-heading {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
 }
 .chat-heading h1 {
   font-size: 15px;
@@ -1748,6 +1759,7 @@ summary {
   grid-area: history;
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--line);
@@ -6999,4 +7011,126 @@ select option:disabled {
   .composer-area {
     padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   }
+}
+
+/* Conversation titles must never widen the history rail or the chat header. */
+.chat-header,
+.chat-heading {
+  min-width: 0;
+  overflow: hidden;
+}
+.chat-heading h1,
+.chat-subtitle {
+  max-width: 100%;
+  min-width: 0;
+}
+.conversation {
+  min-width: 0;
+  overflow: hidden;
+}
+.conversation > span:nth-child(2) {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation .chat-glyph,
+.conversation .channel-tag {
+  flex: 0 0 auto;
+}
+
+/* Calm glass: only on floating controls and surfaces with content behind them. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mobile-topbar {
+    background: var(--glass);
+    border-bottom-color: var(--glass-border);
+    backdrop-filter: blur(18px) saturate(1.15);
+    -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  }
+  .mobile-menu {
+    background: var(--glass-strong);
+    border-left-color: var(--glass-border);
+    backdrop-filter: blur(24px) saturate(1.2);
+    -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  }
+  .command-panel {
+    background: var(--glass-strong);
+    border-color: var(--glass-border);
+    box-shadow:
+      inset 0 1px 0 var(--glass-highlight),
+      var(--shadow-2);
+    backdrop-filter: blur(24px) saturate(1.2);
+    -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  }
+  .command-backdrop {
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+  }
+  .row-menu {
+    background: var(--glass-strong);
+    border-color: var(--glass-border);
+    backdrop-filter: blur(18px) saturate(1.15);
+    -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  }
+  .kb-table-heading {
+    background: var(--glass);
+    backdrop-filter: blur(12px) saturate(1.1);
+    -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  }
+  .jump-to-latest {
+    background: var(--glass);
+    border-color: var(--glass-border);
+    backdrop-filter: blur(14px) saturate(1.15);
+    -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  }
+  .kb-dialog,
+  .confirmation-dialog {
+    background: var(--glass-strong);
+    border-color: var(--glass-border);
+    box-shadow:
+      inset 0 1px 0 var(--glass-highlight),
+      var(--shadow-2);
+    backdrop-filter: blur(24px) saturate(1.2);
+    -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  }
+  .kb-dialog::backdrop,
+  .confirmation-dialog::backdrop {
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .mobile-topbar,
+  .mobile-menu,
+  .command-panel,
+  .row-menu,
+  .kb-table-heading,
+  .jump-to-latest,
+  .kb-dialog,
+  .confirmation-dialog {
+    background: var(--paper);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .command-backdrop,
+  .kb-dialog::backdrop,
+  .confirmation-dialog::backdrop {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* Long words inside rendered answers follow the same border as the message. */
+.message-markdown h1,
+.message-markdown h2,
+.message-markdown h3,
+.message-markdown h4,
+.message-markdown h5,
+.message-markdown h6,
+.message-markdown li,
+.message-markdown blockquote,
+.message-markdown th,
+.message-markdown td {
+  overflow-wrap: anywhere;
 }
