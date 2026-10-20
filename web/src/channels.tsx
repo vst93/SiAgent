@@ -596,42 +596,61 @@ export function ChannelsWorkspace({
               )}
             </p>
             <section className="channel-records">
-              <h3>最近入站消息</h3>
+              <header className="channel-records-head">
+                <h3>最近入站消息</h3>
+                {!!diagnostics.inbox.length && (
+                  <span className="muted">
+                    显示最近 {diagnostics.inbox.length} 条
+                  </span>
+                )}
+              </header>
               {!diagnostics.inbox.length ? (
                 <p className="muted">
                   暂无消息。启用渠道后，从聊天平台发送文字测试。
                 </p>
               ) : (
-                diagnostics.inbox.map((item) => (
-                  <article key={item.id}>
-                    <header>
-                      <span>{labels[item.state] ?? item.state}</span>
-                      <time>{new Date(item.created).toLocaleString()}</time>
-                    </header>
-                    <p>{item.preview}</p>
-                    {item.error && <small>{item.error}</small>}
-                    {item.conversation_id && (
-                      <button
-                        onClick={() =>
-                          void onConversation(item.conversation_id).catch(
-                            (error) => setError(note(error)),
-                          )
-                        }
-                      >
-                        查看会话
-                      </button>
-                    )}
-                  </article>
-                ))
+                // Bounded scroll keeps the page short; the newest message stays
+                // visible first because the API returns newest first.
+                <ol className="channel-record-list channel-record-inbox">
+                  {diagnostics.inbox.map((item) => (
+                    <li key={item.id}>
+                      <header>
+                        <span>{labels[item.state] ?? item.state}</span>
+                        <time>{new Date(item.created).toLocaleString()}</time>
+                      </header>
+                      <p title={item.preview}>{item.preview}</p>
+                      {item.error && <small>{item.error}</small>}
+                      {item.conversation_id && (
+                        <button
+                          onClick={() =>
+                            void onConversation(item.conversation_id).catch(
+                              (error) => setError(note(error)),
+                            )
+                          }
+                        >
+                          查看会话
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ol>
               )}
             </section>
             <section className="channel-records">
-              <h3>最近发送记录</h3>
+              <header className="channel-records-head">
+                <h3>最近发送记录</h3>
+                {!!diagnostics.outbox.length && (
+                  <span className="muted">
+                    显示最近 {diagnostics.outbox.length} 条
+                  </span>
+                )}
+              </header>
               {!diagnostics.outbox.length ? (
                 <p className="muted">暂无发送记录。</p>
               ) : (
-                diagnostics.outbox.map((item) => (
-                  <article key={item.id}>
+                <ol className="channel-record-list">
+                  {diagnostics.outbox.map((item) => (
+                  <li key={item.id}>
                     <header>
                       <span>{labels[item.state] ?? item.state}</span>
                       <small>
@@ -666,8 +685,9 @@ export function ChannelsWorkspace({
                         重试已拒绝的发送
                       </button>
                     )}
-                  </article>
-                ))
+                  </li>
+                  ))}
+                </ol>
               )}
             </section>
           </div>

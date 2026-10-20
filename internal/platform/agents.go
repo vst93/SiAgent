@@ -10,6 +10,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Agent struct {
@@ -350,6 +353,104 @@ func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 	a.AdvancedToolsAvailable = !s.advancedToolsDisabled
 	respond(w, status, a)
 }
+
+// confirmPassword re-verifies the administrator password and opens a bounded
+// window for reading sensitive values. The session cookie alone is not enough:
+// an unattended browser must not expose stored secrets.
+func (s *Server) confirmPassword(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Password string `json:"password"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	s.mu.Lock()
+	if time.Since(s.loginWindow) > 15*time.Minute {
+		s.loginFailures = 0
+		s.loginWindow = time.Now()
+	}
+	if s.loginFailures >= 10 {
+		s.mu.Unlock()
+		w.Header().Set("Retry-After", "900")
+		fail(w, 429, "密码错误次数过多，请在 15 分钟后重试。")
+		return
+	}
+	var hash []byte
+	err := s.store.db.QueryRow("SELECT password_hash FROM admin WHERE id=1").Scan(&hash)
+	s.mu.Unlock()
+	if err != nil {
+		internal(w)
+		return
+	}
+	if len(input.Password) > 72 || bcrypt.CompareHashAndPassword(hash, []byte(input.Password)) != nil {
+		s.mu.Lock()
+		s.loginFailures++
+		s.mu.Unlock()
+		// 400, not 401: the browser treats 401 as an expired login and signs out.
+		fail(w, 400, "密码不正确，无法查看已保存的敏感值。")
+		return
+	}
+	s.mu.Lock()
+	s.loginFailures = 0
+	s.mu.Unlock()
+	cookie, err := r.Cookie("siagent_session")
+	if err != nil {
+		fail(w, 401, "请先登录管理员账户。")
+		return
+	}
+	until := time.Now().Add(revealWindow).Unix()
+	if _, err := s.store.db.Exec("UPDATE sessions SET reveal_until=? WHERE token_hash=?", until, hashToken(cookie.Value)); err != nil {
+		internal(w)
+		return
+	}
+	s.audit("sensitive.reveal.open", "session", "")
+	respond(w, 200, map[string]any{"reveal_until": until, "seconds": int(revealWindow.Seconds())})
+}
+
+// sensitiveRevealOpen reports whether the current session may read stored
+// sensitive values, and when that window closes.
+func (s *Server) sensitiveRevealOpen(r *http.Request) (int64, bool) {
+	cookie, err := r.Cookie("siagent_session")
+	if err != nil {
+		return 0, false
+	}
+	var until int64
+	if err := s.store.db.QueryRow("SELECT reveal_until FROM sessions WHERE token_hash=? AND expires>?", hashToken(cookie.Value), time.Now().Unix()).Scan(&until); err != nil {
+		return 0, false
+	}
+	if until <= time.Now().Unix() {
+		return 0, false
+	}
+	return until, true
+}
+
+// revealAgentEnvironment returns the Agent's stored variable values. It is a
+// separate, audited endpoint so editing the Agent never returns secrets, and it
+// requires the short reveal window opened by confirmPassword.
+func (s *Server) revealAgentEnvironment(w http.ResponseWriter, r *http.Request) {
+	until, open := s.sensitiveRevealOpen(r)
+	if !open {
+		fail(w, 403, "查看已保存的敏感值需要重新验证管理员密码，且仅在 5 分钟内有效。")
+		return
+	}
+	a, err := s.agentByID(agentPath(r))
+	if err == sql.ErrNoRows {
+		fail(w, 404, "助手不存在。")
+		return
+	}
+	if err != nil {
+		internal(w)
+		return
+	}
+	environment, err := s.store.agentEnvironment(a.ID)
+	if err != nil {
+		internal(w)
+		return
+	}
+	s.audit("agent.environment.reveal", a.ID, strings.Join(envKeysFor(environment), ","))
+	respond(w, 200, map[string]any{"env": environment, "reveal_until": until})
+}
+
 func (s *Server) archiveAgent(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

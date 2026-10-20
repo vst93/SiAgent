@@ -526,6 +526,18 @@ try {
       .count(),
     0,
   );
+  // A never-checked instance must not show a stale "latest version" beside the
+  // current one; only an available update reveals it.
+  const fresh = await page.evaluate(() =>
+    fetch("/api/updates").then((response) => response.json()),
+  );
+  if (!fresh.available) {
+    assert.equal(
+      await page.getByText("最新版本", { exact: true }).count(),
+      0,
+      "latest version must stay hidden before a check finds an update",
+    );
+  }
   // Knowledge upload limits live on this page and apply without a restart.
   await page.getByRole("heading", { name: "知识库上传限制", exact: true }).waitFor();
   const fileLimit = page.getByLabel("单文件上限（MiB）", { exact: true });
@@ -630,7 +642,16 @@ try {
     await page.getByLabel("上下文保守上限（字节）", { exact: true }).count(),
     0,
   );
-  await page.getByLabel("单次运行时限（秒）").fill("60");
+  // Each limit states its unit and what it bounds.
+  assert.match(
+    await page.locator(".limits-grid > label").first().innerText(),
+    /同时执行的任务数（个任务）/,
+  );
+  assert.match(
+    await page.locator(".limits-grid > label").first().innerText(),
+    /每个任务都占用内存与模型并发额度/,
+  );
+  await page.getByLabel("单次运行时限", { exact: true }).fill("60");
   await page.getByRole("button", { name: "保存运行限制" }).click();
   await page.getByText("限制已保存。", { exact: false }).waitFor();
   assert.equal(
@@ -1369,6 +1390,44 @@ try {
   await page.getByText("排队中", { exact: true }).waitFor();
   await page.getByRole("button", { name: "取消排队", exact: true }).click();
   await page.getByText("已取消", { exact: true }).waitFor();
+  // Collapsed rail: the four footer actions stack in a single centered column
+  // with distinct rows, instead of a cramped two-by-two block.
+  await page.locator(".rail-collapse").click();
+  await page.waitForTimeout(300);
+  const railActions = await page.evaluate(() => {
+    const actions = document.querySelector(".rail-actions");
+    if (!actions) return null;
+    const items = [...actions.children].map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+    });
+    return { items, display: getComputedStyle(actions).display };
+  });
+  assert(railActions && railActions.items.length >= 4, "rail actions missing");
+  assert.equal(
+    new Set(railActions.items.map((item) => item.x)).size,
+    1,
+    "collapsed rail actions must share one column",
+  );
+  assert.equal(
+    new Set(railActions.items.map((item) => item.y)).size,
+    railActions.items.length,
+    "collapsed rail actions must not share a row",
+  );
+  assert(
+    railActions.items.every((item) => item.width >= 24 && item.height >= 24),
+    "collapsed rail targets are too small",
+  );
+  await page.screenshot({
+    path: join(artifacts, "rail-collapsed-desktop.png"),
+  });
+  await page.locator(".rail-collapse").click();
+  await page.waitForTimeout(200);
   await config("模型连接");
   releaseHold();
   await chat();
@@ -1380,6 +1439,35 @@ try {
   assert.equal(
     modelInputs.filter((value) => value === "browser hold").length,
     1,
+  );
+  // The vision checkbox sits inside its own labelled section, and its box is
+  // vertically centered with the text on one line.
+  await config("模型连接");
+  const visionGeometry = await page.evaluate(() => {
+    const label = [...document.querySelectorAll("label")].find((item) =>
+      item.textContent.includes("支持图片输入"),
+    );
+    if (!label) return null;
+    const box = label.querySelector("input").getBoundingClientRect();
+    const text = label.getBoundingClientRect();
+    const section = label.closest(".model-form-section");
+    return {
+      inSection: Boolean(section),
+      sameRow:
+        Math.abs(box.y + box.height / 2 - (text.y + box.height / 2)) <= 3,
+      aligned: getComputedStyle(label).alignItems,
+    };
+  });
+  assert(visionGeometry, "vision checkbox missing");
+  assert(visionGeometry.inSection, "vision checkbox must sit in its own section");
+  assert(
+    visionGeometry.sameRow,
+    "vision checkbox must be centered with its label text",
+  );
+  assert.notEqual(
+    visionGeometry.aligned,
+    "flex-start",
+    "single-line checkboxes must not be top aligned",
   );
   await config("渠道接入");
   await page.getByRole("button", { name: "新增渠道", exact: false }).click();
@@ -1397,6 +1485,23 @@ try {
     .getByLabel("机器人 Secret", { exact: true })
     .fill("browser-bot-private");
   await page.getByRole("button", { name: "保存渠道配置", exact: true }).click();
+  await page.waitForTimeout(400);
+  // Diagnostic lists are bounded panes: the rule applies whether or not the
+  // fixture has messages, so check the computed style of an injected row.
+  const recordPane = await page.evaluate(() => {
+    const probe = document.createElement("ol");
+    probe.className = "channel-record-list";
+    const item = document.createElement("li");
+    item.textContent = "probe";
+    probe.append(item);
+    document.querySelector(".channel-detail")?.append(probe);
+    const style = getComputedStyle(probe);
+    const result = { maxHeight: style.maxHeight, overflow: style.overflowY };
+    probe.remove();
+    return result;
+  });
+  assert.notEqual(recordPane.maxHeight, "none", "channel lists must be height-bounded");
+  assert.equal(recordPane.overflow, "auto", "channel lists must scroll internally");
   await page
     .getByRole("heading", { name: "Browser bot", exact: true })
     .waitFor();
@@ -1824,12 +1929,47 @@ try {
     fetch("/api/agents").then((response) => response.json()),
   );
   financePolicy = envAgents.find((agent) => agent.name === "财务助手");
+  const agentId = financePolicy.id;
   assert.deepEqual(financePolicy.env_keys, ["API_TOKEN"]);
   assert(!JSON.stringify(envAgents).includes("browser-private-token"));
   assert(
     await page
       .getByLabel("API_TOKEN 的值", { exact: true })
       .evaluate((input) => input.value === ""),
+  );
+  // Stored values need a password confirmation and are only shown inside the
+  // short reveal window.
+  assert.equal(
+    await page.evaluate(
+      (id) =>
+        fetch(`/api/agents/${id}/environment`).then(
+          (response) => response.status,
+        ),
+      agentId,
+    ),
+    403,
+  );
+  const revealTrigger = page.getByRole("button", {
+    name: "验证后查看已保存的值",
+    exact: true,
+  });
+  await revealTrigger.waitFor();
+  await revealTrigger.click();
+  await page.getByLabel("管理员密码", { exact: true }).fill("wrong-password");
+  await page.getByRole("button", { name: "验证并查看", exact: true }).click();
+  // A wrong password must not sign the administrator out (that is reserved for
+  // an expired session) and must keep the editor usable.
+  await page.getByText("密码不正确", { exact: false }).waitFor();
+  await page.getByLabel("管理员密码", { exact: true }).fill("browser-long-test-password");
+  await page.getByRole("button", { name: "验证并查看", exact: true }).click();
+  await page.getByText("已临时解锁", { exact: false }).waitFor();
+  assert(
+    await page
+      .getByLabel("API_TOKEN 的值", { exact: true })
+      .evaluate(
+        (input) => input.value === "browser-private-token" && input.type === "text",
+      ),
+    "the revealed value must be shown in plain text",
   );
   // Restoring the balanced preset returns the channel defaults, including the
   // immediate acknowledgement and streamed drafts.

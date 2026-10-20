@@ -123,11 +123,14 @@ func (s *Store) migrate() error {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 26 {
-		return fmt.Errorf("platform database schema %d is newer than supported schema 26", version)
+	if version > 27 {
+		return fmt.Errorf("platform database schema %d is newer than supported schema 27", version)
+	}
+	if version == 27 {
+		return nil
 	}
 	if version == 26 {
-		return nil
+		return s.migrateSensitiveReveal()
 	}
 	if version == 25 {
 		return s.migrateAgentEnvironment()

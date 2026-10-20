@@ -245,25 +245,63 @@ type Limits = {
   tool_timeout_seconds: number;
   tool_rounds: number;
 };
-const fields: { key: keyof Limits; label: string; min: number; max: number }[] =
-  [
-    { key: "concurrent", label: "同时执行的任务数", min: 1, max: 8 },
-    { key: "conversation_queue", label: "每个会话最多等待", min: 1, max: 1000 },
-    { key: "global_queue", label: "实例最多等待", min: 1, max: 10000 },
-    {
-      key: "run_timeout_seconds",
-      label: "单次运行时限（秒）",
-      min: 1,
-      max: 3600,
-    },
-    {
-      key: "tool_timeout_seconds",
-      label: "单次工具时限（秒）",
-      min: 1,
-      max: 600,
-    },
-    { key: "tool_rounds", label: "最多工具调用轮数", min: 1, max: 100 },
-  ];
+const fields: {
+  key: keyof Limits;
+  label: string;
+  min: number;
+  max: number;
+  unit: string;
+  help: string;
+}[] = [
+  {
+    key: "concurrent",
+    label: "同时执行的任务数",
+    min: 1,
+    max: 32,
+    unit: "个任务",
+    help: "一个任务指一次用户提问及其后的回答和工具调用。调大能同时服务更多人，但每个任务都占用内存与模型并发额度；超过 Runtime 上限（32）不再接受新任务。",
+  },
+  {
+    key: "conversation_queue",
+    label: "每个会话最多等待",
+    min: 1,
+    max: 1000,
+    unit: "个任务",
+    help: "同一会话内按先进先出执行，等待数超过此值后拒绝新消息，避免单个会话占满队列。",
+  },
+  {
+    key: "global_queue",
+    label: "整个实例最多等待",
+    min: 1,
+    max: 10000,
+    unit: "个任务",
+    help: "所有会话合计的等待上限，不能小于每个会话的等待上限。达到后 Web 与渠道都会提示队列已满。",
+  },
+  {
+    key: "run_timeout_seconds",
+    label: "单次运行时限",
+    min: 1,
+    max: 3600,
+    unit: "秒（1–3600，即最长 1 小时）",
+    help: "一次任务从开始执行到结束的总时限，包含排队之后的模型与工具耗时。超时后确认停止，不自动重试，已产生的内容保留。",
+  },
+  {
+    key: "tool_timeout_seconds",
+    label: "单次工具时限",
+    min: 1,
+    max: 600,
+    unit: "秒（1–600，即最长 10 分钟）",
+    help: "单次 Skill、MCP 或本地命令调用的时限。超时会停止后续调用并标记结果不明，需要人工核对外部系统。",
+  },
+  {
+    key: "tool_rounds",
+    label: "最多工具调用轮数",
+    min: 1,
+    max: 100,
+    unit: "轮",
+    help: "一次任务中模型连续调用工具的轮数上限。一轮指模型发起一批工具调用并收到结果；达到上限后停止继续调用。",
+  },
+];
 const message = (error: unknown) =>
   error instanceof Error ? error.message : "无法连接服务，请稍后重试。";
 
@@ -441,13 +479,14 @@ function RunLimitsSettings({ request }: { request: Api }) {
             <div className="limits-grid">
               {fields.map((field) => (
                 <label key={field.key}>
-                  {field.label}
+                  {field.label}（{field.unit}）
                   <input
                     type="number"
                     min={field.min}
                     max={field.max}
                     step={1}
                     required
+                    aria-label={field.label}
                     value={limits[field.key]}
                     onChange={(event) =>
                       setLimits({
@@ -456,11 +495,13 @@ function RunLimitsSettings({ request }: { request: Api }) {
                       })
                     }
                   />
+                  <small>{field.help}</small>
                 </label>
               ))}
             </div>
             <p className="field-note">
-              总等待数不能小于单个会话的等待数。上下文策略在 Agent 中配置，窗口与最大输出由模型连接决定。
+              并发与队列立即生效，时限和工具轮数用于新提交的任务。总等待数不能小于单个会话的等待数；上下文策略在 Agent
+              中配置，窗口与最大输出由模型连接决定。
             </p>
             <div className="form-actions">
               <button className="primary" disabled={pending}>

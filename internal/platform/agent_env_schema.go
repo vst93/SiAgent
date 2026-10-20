@@ -25,5 +25,8 @@ func (s *Store) migrateAgentEnvironment() error {
 	if _, err := tx.Exec("PRAGMA user_version=26;"); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateSensitiveReveal()
 }

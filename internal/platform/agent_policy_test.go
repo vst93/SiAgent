@@ -338,7 +338,7 @@ func TestVersionNinePolicyMigrationPreservesHistoryAndDefaults(t *testing.T) {
 	}
 	var version int
 	upgraded.db.QueryRow("PRAGMA user_version").Scan(&version)
-	if version != 26 {
+	if version != 27 {
 		t.Fatal("migration version", version)
 	}
 }

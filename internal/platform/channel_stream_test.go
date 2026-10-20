@@ -233,6 +233,54 @@ func TestAgentEnvironmentIsEncryptedFrozenAndDelivered(t *testing.T) {
 	}
 }
 
+func TestAgentEnvironmentRevealNeedsPasswordAndExpires(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	f.model(t, "fixture", "model-secret")
+	a, err := f.server.agent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, f.request(t, "PUT", "/api/agents/default", map[string]any{
+		"name": a.Name, "instructions": a.Instructions, "enabled": a.Enabled, "model_id": a.ModelID,
+		"env": map[string]string{"API_TOKEN": "reveal-private-value"},
+	}, true, nil), 200)
+	// A session alone is not enough: editing never returns values, and reading
+	// them requires a fresh password confirmation.
+	requireStatus(t, f.request(t, "GET", "/api/agents/default/environment", nil, true, nil), 403)
+	// A wrong password must not look like an expired session, or the browser
+	// would sign the administrator out.
+	requireStatus(t, f.request(t, "POST", "/api/auth/confirm", map[string]string{"password": "wrong-password"}, true, nil), 400)
+	requireStatus(t, f.request(t, "POST", "/api/auth/confirm", map[string]string{"password": "a-long-test-password"}, true, nil), 200)
+	response := f.request(t, "GET", "/api/agents/default/environment", nil, true, nil)
+	requireStatus(t, response, 200)
+	var revealed struct {
+		Env         map[string]string `json:"env"`
+		RevealUntil int64             `json:"reveal_until"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &revealed); err != nil {
+		t.Fatal(err)
+	}
+	if revealed.Env["API_TOKEN"] != "reveal-private-value" {
+		t.Fatalf("reveal returned nothing: %#v", revealed.Env)
+	}
+	if revealed.RevealUntil <= time.Now().Unix() || revealed.RevealUntil > time.Now().Add(revealWindow+time.Minute).Unix() {
+		t.Fatalf("reveal window is not bounded: %d", revealed.RevealUntil)
+	}
+	// Expiry is enforced server-side, not by the page hiding the button.
+	if _, err := f.store.db.Exec("UPDATE sessions SET reveal_until=?", time.Now().Add(-time.Second).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, f.request(t, "GET", "/api/agents/default/environment", nil, true, nil), 403)
+	var audits int
+	if err := f.store.db.QueryRow("SELECT count(*) FROM audit_log WHERE action IN ('sensitive.reveal.open','agent.environment.reveal')").Scan(&audits); err != nil || audits < 2 {
+		t.Fatalf("reveal was not audited: %d %v", audits, err)
+	}
+	if strings.Contains(f.request(t, "GET", "/api/agents", nil, true, nil).Body.String(), "reveal-private-value") {
+		t.Fatal("the Agent list leaked a stored value")
+	}
+}
+
 func TestAgentEnvironmentNeverLeaksToAnotherAgent(t *testing.T) {
 	f := newFixture(t)
 	f.setup(t)

@@ -846,7 +846,7 @@ async function dispatch(req: Request) {
     )
       throw new Error("invalid_run");
     if (
-      active.size >= 8 ||
+      active.size >= 32 ||
       [...active.values()].some((s) => s.conversationID === req.conversation_id)
     )
       throw new Error("busy");

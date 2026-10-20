@@ -70,12 +70,13 @@ export function LinkedAgents({
               </span>
               <button
                 type="button"
+                className="linked-agent-unlink"
                 disabled={pending === agent.id}
                 onClick={() => void unlink(agent)}
                 aria-label={`取消 ${agent.name} 的关联`}
+                title="取消关联"
               >
                 <Icon name="close" size={14} />
-                取消关联
               </button>
             </li>
           ))}

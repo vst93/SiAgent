@@ -892,7 +892,13 @@ summary {
 .limits-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0 18px;
+  gap: 4px 18px;
+}
+.limits-grid > label small {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--muted);
 }
 .context-warning {
   max-width: 780px;
@@ -942,17 +948,34 @@ summary {
 }
 .checkbox-label {
   display: flex !important;
-  align-items: flex-start;
-  gap: 10px;
+  align-items: center;
+  gap: 9px;
   font-size: 13px;
   line-height: 1.6;
 }
 .checkbox-label input[type="checkbox"] {
+  flex: 0 0 auto;
   width: 16px;
   min-width: 16px;
   height: 16px;
-  margin: 3px 0 0;
+  margin: 0;
   accent-color: var(--teal);
+}
+/* Multi-line labels keep the box on the first line's baseline instead of
+   floating between the first and second line. */
+.checkbox-label:has(small),
+.checkbox-label.wrap-top {
+  align-items: flex-start;
+}
+.checkbox-label:has(small) input[type="checkbox"],
+.checkbox-label.wrap-top input[type="checkbox"] {
+  margin-top: 0.3em;
+}
+.checkbox-label small {
+  display: block;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--muted);
 }
 .resource-preview {
   max-height: 300px;
@@ -2246,6 +2269,9 @@ summary {
 }
 .model-form-section > .checkbox-label {
   margin-bottom: 16px;
+}
+.model-capability-section > .checkbox-label {
+  margin: 0;
 }
 .model-budget {
   font-size: 11px;
@@ -4137,32 +4163,72 @@ summary {
 .channel-records > p {
   font-size: 11px;
 }
-.channel-records article {
-  padding: 10px 0;
+.channel-records-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.channel-records-head h3 {
+  margin: 0;
+}
+.channel-records-head .muted {
+  margin: 0;
+  font-size: 10.5px;
+}
+/* The records pane scrolls on its own so the channel page keeps a stable
+   height instead of growing with every delivered message. */
+.channel-record-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0 4px 0 0;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.channel-record-inbox {
+  max-height: 300px;
+}
+.channel-record-list > li {
+  padding: 9px 0;
   border-top: 1px solid var(--line);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-.channel-records article:first-of-type {
+.channel-record-list > li:first-child {
   border-top: 0;
 }
-.channel-records article > header {
+.channel-record-list > li > header {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   color: var(--muted);
   font-size: 10px;
 }
-.channel-records article > p {
-  margin: 7px 0;
+.channel-record-list > li > header small {
+  font-size: 10px;
+  color: var(--faint);
+}
+.channel-record-list > li > p {
+  margin: 6px 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   white-space: pre-wrap;
 }
-.channel-records article > small {
+.channel-record-list > li > small {
   font-size: 10px;
 }
-.channel-records article > button {
+.channel-record-list > li > button {
   display: block;
-  margin-top: 8px;
+  margin-top: 7px;
+  padding: 3px 8px;
+  font-size: 11px;
 }
 .channel-editor select {
   width: 100%;
@@ -5254,12 +5320,7 @@ details[open] > summary > .disclosure-icon {
 .channel-controls {
   align-items: center;
 }
-.checkbox-label {
-  align-items: flex-start;
-}
-.checkbox-label input[type="checkbox"] {
-  margin-top: 3px;
-}
+
 .apikey-actions .apikey-revealed {
   display: inline-flex;
   align-items: center;
@@ -5826,6 +5887,30 @@ select option:disabled {
   display: grid;
   gap: 4px;
 }
+.agent-env-reveal {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.agent-env-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+.agent-env-reveal input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.agent-env-reveal button {
+  padding: 4px 9px;
+  font-size: 11px;
+}
+.agent-env-reveal small {
+  font-size: 10.5px;
+}
 .agent-env-item,
 .agent-env-add {
   display: flex;
@@ -6075,18 +6160,22 @@ select option:disabled {
   background: var(--paper);
   font-size: 10px;
 }
-.linked-agents li button {
+.linked-agents li .linked-agent-unlink {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
   padding: 0;
-  font-size: 10px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--faint);
 }
-.linked-agents li button:hover {
+.linked-agents li .linked-agent-unlink:hover:not(:disabled) {
   color: var(--danger);
+  background: var(--surface-raised);
 }
 
 
@@ -7220,6 +7309,45 @@ select option:disabled {
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
 }
+.update-progress {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  max-width: 420px;
+}
+.update-progress-track {
+  position: relative;
+  overflow: hidden;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line);
+}
+.update-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--teal);
+  transition: width 0.3s ease;
+}
+.update-progress-track.indeterminate > span {
+  position: absolute;
+  width: 35%;
+  animation: update-progress-slide 1.2s ease-in-out infinite;
+}
+@keyframes update-progress-slide {
+  from {
+    left: -35%;
+  }
+  to {
+    left: 100%;
+  }
+}
+.update-progress small {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
 .update-version > span {
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -7317,7 +7445,8 @@ select option:disabled {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .update-spinner {
+  .update-spinner,
+  .update-progress-track.indeterminate > span {
     animation: none;
     border-top-color: var(--teal);
     opacity: 0.7;
@@ -7460,23 +7589,40 @@ select option:disabled {
   justify-content: center;
   padding: 2px 0;
 }
+/* Collapsed rail: the footer actions stack in one column so four 28px targets
+   never wrap into a cramped two-by-two block. */
+.app-shell.rail-collapsed .rail-footer {
+  padding-top: 12px;
+  gap: 4px;
+}
 .app-shell.rail-collapsed .rail-actions {
-  display: grid;
-  grid-template-columns: repeat(2, 26px);
-  gap: 2px;
-  justify-content: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
 }
 .app-shell.rail-collapsed .rail-actions .language-toggle {
   margin-left: 0;
-  width: 26px;
-  min-width: 26px;
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
   padding: 0;
+  font-size: 10px;
 }
 .app-shell.rail-collapsed .rail-icon-button,
 .app-shell.rail-collapsed .rail-actions .theme-toggle {
-  width: 26px;
-  height: 26px;
-  min-height: 26px;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  border-radius: 6px;
+}
+.app-shell.rail-collapsed .rail-actions .rail-icon-button,
+.app-shell.rail-collapsed .rail-actions .theme-toggle,
+.app-shell.rail-collapsed .rail-actions .language-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 @media (max-width: 980px) {
   .app-shell.rail-collapsed {

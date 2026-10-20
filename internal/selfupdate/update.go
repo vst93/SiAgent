@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -34,6 +35,11 @@ type Status struct {
 	Message   string `json:"message"`
 	Backup    string `json:"backup,omitempty"`
 	Notes     string `json:"notes,omitempty"`
+	// Downloaded and DownloadTotal describe the release archive transfer.
+	// Total is 0 when the server does not publish a content length, in which
+	// case the UI shows an indeterminate bar.
+	Downloaded    int64 `json:"downloaded,omitempty"`
+	DownloadTotal int64 `json:"download_total,omitempty"`
 }
 type Config struct {
 	Context                           context.Context
@@ -315,8 +321,33 @@ func (m *Manager) Prepare() error {
 		writer := &downloadProgress{}
 		command.Stdout = writer
 		command.Stderr = writer
+		// The installer prints transfer progress on stdout; publish it so the
+		// maintenance page can show a bounded progress bar while it runs.
+		pollDone := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(400 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-pollDone:
+					return
+				case <-ticker.C:
+					current, total := writer.transfer()
+					if current == 0 && total == 0 {
+						continue
+					}
+					m.mu.Lock()
+					if m.status.Phase == "downloading" {
+						m.status.Downloaded = current
+						m.status.DownloadTotal = total
+					}
+					m.mu.Unlock()
+				}
+			}
+		}()
 		err = command.Run()
-		output := writer.tail
+		close(pollDone)
+		output := writer.log()
 		if err != nil {
 			m.failed(fmt.Errorf("下载或校验失败：%s", bounded(output, 3000)))
 			return
@@ -329,6 +360,8 @@ func (m *Manager) Prepare() error {
 		m.mu.Lock()
 		m.work = work
 		m.status.Phase = "ready"
+		m.status.Downloaded = 0
+		m.status.DownloadTotal = 0
 		m.status.Message = "发布包校验通过，等待备份并自动重启。"
 		m.mu.Unlock()
 	}()
@@ -425,11 +458,50 @@ func (m *Manager) StartWorker() error {
 	return nil
 }
 
-type downloadProgress struct{ tail string }
+// downloadProgress keeps the bounded installer log and extracts the release
+// archive transfer from the progress lines the installer prints. The installer
+// writes from an os/exec pipe goroutine while the poller reads, so the buffer
+// is guarded.
+type downloadProgress struct {
+	mu   sync.Mutex
+	tail string
+}
 
 func (w *downloadProgress) Write(value []byte) (int, error) {
+	w.mu.Lock()
 	w.tail = bounded(w.tail+string(value), 3000)
+	w.mu.Unlock()
 	return len(value), nil
+}
+
+// log returns the retained output, used for failure messages.
+func (w *downloadProgress) log() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.tail
+}
+
+// progressLine matches "progress: <downloaded> <total>" printed by the
+// installer while it downloads the release archive.
+var progressLine = regexp.MustCompile(`(?m)^progress: (\d+) (\d+)$`)
+
+func (w *downloadProgress) transfer() (int64, int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	matches := progressLine.FindAllStringSubmatch(w.tail, -1)
+	if len(matches) == 0 {
+		return 0, 0
+	}
+	last := matches[len(matches)-1]
+	current, err := strconv.ParseInt(last[1], 10, 64)
+	if err != nil || current < 0 {
+		return 0, 0
+	}
+	total, err := strconv.ParseInt(last[2], 10, 64)
+	if err != nil || total < 0 {
+		total = 0
+	}
+	return current, total
 }
 
 // BeginUpdate records the user's intent once. Download completion is consumed by

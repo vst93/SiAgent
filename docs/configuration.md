@@ -107,12 +107,14 @@ SiAgent 的系统级配置可以放在操作系统用户 config 目录中，使�
 
 `limits` 是**首次运行/数据库尚无已保存运行限制时的默认值**。管理员在“运行与维护”保存后，SQLite 中的值优先于 JSON；再次修改 JSON 不会覆盖已保存的界面设置。删除数据目录或恢复旧备份时按新数据库的默认路径重新应用。字段范围与界面一致：
 
-- `concurrent`：1–8；
-- `conversation_queue`：1–1000；
-- `global_queue`：不少于 `conversation_queue`，最多 10000；
-- `run_timeout_seconds`：1–3600；
-- `tool_timeout_seconds`：1–600；
-- `tool_rounds`：1–100。
+- `concurrent`：1–32，同时执行的任务数（一个任务是一次用户提问及其后的回答和工具调用）；
+- `conversation_queue`：1–1000，单个会话等待的任务数，先进先出；
+- `global_queue`：不少于 `conversation_queue`，最多 10000，整个实例的等待总数；
+- `run_timeout_seconds`：1–3600 秒，单次任务从开始执行到结束的总时限；
+- `tool_timeout_seconds`：1–600 秒，单次 Skill/MCP/本地命令调用的时限；
+- `tool_rounds`：1–100，一次任务中模型连续调用工具的批次数。
+
+并发上限从 8 提高到 32，与 Runtime 自身的活跃运行上限一致。每个运行占用独立内存并消耗模型并发额度，因此默认仍是 2；调大前应确认模型服务允许的并发、宿主内存与最慢的工具调用时长。
 
 ## 应用顺序
 

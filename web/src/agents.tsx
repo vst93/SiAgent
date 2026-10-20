@@ -81,6 +81,11 @@ export function AgentWorkspace({
   const [envDraft, setEnvDraft] = useState<{ key: string; value: string }[]>([]);
   const [envRemove, setEnvRemove] = useState<string[]>([]);
   const [envNew, setEnvNew] = useState({ key: "", value: "" });
+  const [envRevealed, setEnvRevealed] = useState<Record<string, string>>({});
+  const [envRevealUntil, setEnvRevealUntil] = useState(0);
+  const [envPassword, setEnvPassword] = useState("");
+  const [envRevealPending, setEnvRevealPending] = useState(false);
+  const [envRevealOpen, setEnvRevealOpen] = useState(false);
   const [instructionsPreview, setInstructionsPreview] = useState(false);
   const savedAgent = agents.find((agent) => agent.id === editor.id);
   const advancedNeedsConfirm =
@@ -96,9 +101,34 @@ export function AgentWorkspace({
     setEditor(agent);
     setEnvDraft([]);
     setEnvRemove([]);
+    setEnvRevealed({});
+    setEnvRevealUntil(0);
+    setEnvRevealOpen(false);
+    setEnvPassword("");
     setTab("basic");
     setError("");
     setFeedback("");
+  }
+  // Reading stored values needs a fresh password confirmation; the server owns
+  // the expiry so a stale page cannot keep secrets readable.
+  async function revealEnvironment() {
+    setEnvRevealPending(true);
+    setError("");
+    try {
+      await request("/auth/confirm", "POST", { password: envPassword });
+      const revealed = await request<{
+        env: Record<string, string>;
+        reveal_until: number;
+      }>(`/agents/${editor.id}/environment`);
+      setEnvRevealed(revealed.env ?? {});
+      setEnvRevealUntil(revealed.reveal_until ?? 0);
+      setEnvPassword("");
+      setEnvRevealOpen(false);
+    } catch (failure) {
+      setError(errorText(failure));
+    } finally {
+      setEnvRevealPending(false);
+    }
   }
   async function action(work: () => Promise<void>) {
     setPending(true);
@@ -474,6 +504,68 @@ export function AgentWorkspace({
                       <p className="muted">
                         供 Skills 和本地工作区命令读取的常量或密钥。值加密保存、永不回显；此处留空表示保留原值。
                       </p>
+                      {!!(editor.env_keys ?? []).filter(
+                        (key) => !envRemove.includes(key),
+                      ).length && (
+                        <div className="agent-env-reveal">
+                          {envRevealOpen ? (
+                            // Not a <form>: the editor is already a form, and
+                            // browsers drop a nested one, which would submit the
+                            // Agent instead of confirming the password.
+                            <div className="agent-env-confirm">
+                              <input
+                                type="password"
+                                autoComplete="current-password"
+                                aria-label="管理员密码"
+                                placeholder="输入管理员密码"
+                                value={envPassword}
+                                onChange={(event) =>
+                                  setEnvPassword(event.target.value)
+                                }
+                              />
+                              <button
+                                type="button"
+                                disabled={envRevealPending || !envPassword}
+                                onClick={() => void revealEnvironment()}
+                              >
+                                {envRevealPending ? "正在验证…" : "验证并查看"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEnvRevealOpen(false);
+                                  setEnvPassword("");
+                                }}
+                              >
+                                取消
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEnvRevealOpen(true);
+                                  setError("");
+                                }}
+                              >
+                                验证后查看已保存的值
+                              </button>
+                              {!!envRevealUntil && (
+                                <small className="muted">
+                                  已临时解锁，{Math.max(
+                                    0,
+                                    Math.ceil(
+                                      (envRevealUntil * 1000 - Date.now()) / 1000,
+                                    ),
+                                  )}{" "}
+                                  秒内可查看；再次修改以输入框内容为准。
+                                </small>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
                       <div className="agent-env-list">
                         {(editor.env_keys ?? [])
                           .filter((key) => !envRemove.includes(key))
@@ -485,11 +577,19 @@ export function AgentWorkspace({
                               <div className="agent-env-item" key={key}>
                                 <code>{key}</code>
                                 <input
-                                  type="password"
+                                  type={
+                                    envRevealed[key] === undefined
+                                      ? "password"
+                                      : "text"
+                                  }
                                   autoComplete="new-password"
                                   aria-label={`${key} 的值`}
                                   placeholder="留空保留原值"
-                                  value={draft?.value ?? ""}
+                                  value={
+                                    envRevealed[key] !== undefined
+                                      ? envRevealed[key]
+                                      : (draft?.value ?? "")
+                                  }
                                   onChange={(event) => {
                                     const value = event.target.value;
                                     setEnvDraft((items) =>

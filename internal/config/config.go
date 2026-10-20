@@ -148,7 +148,7 @@ func (f File) Validate() error {
 	}
 	if f.Limits != nil {
 		l := *f.Limits
-		if l.Concurrent < 1 || l.Concurrent > 8 ||
+		if l.Concurrent < 1 || l.Concurrent > 32 ||
 			l.ConversationQueue < 1 || l.ConversationQueue > 1000 ||
 			l.GlobalQueue < l.ConversationQueue || l.GlobalQueue > 10000 ||
 			l.RunTimeout < 1 || l.RunTimeout > 3600 ||

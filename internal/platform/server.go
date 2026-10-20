@@ -244,6 +244,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/agents", s.authorize(http.HandlerFunc(s.listAgents)))
 	mux.Handle("POST /api/agents", s.authorize(http.HandlerFunc(s.saveAgent)))
 	mux.Handle("GET /api/agents/{agent}", s.authorize(http.HandlerFunc(s.getAgent)))
+	mux.Handle("GET /api/agents/{agent}/environment", s.authorize(http.HandlerFunc(s.revealAgentEnvironment)))
+	mux.Handle("POST /api/auth/confirm", s.authorize(http.HandlerFunc(s.confirmPassword)))
 	mux.Handle("PUT /api/agents/{agent}", s.authorize(http.HandlerFunc(s.saveAgent)))
 	mux.Handle("DELETE /api/agents/{agent}", s.authorize(http.HandlerFunc(s.archiveAgent)))
 	mux.Handle("GET /api/agents/{agent}/capabilities", s.authorize(http.HandlerFunc(s.getCapabilities)))
@@ -367,7 +369,8 @@ func (s *Server) issueSession(w http.ResponseWriter) (string, error) {
 	if _, err = tx.Exec("DELETE FROM sessions WHERE expires<=?", time.Now().Unix()); err != nil {
 		return "", err
 	}
-	if _, err = tx.Exec("INSERT INTO sessions VALUES (?,?,?)", hashToken(token), csrf, expires.Unix()); err != nil {
+	// Name the columns: later migrations add columns to this table.
+	if _, err = tx.Exec("INSERT INTO sessions(token_hash,csrf,expires) VALUES (?,?,?)", hashToken(token), csrf, expires.Unix()); err != nil {
 		return "", err
 	}
 	if err = tx.Commit(); err != nil {

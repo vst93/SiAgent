@@ -14,7 +14,11 @@ type UpdateStatus = {
   message: string;
   backup?: string;
   notes?: string;
+  downloaded?: number;
+  download_total?: number;
 };
+const megabytes = (bytes: number) =>
+  `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 const phases: Record<string, string> = {
   idle: "就绪",
   checking: "检查中",
@@ -125,7 +129,7 @@ export function ApplicationUpdates({ request }: { request: Api }) {
             <span>当前版本</span>
             <strong>{status.current}</strong>
           </div>
-          {status.latest && (
+          {status.latest && status.available && (
             <>
               <Icon name="arrow-right" size={14} />
               <div className="update-version">
@@ -135,6 +139,48 @@ export function ApplicationUpdates({ request }: { request: Api }) {
             </>
           )}
         </div>
+        {status.phase === "downloading" && (
+          <div className="update-progress" role="status" aria-live="polite">
+            <div
+              className={`update-progress-track ${
+                status.download_total ? "" : "indeterminate"
+              }`}
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={status.download_total || undefined}
+              aria-valuenow={status.download_total ? status.downloaded : undefined}
+              aria-label="正在下载发布包"
+            >
+              <span
+                style={
+                  status.download_total
+                    ? {
+                        width: `${Math.min(
+                          100,
+                          Math.round(
+                            ((status.downloaded ?? 0) / status.download_total) *
+                              100,
+                          ),
+                        )}%`,
+                      }
+                    : undefined
+                }
+              />
+            </div>
+            <small>
+              {status.download_total
+                ? `${megabytes(status.downloaded ?? 0)} / ${megabytes(
+                    status.download_total,
+                  )}（${Math.min(
+                    100,
+                    Math.round(
+                      ((status.downloaded ?? 0) / status.download_total) * 100,
+                    ),
+                  )}%）`
+                : `${megabytes(status.downloaded ?? 0)} 已下载`}
+            </small>
+          </div>
+        )}
         <div className="update-status-line">
           {busy && (
             <span

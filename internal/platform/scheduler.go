@@ -21,8 +21,14 @@ type Limits struct {
 }
 
 func defaultLimits() Limits { return Limits{2, 10, 100, 300, 60, 10, 0} }
+
+// maxConcurrentRuns bounds how many runs may execute at once. The Runtime hosts
+// each run in its own task, so the ceiling is a memory and provider-rate-limit
+// guard rather than a feature limit; 32 matches the Runtime's own hard cap.
+const maxConcurrentRuns = 32
+
 func (l Limits) valid() bool {
-	return l.Concurrent >= 1 && l.Concurrent <= 8 && l.ConversationQueue >= 1 && l.ConversationQueue <= 1000 && l.GlobalQueue >= l.ConversationQueue && l.GlobalQueue <= 10000 && l.RunTimeout >= 1 && l.RunTimeout <= 3600 && l.ToolTimeout >= 1 && l.ToolTimeout <= 600 && l.ToolRounds >= 1 && l.ToolRounds <= 100
+	return l.Concurrent >= 1 && l.Concurrent <= maxConcurrentRuns && l.ConversationQueue >= 1 && l.ConversationQueue <= 1000 && l.GlobalQueue >= l.ConversationQueue && l.GlobalQueue <= 10000 && l.RunTimeout >= 1 && l.RunTimeout <= 3600 && l.ToolTimeout >= 1 && l.ToolTimeout <= 600 && l.ToolRounds >= 1 && l.ToolRounds <= 100
 }
 func (s *Server) loadLimits() (Limits, error) {
 	l := s.configuredLimits
@@ -58,7 +64,7 @@ func (s *Server) saveLimits(w http.ResponseWriter, r *http.Request) {
 	}
 	l.ContextBytes = 0 // Accept legacy clients, but model Token budgets are authoritative.
 	if !l.valid() {
-		fail(w, 400, "运行限制无效：并发 1–8，会话等待 1–1000，总等待不少于会话等待且不超过 10000；运行 1–3600 秒，工具 1–600 秒，工具轮数 1–100。")
+		fail(w, 400, "运行限制无效：并发 1–32，会话等待 1–1000，总等待不少于会话等待且不超过 10000；运行 1–3600 秒，工具 1–600 秒，工具轮数 1–100。")
 		return
 	}
 	s.mu.Lock()

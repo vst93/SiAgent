@@ -564,20 +564,26 @@ export function ModelsWorkspace({
                 </p>
               )}
             </section>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={o.input?.includes("image") ?? false}
-                onChange={(event) =>
-                  options({
-                    input: event.target.checked
-                      ? ["text", "image"]
-                      : ["text"],
-                  })
-                }
-              />
-              支持图片输入（视觉模型）
-            </label>
+            <div className="model-form-section model-capability-section">
+              <div className="model-section-title">
+                <h3>输入类型</h3>
+                <p>按模型实际能力选择；声明后才能上传对应附件。</p>
+              </div>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={o.input?.includes("image") ?? false}
+                  onChange={(event) =>
+                    options({
+                      input: event.target.checked
+                        ? ["text", "image"]
+                        : ["text"],
+                    })
+                  }
+                />
+                支持图片输入（视觉模型）
+              </label>
+            </div>
             <section className="model-form-section">
               <div className="model-section-title">
                 <h3>上下文与输出</h3>
