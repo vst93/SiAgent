@@ -34,6 +34,7 @@ async function fixture(t) {
     const latest = body.messages.at(-1);
     const last = { ...latest, content: typeof latest.content === 'string' ? latest.content : latest.content.filter(part => part.type === 'text').at(-1)?.text ?? '' };
     if(last?.content === 'think') send({reasoning_content:'A provider reasoning summary.'});
+    if(last?.content === 'think-tags') { send({content:'前言<thi'}); send({content:'nk type="x">隐藏推理</th'}); send({content:'ink>可见回答'}); send({},'stop'); res.end('data: [DONE]\n\n'); return; }
     if (last?.content === 'hang') { send({ content: 'partial' }); return; }
     if (last?.content === 'fail') { res.end('data: invalid-json\n\n'); return; }
     if (last?.content?.startsWith('mcp:')) {
@@ -52,6 +53,10 @@ async function fixture(t) {
       const mode=last.content.slice(6);
       send({ tool_calls: [{ index: 0, id: 'skill-call-'+requests.length, type: 'function', function: { name:'skill_resource', arguments: JSON.stringify({skill_id:mode==='unselected'?'another-skill':'skill',path:mode==='escape'?'../master.key':'reference.md'}) } }] });
       send({},'tool_calls');res.end('data: [DONE]\n\n');return;
+    }
+    if (last?.content === 'bash-env') {
+      send({ tool_calls: [{ index: 0, id: 'bash-call-'+requests.length, type: 'function', function: { name: 'bash', arguments: JSON.stringify({ command: 'printf "token=%s region=%s" "$API_TOKEN" "$REGION"' }) } }] });
+      send({}, 'tool_calls'); res.end('data: [DONE]\n\n'); return;
     }
     if (last?.content === 'bash-tool') {
       send({ tool_calls: [{ index: 0, id: 'bash-call-'+requests.length, type: 'function', function: { name: 'bash', arguments: JSON.stringify({ command: 'printf advanced-ok' }) } }] });
@@ -493,6 +498,46 @@ test('reasoning output is opt-in and provider summaries never mix into the final
   const thoughts=r.events.filter(e=>e.run_id===run&&e.type==='thinking_delta').map(e=>e.data.text).join('');
   assert.equal(thoughts,thinking?'A provider reasoning summary.':'');
  }
+});
+
+test('inline think tags are stripped from answers and published as reasoning when enabled', { timeout: 30000 }, async t => {
+ const f=await fixture(t);const r=f.start();await r.wait(e=>e.type==='ready');
+ const strip={thinking:true,tools:'summary',sources:true,progress:true,think_tags:'strip'};
+ r.send('start',{run_id:'strip',conversation_id:'strip',input:'think-tags',output_policy:strip});
+ const result=await r.wait(terminal('strip'));assert.equal(result.type,'run_completed');
+ assert.equal(result.data.answer,'前言可见回答');
+ const streamed=r.events.filter(e=>e.run_id==='strip'&&e.type==='message_delta').map(e=>e.data.text).join('');
+ assert.equal(streamed,'前言可见回答');
+ assert(!streamed.includes('<thi')&&!streamed.includes('ink>'));
+ const thoughts=r.events.filter(e=>e.run_id==='strip'&&e.type==='thinking_delta').map(e=>e.data.text).join('');
+ assert.equal(thoughts,'隐藏推理');
+ await r.wait(e=>e.run_id==='strip'&&e.type==='run_released');
+ const keep={thinking:false,tools:'summary',sources:true,progress:true,think_tags:'keep'};
+ r.send('start',{run_id:'keep',conversation_id:'keep',input:'think-tags',output_policy:keep});
+ const kept=await r.wait(terminal('keep'));assert.equal(kept.type,'run_completed');
+ assert.equal(kept.data.answer,'前言<think type="x">隐藏推理</think>可见回答');
+ await r.wait(e=>e.run_id==='keep'&&e.type==='run_released');
+ // An inline reasoning trace never becomes reasoning while the switch is off.
+ r.send('start',{run_id:'keep-hidden',conversation_id:'keep-hidden',input:'think-tags',output_policy:{...keep,think_tags:'strip',thinking:false}});
+ assert.equal((await r.wait(terminal('keep-hidden'))).data.answer,'前言可见回答');
+ await r.wait(e=>e.run_id==='keep-hidden'&&e.type==='run_released');
+ assert.equal(r.events.filter(e=>e.run_id==='keep-hidden'&&e.type==='thinking_delta').length,0);
+});
+
+test('agent environment reaches workspace commands, is redacted and never enters the process environment', { timeout: 30000 }, async t => {
+ const f=await fixture(t);const r=f.start();await r.wait(e=>e.type==='ready');
+ const workspace=join(f.directory,'workspaces','default');
+ r.send('start',{run_id:'env',conversation_id:'env',input:'bash-env',advanced_tools:true,workspace,env:{API_TOKEN:'agent-private-token',REGION:'cn-north'}});
+ const result=await r.wait(terminal('env'));assert.equal(result.type,'run_completed');
+ const end=r.events.find(e=>e.run_id==='env'&&e.type==='tool_end');
+ // Every Agent variable is treated as a secret, so none of its values can leak
+ // into tool output, model input or events.
+ assert.equal(end.data.result,'token=[redacted] region=[redacted]');
+ assert(!JSON.stringify({...end.data,entries:undefined}).includes('agent-private-token'));
+ assert.match(JSON.stringify(f.requests.at(-1).messages),/Administrator-managed environment variables: API_TOKEN, REGION/);
+ await r.wait(e=>e.run_id==='env'&&e.type==='run_released');
+ r.send('start',{run_id:'env-rejected',conversation_id:'env-rejected',input:'bash-env',advanced_tools:true,workspace,env:{'1BAD':'x'}});
+ assert.equal((await r.wait(e=>e.request_id!=='env-rejected'&&e.type==='error')).code,'invalid_run');
 });
 
 test('automatic summary compacts older context and preserves recent verbatim text across restart', { timeout: 60000 }, async t => {

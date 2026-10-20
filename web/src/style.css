@@ -5809,6 +5809,48 @@ select option:disabled {
   min-width: 0;
 }
 
+.agent-env {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.agent-env .muted {
+  margin: 0;
+  font-size: 11px;
+}
+.agent-env-list,
+.agent-env-pending {
+  display: grid;
+  gap: 4px;
+}
+.agent-env-item,
+.agent-env-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-env-item code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.agent-env-item input,
+.agent-env-add input {
+  flex: 1;
+  min-width: 0;
+}
+.agent-env-item button,
+.agent-env-add button {
+  padding: 3px 6px;
+  font-size: 10px;
+}
+
 .kb-file-list {
   display: grid;
   gap: 4px;

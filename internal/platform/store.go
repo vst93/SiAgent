@@ -83,7 +83,7 @@ func Open(directory string) (*Store, error) {
 		return nil, err
 	}
 	// Verify every saved credential before the Runtime can execute any work.
-	rows, err := db.Query("SELECT api_key FROM models UNION ALL SELECT secrets FROM mcps UNION ALL SELECT secrets FROM channels")
+	rows, err := db.Query("SELECT api_key FROM models UNION ALL SELECT secrets FROM mcps UNION ALL SELECT secrets FROM channels UNION ALL SELECT environment FROM agents WHERE environment<>''")
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -123,11 +123,14 @@ func (s *Store) migrate() error {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 25 {
-		return fmt.Errorf("platform database schema %d is newer than supported schema 25", version)
+	if version > 26 {
+		return fmt.Errorf("platform database schema %d is newer than supported schema 26", version)
+	}
+	if version == 26 {
+		return nil
 	}
 	if version == 25 {
-		return nil
+		return s.migrateAgentEnvironment()
 	}
 	if version == 24 {
 		return s.migrateKnowledgeSettings()

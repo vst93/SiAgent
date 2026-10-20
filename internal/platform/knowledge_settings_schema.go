@@ -56,7 +56,10 @@ func (s *Store) migrateKnowledgeSettings() error {
 	if _, err := tx.Exec(knowledgeSettingsSchema); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateAgentEnvironment()
 }
 
 // loadKnowledgeLimits prefers a saved administrator setting over the deployment

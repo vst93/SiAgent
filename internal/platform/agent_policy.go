@@ -26,6 +26,19 @@ type OutputPolicy struct {
 	Tools    string `json:"tools"`
 	Sources  bool   `json:"sources"`
 	Progress bool   `json:"progress"`
+	// ThinkTags decides what happens to reasoning that some models inline in the
+	// answer text as <think>/<thinking>/<reasoning> tags. "strip" removes it from
+	// the answer and, when Thinking is on, keeps it as the reasoning summary;
+	// "keep" leaves the model text untouched.
+	ThinkTags string `json:"think_tags"`
+	// ThinkingMaxChars bounds the reasoning summary returned with channel replies
+	// so it cannot consume the vendor's per-message byte limit.
+	ThinkingMaxChars int `json:"thinking_max_chars"`
+	// Acknowledge sends an immediate channel notice, using the same stream
+	// message as the final answer when the adapter supports in-place updates.
+	Acknowledge bool `json:"acknowledge"`
+	// Stream publishes evolving channel drafts while the model is answering.
+	Stream bool `json:"stream"`
 }
 type AgentPolicy struct {
 	// AdvancedTools enables read/write/edit/bash inside the Agent workspace.
@@ -42,7 +55,15 @@ func defaultAgentPolicy() AgentPolicy {
 		Timezone: "Asia/Shanghai",
 		Session:  SessionPolicy{Types: "all", GroupScope: "member", AllowReset: true},
 		Context:  ContextPolicy{Strategy: "recent", MaxTurns: 20, MaxAgeMinutes: 1440, SummaryThreshold: 70, KeepRecentTokens: 4096},
-		Output:   OutputPolicy{Tools: "summary", Sources: true, Progress: true},
+		Output: OutputPolicy{
+			Tools:            "summary",
+			Sources:          true,
+			Progress:         true,
+			ThinkTags:        "strip",
+			ThinkingMaxChars: 1200,
+			Acknowledge:      true,
+			Stream:           true,
+		},
 	}
 }
 func parseAgentPolicy(raw []byte, base AgentPolicy) (AgentPolicy, error) {
@@ -81,16 +102,30 @@ func parseAgentPolicy(raw []byte, base AgentPolicy) (AgentPolicy, error) {
 	if base.Output.Tools != "hidden" && base.Output.Tools != "summary" && base.Output.Tools != "detailed" {
 		return base, errors.New("工具输出方式无效。")
 	}
+	if base.Output.ThinkTags != "strip" && base.Output.ThinkTags != "keep" {
+		return base, errors.New("思考标签兼容方式无效，请选择剔除或保留。")
+	}
+	if base.Output.ThinkingMaxChars < 200 || base.Output.ThinkingMaxChars > 8000 {
+		return base, errors.New("渠道思考摘要须为 200–8000 字符。")
+	}
 	return base, nil
 }
 
 // Old queued runs keep their original full-history behavior.
 func (a Agent) effectivePolicy() AgentPolicy {
-	if a.Policy.Context.Strategy != "" {
-		return a.Policy
+	p := a.Policy
+	if p.Context.Strategy == "" {
+		p = defaultAgentPolicy()
+		p.Context.Strategy = "full"
 	}
-	p := defaultAgentPolicy()
-	p.Context.Strategy = "full"
+	// Snapshots written before the reasoning/channel compatibility fields existed
+	// carry their zero value; treat it as the documented default.
+	if p.Output.ThinkTags == "" {
+		p.Output.ThinkTags = "strip"
+	}
+	if p.Output.ThinkingMaxChars == 0 {
+		p.Output.ThinkingMaxChars = 1200
+	}
 	return p
 }
 func (s *Store) migrateAgentPolicies() error {

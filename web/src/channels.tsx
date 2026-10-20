@@ -83,6 +83,12 @@ const labels: Record<string, string> = {
   unavailable: "未安装适配器",
   webhook: "回调模式",
 };
+const kindLabels: Record<string, string> = {
+  ack: "收到确认",
+  hint: "处理中提示",
+  draft: "作答进度",
+  final: "最终回复",
+};
 const note = (error: unknown) =>
   error instanceof Error ? error.message : "操作未完成，请稍后重试。";
 function ChannelEditor({
@@ -629,7 +635,7 @@ export function ChannelsWorkspace({
                     <header>
                       <span>{labels[item.state] ?? item.state}</span>
                       <small>
-                        {item.kind === "hint" ? "处理中提示" : "最终回复"} ·{" "}
+                        {kindLabels[item.kind] ?? "回复"} ·{" "}
                         {item.part}/{item.total} · 尝试 {item.attempts} 次
                       </small>
                     </header>

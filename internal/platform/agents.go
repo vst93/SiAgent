@@ -3,9 +3,12 @@ package platform
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -20,6 +23,90 @@ type Agent struct {
 	ModelID                int64       `json:"model_id"`
 	Revision               int         `json:"revision"`
 	Archived               bool        `json:"archived"`
+	// EnvKeys names the configured system environment variables. Values are
+	// encrypted, never returned by the API and never written to run snapshots.
+	EnvKeys []string `json:"env_keys"`
+}
+
+var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
+
+// agentEnvironment validates and merges an Agent's system variables. A blank
+// value keeps the stored secret so the administrator never has to re-enter it.
+func agentEnvironment(stored, update map[string]string, remove []string) (map[string]string, error) {
+	result := map[string]string{}
+	for key, value := range stored {
+		result[key] = value
+	}
+	if len(update) > 32 || len(remove) > 32 {
+		return nil, errors.New("每个助手最多配置 32 个系统环境变量。")
+	}
+	total := 0
+	for key, value := range update {
+		if !envKeyPattern.MatchString(key) {
+			return nil, errors.New("环境变量名须以字母或下划线开头，只使用字母、数字和下划线，最长 64 个字符。")
+		}
+		if value == "" {
+			continue
+		}
+		if len(value) > 8192 || strings.ContainsRune(value, 0) {
+			return nil, errors.New("环境变量值不能包含空字符，且不能超过 8192 字节。")
+		}
+		result[key] = value
+	}
+	for _, key := range remove {
+		delete(result, key)
+	}
+	if len(result) > 32 {
+		return nil, errors.New("每个助手最多配置 32 个系统环境变量。")
+	}
+	for key, value := range result {
+		if !envKeyPattern.MatchString(key) || len(value) > 8192 {
+			return nil, errors.New("已保存的系统环境变量无效，请重新填写。")
+		}
+		total += len(key) + len(value)
+	}
+	if total > 64*1024 {
+		return nil, errors.New("系统环境变量合计不能超过 64 KiB。")
+	}
+	return result, nil
+}
+
+func envKeysFor(environment map[string]string) []string {
+	keys := make([]string, 0, len(environment))
+	for key := range environment {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func (s *Store) agentEnvironment(id string) (map[string]string, error) {
+	var encrypted string
+	if err := s.db.QueryRow("SELECT environment FROM agents WHERE id=?", id).Scan(&encrypted); err != nil {
+		return nil, err
+	}
+	return s.openAgentEnvironment(encrypted)
+}
+
+func (s *Store) openAgentEnvironment(encrypted string) (map[string]string, error) {
+	environment := map[string]string{}
+	if encrypted == "" {
+		return environment, nil
+	}
+	raw, err := s.decrypt(encrypted)
+	if err != nil {
+		return nil, err
+	}
+	if raw == "" {
+		return environment, nil
+	}
+	if err := json.Unmarshal([]byte(raw), &environment); err != nil {
+		return nil, err
+	}
+	if environment == nil {
+		environment = map[string]string{}
+	}
+	return environment, nil
 }
 
 func agentPath(r *http.Request) string {
@@ -31,8 +118,8 @@ func agentPath(r *http.Request) string {
 func (s *Server) agent() (Agent, error) { return s.agentByID("default") }
 func (s *Server) agentByID(id string) (Agent, error) {
 	var a Agent
-	var policy, fallbacks string
-	err := s.store.db.QueryRow("SELECT id,name,instructions,enabled,model_id,archived,policy,revision,fallback_model_ids FROM agents WHERE id=?", id).Scan(&a.ID, &a.Name, &a.Instructions, &a.Enabled, &a.ModelID, &a.Archived, &policy, &a.Revision, &fallbacks)
+	var policy, fallbacks, environment string
+	err := s.store.db.QueryRow("SELECT id,name,instructions,enabled,model_id,archived,policy,revision,fallback_model_ids,environment FROM agents WHERE id=?", id).Scan(&a.ID, &a.Name, &a.Instructions, &a.Enabled, &a.ModelID, &a.Archived, &policy, &a.Revision, &fallbacks, &environment)
 	if err == nil {
 		a.Policy, err = parseAgentPolicy([]byte(policy), defaultAgentPolicy())
 	}
@@ -42,6 +129,13 @@ func (s *Server) agentByID(id string) (Agent, error) {
 		}
 		if a.FallbackModelIDs == nil {
 			a.FallbackModelIDs = []int64{}
+		}
+	}
+	if err == nil {
+		var values map[string]string
+		values, err = s.store.openAgentEnvironment(environment)
+		if err == nil {
+			a.EnvKeys = envKeysFor(values)
 		}
 	}
 	return a, err
@@ -64,7 +158,7 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, a)
 }
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.db.Query("SELECT id,name,instructions,enabled,model_id,archived,policy,revision,fallback_model_ids FROM agents ORDER BY CASE WHEN id='default' THEN 0 ELSE 1 END,rowid")
+	rows, err := s.store.db.Query("SELECT id,name,instructions,enabled,model_id,archived,policy,revision,fallback_model_ids,environment FROM agents ORDER BY CASE WHEN id='default' THEN 0 ELSE 1 END,rowid")
 	if err != nil {
 		internal(w)
 		return
@@ -73,8 +167,8 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	values := []Agent{}
 	for rows.Next() {
 		var a Agent
-		var policy, fallbacks string
-		if err := rows.Scan(&a.ID, &a.Name, &a.Instructions, &a.Enabled, &a.ModelID, &a.Archived, &policy, &a.Revision, &fallbacks); err != nil {
+		var policy, fallbacks, environment string
+		if err := rows.Scan(&a.ID, &a.Name, &a.Instructions, &a.Enabled, &a.ModelID, &a.Archived, &policy, &a.Revision, &fallbacks, &environment); err != nil {
 			internal(w)
 			return
 		}
@@ -92,6 +186,12 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 		if a.FallbackModelIDs == nil {
 			a.FallbackModelIDs = []int64{}
 		}
+		storedValues, err := s.store.openAgentEnvironment(environment)
+		if err != nil {
+			internal(w)
+			return
+		}
+		a.EnvKeys = envKeysFor(storedValues)
 		a.AdvancedToolsAvailable = !s.advancedToolsDisabled
 		values = append(values, a)
 	}
@@ -126,12 +226,14 @@ func (s *Server) validateFallbackModels(primary int64, ids []int64) ([]int64, er
 
 func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Policy           json.RawMessage `json:"policy"`
-		Name             string          `json:"name"`
-		Instructions     string          `json:"instructions"`
-		Enabled          bool            `json:"enabled"`
-		FallbackModelIDs []int64         `json:"fallback_model_ids"`
-		ModelID          int64           `json:"model_id"`
+		Policy           json.RawMessage   `json:"policy"`
+		Env              map[string]string `json:"env"`
+		Name             string            `json:"name"`
+		Instructions     string            `json:"instructions"`
+		EnvRemove        []string          `json:"env_remove"`
+		Enabled          bool              `json:"enabled"`
+		FallbackModelIDs []int64           `json:"fallback_model_ids"`
+		ModelID          int64             `json:"model_id"`
 	}
 	if !decode(w, r, &input) {
 		return
@@ -183,6 +285,24 @@ func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	encodedPolicy, _ := json.Marshal(policy)
+	storedEnv := map[string]string{}
+	if r.Method != "POST" {
+		storedEnv, err = s.store.agentEnvironment(agentID)
+		if err != nil {
+			internal(w)
+			return
+		}
+	}
+	environment, err := agentEnvironment(storedEnv, input.Env, input.EnvRemove)
+	if err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	encodedEnvironment := ""
+	if len(environment) > 0 {
+		raw, _ := json.Marshal(environment)
+		encodedEnvironment = s.store.encrypt(string(raw))
+	}
 	model, err := s.store.modelByID(input.ModelID)
 	if err == sql.ErrNoRows || model.Archived {
 		fail(w, 400, "请选择存在且未归档的模型。")
@@ -202,9 +322,9 @@ func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	encodedFallbacks, _ := json.Marshal(fallbacks)
 	if r.Method == "POST" {
-		_, err = s.store.db.Exec("INSERT INTO agents(id,name,instructions,enabled,model_id,policy,fallback_model_ids) VALUES(?,?,?,?,?,?,?)", agentID, input.Name, input.Instructions, input.Enabled, input.ModelID, string(encodedPolicy), string(encodedFallbacks))
+		_, err = s.store.db.Exec("INSERT INTO agents(id,name,instructions,enabled,model_id,policy,fallback_model_ids,environment) VALUES(?,?,?,?,?,?,?,?)", agentID, input.Name, input.Instructions, input.Enabled, input.ModelID, string(encodedPolicy), string(encodedFallbacks), encodedEnvironment)
 	} else {
-		_, err = s.store.db.Exec("UPDATE agents SET name=?,instructions=?,enabled=?,model_id=?,policy=?,fallback_model_ids=?,revision=revision+1 WHERE id=?", input.Name, input.Instructions, input.Enabled, input.ModelID, string(encodedPolicy), string(encodedFallbacks), agentID)
+		_, err = s.store.db.Exec("UPDATE agents SET name=?,instructions=?,enabled=?,model_id=?,policy=?,fallback_model_ids=?,environment=?,revision=revision+1 WHERE id=?", input.Name, input.Instructions, input.Enabled, input.ModelID, string(encodedPolicy), string(encodedFallbacks), encodedEnvironment, agentID)
 	}
 	if err != nil {
 		slog.Error("save agent failed", "error", err)
@@ -217,6 +337,10 @@ func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 			detail = "enabled"
 		}
 		s.audit("agent.advanced_tools."+detail, agentID, "")
+	}
+	// Only variable names are audited; values stay encrypted.
+	if strings.Join(envKeysFor(environment), ",") != strings.Join(envKeysFor(storedEnv), ",") {
+		s.audit("agent.environment", agentID, strings.Join(envKeysFor(environment), ","))
 	}
 	a, err := s.agentByID(agentID)
 	if err != nil {

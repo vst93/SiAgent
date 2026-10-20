@@ -406,6 +406,17 @@ func (s *Server) receiveChannel(ctx context.Context, channelID string, version i
 	} else if text == "" {
 		state, reason = "rejected", "未收到可处理的文本，请重新发送问题。"
 	}
-	_, err = s.store.db.ExecContext(ctx, "INSERT INTO channel_inbox(id,channel_id,msg_id,member,agent_id,content,fingerprint,state,error,created,reply_context) VALUES(?,?,?,?,?,?,?,?,?,?,?)", id(), channelID, in.ID, in.Session, c.AgentID, text, fingerprint, state, reason, time.Now().UnixMilli(), string(reply))
-	return err
+	inboxID := id()
+	_, err = s.store.db.ExecContext(ctx, "INSERT INTO channel_inbox(id,channel_id,msg_id,member,agent_id,content,fingerprint,state,error,created,reply_context) VALUES(?,?,?,?,?,?,?,?,?,?,?)", inboxID, channelID, in.ID, in.Session, c.AgentID, text, fingerprint, state, reason, time.Now().UnixMilli(), string(reply))
+	if err != nil {
+		return err
+	}
+	if state != "pending" {
+		return nil
+	}
+	// Tell the member immediately that the message arrived instead of waiting for
+	// the first progress threshold. Only in-place streaming adapters receive it,
+	// and a courtesy notice never blocks durable admission.
+	_ = s.queueChannelAck(ctx, inboxID, channelID, in.Session, c.AgentID)
+	return nil
 }

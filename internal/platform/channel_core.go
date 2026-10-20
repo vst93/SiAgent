@@ -10,6 +10,7 @@ import (
 	"siagent/internal/channels"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 func (s *Server) archiveChannel(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +213,161 @@ const (
 	processingNoticeDelay = 90 * time.Second
 )
 
+// Channel delivery kinds. Every kind except final is an unfinished stream
+// message that the final answer replaces when the adapter supports streaming.
+const (
+	channelKindAck   = "ack"
+	channelKindHint  = "hint"
+	channelKindDraft = "draft"
+	channelKindFinal = "final"
+)
+
+const channelAckText = "已收到你的消息，正在作答，请稍候…"
+
+// draftInterval and draftGrowthBytes throttle progressive channel updates so a
+// token-by-token answer does not flood the vendor rate limit.
+const (
+	draftInterval    = 1500 * time.Millisecond
+	draftGrowthBytes = 8
+)
+
+// draftMark records the last time a run published a channel draft and how much
+// answer text that draft already carried.
+type draftMark struct {
+	at     time.Time
+	length int
+}
+
+// queueChannelStreamingText stores a single unfinished message for a streaming
+// adapter. It is never split: the stream message is updated in place, and the
+// final answer carries the complete text.
+func (s *Server) queueChannelStreamingText(tx *sql.Tx, inbox, channel, member, kind, text string, now int64) error {
+	_, err := tx.Exec("INSERT OR IGNORE INTO channel_outbox(id,inbox_id,channel_id,member,kind,part,total,content,created) VALUES(?,?,?,?,?,0,1,?,?)", id(), inbox, channel, member, kind, text, now)
+	return err
+}
+
+// streamingChannel reports whether the bound adapter can update one outbound
+// message in place, which is what makes an immediate acknowledgement cheap.
+// It also returns the adapter's single-message byte limit.
+func (s *Server) streamingChannel(channel string) (bool, int) {
+	var provider string
+	if err := s.store.db.QueryRow("SELECT provider FROM channels WHERE id=?", channel).Scan(&provider); err != nil {
+		return false, 0
+	}
+	entry, ok := s.channelProviders.Get(provider)
+	if !ok {
+		return false, 0
+	}
+	descriptor := entry.Descriptor()
+	return descriptor.Streaming, descriptor.MaxTextBytes
+}
+
+// queueChannelAck acknowledges a received message immediately. Only adapters
+// that update a message in place get it before the answer, so a legacy adapter
+// never sends a second message just to say it is working.
+func (s *Server) queueChannelAck(ctx context.Context, inbox, channel, member, agentID string) error {
+	if streaming, _ := s.streamingChannel(channel); !streaming {
+		return nil
+	}
+	a, err := s.agentByID(agentID)
+	if err != nil {
+		return nil
+	}
+	if !a.effectivePolicy().Output.Acknowledge {
+		return nil
+	}
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := s.queueChannelStreamingText(tx, inbox, channel, member, channelKindAck, channelAckText, time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// stageChannelDraft publishes the evolving answer so a member sees progress
+// instead of waiting for the whole reply. It runs under s.mu from the event
+// handler, so the outbox row cannot race a concurrent send.
+func (s *Server) stageChannelDraft(runID, answer string) error {
+	if s.drafts == nil {
+		return nil
+	}
+	now := time.Now()
+	if mark, ok := s.drafts[runID]; ok {
+		if now.Sub(mark.at) < draftInterval || len(answer) < mark.length+draftGrowthBytes {
+			return nil
+		}
+	}
+	var inbox, channel, member, config string
+	err := s.store.db.QueryRow("SELECT i.id,i.channel_id,i.member,r.config FROM channel_inbox i JOIN runs r ON r.id=i.run_id WHERE i.run_id=? AND i.finalized=0 ORDER BY i.rowid LIMIT 1", runID).Scan(&inbox, &channel, &member, &config)
+	if err == sql.ErrNoRows {
+		// A Web-only run, or one already finalized, never stages a draft.
+		delete(s.drafts, runID)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var snapshot runConfig
+	if err := json.Unmarshal([]byte(config), &snapshot); err != nil {
+		return err
+	}
+	output := snapshot.Agent.effectivePolicy().Output
+	streaming, limit := s.streamingChannel(channel)
+	if !output.Stream || !streaming {
+		return nil
+	}
+	text := answer
+	if output.ThinkTags != "keep" {
+		text = sanitizeAnswer(answer)
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	text = truncateBytes(text, limit-32)
+	var existing, state string
+	var created int64
+	err = s.store.db.QueryRow("SELECT content,state,created FROM channel_outbox WHERE inbox_id=? AND kind=? AND part=0", inbox, channelKindDraft).Scan(&existing, &state, &created)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if err == nil {
+		if state == "sending" {
+			// The in-flight update will be replaced by the next admitted draft or
+			// by the final answer, so nothing is lost by waiting.
+			s.drafts[runID] = draftMark{at: now, length: len(answer)}
+			return nil
+		}
+		if existing == text {
+			s.drafts[runID] = draftMark{at: now, length: len(answer)}
+			return nil
+		}
+		if _, err := s.store.db.Exec("UPDATE channel_outbox SET content=?,state='pending',attempts=0,next_at=0,error='',created=? WHERE inbox_id=? AND kind=? AND part=0", text, now.UnixMilli(), inbox, channelKindDraft); err != nil {
+			return err
+		}
+	} else {
+		if _, err := s.store.db.Exec("INSERT INTO channel_outbox(id,inbox_id,channel_id,member,kind,part,total,content,created) VALUES(?,?,?,?,?,0,1,?,?)", id(), inbox, channel, member, channelKindDraft, text, now.UnixMilli()); err != nil {
+			return err
+		}
+	}
+	s.drafts[runID] = draftMark{at: now, length: len(answer)}
+	return nil
+}
+
+func truncateBytes(text string, limit int) string {
+	if limit <= 0 || len(text) <= limit {
+		return text
+	}
+	end := limit
+	for end > 0 && !utf8.RuneStart(text[end]) {
+		end--
+	}
+	return text[:end]
+}
+
 func (s *Server) prepareChannelReplies(ctx context.Context, now time.Time) error {
 	rows, err := s.store.db.QueryContext(ctx, "SELECT i.id,i.channel_id,i.member,i.state,i.error,i.run_id,i.created,i.hinted,i.agent_id FROM channel_inbox i JOIN channels c ON c.id=i.channel_id WHERE i.finalized=0 AND c.archived=0 AND (i.hinted=0 OR i.state='rejected' OR EXISTS(SELECT 1 FROM runs r WHERE r.id=i.run_id AND r.status NOT IN ('queued','running','cancelling'))) ORDER BY i.created,i.rowid LIMIT 200")
 	if err != nil {
@@ -332,7 +488,7 @@ func (s *Server) prepareChannelReplies(ctx context.Context, now time.Time) error
 		// A waiting message gets one short notice, but a running task stays silent
 		// until it either answers or clearly exceeds the long processing threshold.
 		// This keeps the common case free of a generic "still processing" message
-		// that arrives before the real answer.
+		// that arrives before or after visible streamed progress.
 		if !done {
 			threshold := queuedNoticeDelay
 			if started {
@@ -341,10 +497,23 @@ func (s *Server) prepareChannelReplies(ctx context.Context, now time.Time) error
 			if i.hinted || now.Sub(time.UnixMilli(i.created)) < threshold {
 				continue
 			}
+			// Streamed drafts already show progress; a generic notice would replace
+			// newer text with older text. A draft that definitively failed shows
+			// nothing, so the notice still applies.
+			var drafted int
+			if err := s.store.db.QueryRowContext(ctx, "SELECT count(*) FROM channel_outbox WHERE inbox_id=? AND kind=? AND state IN ('pending','sending','sent','retry')", i.id, channelKindDraft).Scan(&drafted); err != nil {
+				return err
+			}
+			if drafted > 0 {
+				if _, err := s.store.db.ExecContext(ctx, "UPDATE channel_inbox SET hinted=1 WHERE id=?", i.id); err != nil {
+					return err
+				}
+				continue
+			}
 		}
-		kind := "hint"
+		kind := channelKindHint
 		if done {
-			kind = "final"
+			kind = channelKindFinal
 		} else if started {
 			text = "仍在处理中，请稍候；完成后会发送回答。"
 		} else {
@@ -361,7 +530,9 @@ func (s *Server) prepareChannelReplies(ctx context.Context, now time.Time) error
 		if done {
 			_, err = tx.Exec("UPDATE channel_inbox SET finalized=1 WHERE id=?", i.id)
 			if err == nil {
-				_, err = tx.Exec("UPDATE channel_outbox SET state='cancelled',error='最终回复已生成，取消尚未发送的处理中提示。' WHERE inbox_id=? AND kind='hint' AND state IN ('pending','retry')", i.id)
+				// Unfinished stream messages are replaced by the final answer. Cancel
+				// the ones still waiting so an older text cannot overwrite it.
+				_, err = tx.Exec("UPDATE channel_outbox SET state='cancelled',error='最终回复已生成，取消尚未发送的中间消息。' WHERE inbox_id=? AND kind IN (?,?,?) AND state IN ('pending','retry')", i.id, channelKindAck, channelKindHint, channelKindDraft)
 			}
 		} else {
 			_, err = tx.Exec("UPDATE channel_inbox SET hinted=1 WHERE id=?", i.id)

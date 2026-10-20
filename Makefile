@@ -10,7 +10,7 @@ package: build
 	sh scripts/package.sh
 test:
 	npm --prefix runtime test
-	go test -race ./...
+	go test -race -timeout 20m ./...
 test-e2e: build
 	python3 tests/e2e.py
 test-container:

@@ -479,7 +479,11 @@ func (s *Server) enqueueRunWithAttachments(ctx context.Context, conversationID, 
 		fallbackKeys = append(fallbackKeys, fallback.APIKey)
 	}
 	config, _ := json.Marshal(runConfig{Fallbacks: fallbackSnapshots, TimeContext: turnTime, ModelOptions: model.Options, ModelID: model.ID, ModelVersion: model.Version, Provider: model.Provider, BaseURL: model.BaseURL, Model: model.Name, Agent: agent, Limits: s.limits, Capabilities: &capabilities, KnowledgeIDs: knowledgeIDs})
-	credentials, _ := json.Marshal(RunCredentials{ModelKey: model.APIKey, FallbackKeys: fallbackKeys, MCPs: toolSecrets})
+	environment, err := s.store.agentEnvironment(agent.ID)
+	if err != nil {
+		return Run{}, err
+	}
+	credentials, _ := json.Marshal(RunCredentials{ModelKey: model.APIKey, FallbackKeys: fallbackKeys, MCPs: toolSecrets, Env: environment})
 	tx, err := s.store.db.Begin()
 	if err != nil {
 		return Run{}, err

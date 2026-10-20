@@ -74,6 +74,9 @@ type RunCredentials struct {
 	ModelKey     string               `json:"model_key"`
 	FallbackKeys []string             `json:"fallback_keys,omitempty"`
 	MCPs         map[string]MCPSecret `json:"mcps"`
+	// Env holds the Agent's system environment variables. They are frozen with
+	// the run so later edits cannot change an admitted task.
+	Env map[string]string `json:"env,omitempty"`
 }
 
 func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {

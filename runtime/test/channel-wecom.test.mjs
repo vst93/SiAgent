@@ -167,13 +167,19 @@ test("official WeCom SDK authenticates, normalizes isolated text sessions and se
     target: incoming[0].session,
     reply_context: incoming[0].reply_context,
     part: 0,
-    kind: "hint",
-    text: "working",
+    kind: "ack",
+    text: "已收到",
   };
-  f.send({ type: "send", id: "hint", delivery });
-  await waitUntil(() =>
-    f.frames.find((frame) => frame.type === "result" && frame.id === "hint"),
-  );
+  for (const [id, frame] of [
+    ["ack", delivery],
+    ["draft", { ...delivery, kind: "draft", text: "部分回答" }],
+    ["hint", { ...delivery, kind: "hint", text: "working" }],
+  ]) {
+    f.send({ type: "send", id, delivery: frame });
+    await waitUntil(() =>
+      f.frames.find((result) => result.type === "result" && result.id === id),
+    );
+  }
   f.send({
     type: "send",
     id: "final",
@@ -185,11 +191,17 @@ test("official WeCom SDK authenticates, normalizes isolated text sessions and se
   const replies = f.packets.filter(
     (frame) => frame.cmd === "aibot_respond_msg",
   );
-  assert.equal(replies.length, 2);
+  // Only the final answer finishes the stream; ack, draft and notice all update
+  // the same message.
+  assert.equal(replies.length, 4);
   assert.equal(replies[0].headers.req_id, "req-one");
-  assert.equal(replies[0].body.stream.id, replies[1].body.stream.id);
+  assert.equal(replies[0].body.stream.content, "已收到");
   assert.equal(replies[0].body.stream.finish, false);
-  assert.equal(replies[1].body.stream.finish, true);
+  assert.equal(replies[1].body.stream.content, "部分回答");
+  assert.equal(replies[1].body.stream.finish, false);
+  assert.equal(replies[2].body.stream.finish, false);
+  assert.equal(replies[3].body.stream.finish, true);
+  assert.equal(new Set(replies.map((reply) => reply.body.stream.id)).size, 1);
   f.send({
     type: "send",
     id: "late-final",
@@ -212,7 +224,46 @@ test("official WeCom SDK authenticates, normalizes isolated text sessions and se
     .filter((frame) => frame.cmd === "aibot_respond_msg")
     .at(-1);
   assert.notEqual(lateReply.body.stream.id, replies[0].body.stream.id);
+  assert.match(lateReply.body.stream.id, /-r1$/);
   assert.equal(lateReply.body.stream.finish, true);
+  // A late draft starts the same replacement message as the late final, so the
+  // answer still finishes the message the member is reading.
+  f.send({
+    type: "send",
+    id: "late-draft",
+    delivery: {
+      ...delivery,
+      kind: "draft",
+      text: "late progress",
+      reply_context: {
+        ...delivery.reply_context,
+        received_at: String(Date.now() - 10 * 60 * 1000),
+      },
+    },
+  });
+  await waitUntil(() =>
+    f.frames.find(
+      (frame) => frame.type === "result" && frame.id === "late-draft",
+    ),
+  );
+  const lateDraft = f.packets
+    .filter((frame) => frame.cmd === "aibot_respond_msg")
+    .at(-1);
+  assert.equal(lateDraft.body.stream.id, lateReply.body.stream.id);
+  assert.equal(lateDraft.body.stream.finish, false);
+  // WeCom accepts at most 20480 bytes per stream update; the platform reserves
+  // headroom, and the worker rejects anything beyond the declared limit.
+  f.send({
+    type: "send",
+    id: "too-large",
+    delivery: { ...delivery, kind: "final", text: "x".repeat(20001) },
+  });
+  const oversized = await waitUntil(() =>
+    f.frames.find(
+      (frame) => frame.type === "result" && frame.id === "too-large",
+    ),
+  );
+  assert.equal(oversized.result.state, "failed");
   assert(!JSON.stringify(f.frames).includes("fixture-private-secret"));
 });
 test("official SDK rejection is definite, a disconnected send remains unknown and reconnect does not replay business messages", async (t) => {

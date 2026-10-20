@@ -19,6 +19,10 @@ export type AgentPolicy = {
     tools: "hidden" | "summary" | "detailed";
     sources: boolean;
     progress: boolean;
+    think_tags: "strip" | "keep";
+    thinking_max_chars: number;
+    acknowledge: boolean;
+    stream: boolean;
   };
 };
 export const defaultAgentPolicy: AgentPolicy = {
@@ -37,7 +41,16 @@ export const defaultAgentPolicy: AgentPolicy = {
     summary_threshold: 70,
     keep_recent_tokens: 4096,
   },
-  output: { thinking: false, tools: "summary", sources: true, progress: true },
+  output: {
+    thinking: false,
+    tools: "summary",
+    sources: true,
+    progress: true,
+    think_tags: "strip",
+    thinking_max_chars: 1200,
+    acknowledge: true,
+    stream: true,
+  },
 };
 const descriptions = {
   full: "携带当前会话全部有效历史。达到模型窗口上限时停止并提示新建会话，适合较短的连续任务。",
@@ -250,18 +263,28 @@ export function AgentPolicySettings({
         </p>
       </div>
     );
+  // A preset only matches when the channel-compatibility fields are at their
+  // documented defaults; any hand-tuned value is shown as "自定义".
+  const channelDefaults =
+    output.think_tags === "strip" &&
+    output.thinking_max_chars === 1200 &&
+    output.acknowledge &&
+    output.stream;
   const preset =
+    channelDefaults &&
     !output.thinking &&
     output.tools === "hidden" &&
     output.sources &&
     !output.progress
       ? "concise"
-      : !output.thinking &&
+      : channelDefaults &&
+          !output.thinking &&
           output.tools === "summary" &&
           output.sources &&
           output.progress
         ? "balanced"
-        : output.thinking &&
+        : channelDefaults &&
+            output.thinking &&
             output.tools === "detailed" &&
             output.sources &&
             output.progress
@@ -284,6 +307,10 @@ export function AgentPolicySettings({
                 tools: "hidden",
                 sources: true,
                 progress: false,
+                think_tags: "strip",
+                thinking_max_chars: 1200,
+                acknowledge: true,
+                stream: true,
               });
             if (e.target.value === "balanced")
               setOutput({
@@ -291,6 +318,10 @@ export function AgentPolicySettings({
                 tools: "summary",
                 sources: true,
                 progress: true,
+                think_tags: "strip",
+                thinking_max_chars: 1200,
+                acknowledge: true,
+                stream: true,
               });
             if (e.target.value === "detailed")
               setOutput({
@@ -298,6 +329,10 @@ export function AgentPolicySettings({
                 tools: "detailed",
                 sources: true,
                 progress: true,
+                think_tags: "strip",
+                thinking_max_chars: 1200,
+                acknowledge: true,
+                stream: true,
               });
           }}
         >
@@ -318,7 +353,45 @@ export function AgentPolicySettings({
         展示模型返回的思考摘要
       </label>
       <small>
-        仅展示模型接口实际返回的推理文本；不支持的模型不会生成该内容。此设置不改变模型的推理强度。
+        仅展示模型接口实际返回的推理文本，以及下方兼容设置从回答中剔除的 think
+        标签内容；不支持的模型不会生成该内容。此设置不改变模型的推理强度。
+      </small>
+      <label>
+        思考标签兼容
+        <select
+          aria-label="思考标签兼容"
+          value={output.think_tags}
+          onChange={(e) =>
+            setOutput({ think_tags: e.target.value as typeof output.think_tags })
+          }
+        >
+          <option value="strip">剔除 think 标签，作为思考摘要（推荐）</option>
+          <option value="keep">保留模型原文</option>
+        </select>
+      </label>
+      <small>
+        部分模型会直接输出 &lt;think&gt;…&lt;/think&gt;
+        形式的思考过程。剔除后最终回答不包含思考文本，开启上方开关时按思考摘要展示；保留则完全不做处理。
+      </small>
+      <label>
+        渠道思考摘要最多字符
+        <input
+          type="number"
+          required
+          min={200}
+          max={8000}
+          step={100}
+          aria-label="渠道思考摘要最多字符"
+          value={output.thinking_max_chars}
+          onChange={(e) =>
+            setOutput({ thinking_max_chars: Number(e.target.value) })
+          }
+        />
+      </label>
+      <small>
+        渠道单条消息长度有限（企微自建应用约 2048
+        字节，智能机器人约 20480 字节）。摘要过长会挤占回答内容，默认 1200
+        字符，超出部分在管理后台查看。
       </small>
       <label>
         工具调用展示
@@ -346,6 +419,28 @@ export function AgentPolicySettings({
         />
         展示本轮检索来源
       </label>
+      <label className="checkbox-label">
+        <input
+          type="checkbox"
+          checked={output.acknowledge}
+          onChange={(e) => setOutput({ acknowledge: e.target.checked })}
+        />
+        渠道收到消息后立即确认并提示正在作答
+      </label>
+      <small>
+        仅对支持原地更新消息的适配器生效（如企微智能机器人）：确认提示与最终回答共用同一条流式消息，不会额外增加消息条数。
+      </small>
+      <label className="checkbox-label">
+        <input
+          type="checkbox"
+          checked={output.stream}
+          onChange={(e) => setOutput({ stream: e.target.checked })}
+        />
+        渠道在作答过程中持续输出已生成的内容
+      </label>
+      <small>
+        按适配器限制截断单条草稿并在完成后用完整回答覆盖；不支持流式更新的适配器只发送最终回复。
+      </small>
       <label className="checkbox-label">
         <input
           type="checkbox"

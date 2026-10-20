@@ -28,18 +28,21 @@ import (
 
 type Runtime interface{ Send(any) error }
 type Server struct {
-	updater               *selfupdate.Manager
-	updateStop            func()
-	updateGate            sync.RWMutex
-	updating              atomic.Bool
-	updateDraining        atomic.Bool
-	maintenanceWork       sync.Mutex
-	channelConfigMu       sync.Mutex
-	channelProviders      *channels.Registry
-	plugins               *plugins.Registry
-	channelTests          map[string]bool
-	channelConnections    channelConnections
-	channelWork           sync.Mutex
+	updater            *selfupdate.Manager
+	updateStop         func()
+	updateGate         sync.RWMutex
+	updating           atomic.Bool
+	updateDraining     atomic.Bool
+	maintenanceWork    sync.Mutex
+	channelConfigMu    sync.Mutex
+	channelProviders   *channels.Registry
+	plugins            *plugins.Registry
+	channelTests       map[string]bool
+	channelConnections channelConnections
+	channelWork        sync.Mutex
+	// drafts remembers when a run last staged a channel draft, so progressive
+	// updates stay throttled without touching the database per token.
+	drafts                map[string]draftMark
 	store                 *Store
 	runtime               Runtime
 	ready                 func() bool
@@ -82,6 +85,7 @@ func New(store *Store, runtime Runtime, ready func() bool, publicURL string, opt
 	s.advancedToolsDisabled = advancedToolsDisabledConfig(options)
 	s.channelConnections.values = make(map[string]channelConnection)
 	s.channelTests = make(map[string]bool)
+	s.drafts = make(map[string]draftMark)
 	if err := s.ConfigureChannelAdapters("node", "runtime/dist/channel-wecom.js"); err != nil {
 		return nil, err
 	}

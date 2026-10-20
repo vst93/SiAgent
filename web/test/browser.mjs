@@ -1771,6 +1771,62 @@ try {
       .getByLabel("渠道排队超过 30 秒或处理超过 90 秒时发送提示", { exact: true })
       .isChecked()),
   );
+  // The concise preset keeps the channel acknowledgement and streaming on.
+  await page.getByLabel("回复预设", { exact: true }).selectOption("concise");
+  assert(
+    await page
+      .getByLabel("渠道收到消息后立即确认并提示正在作答", { exact: true })
+      .isChecked(),
+  );
+  await page.getByLabel("回复预设", { exact: true }).selectOption("detailed");
+  await page
+    .getByLabel("思考标签兼容", { exact: true })
+    .selectOption("keep");
+  await page
+    .getByLabel("渠道思考摘要最多字符", { exact: true })
+    .fill("800");
+  await page
+    .getByLabel("渠道收到消息后立即确认并提示正在作答", { exact: true })
+    .uncheck();
+  await page
+    .getByLabel("渠道在作答过程中持续输出已生成的内容", { exact: true })
+    .uncheck();
+  await savePolicy();
+  policyAgents = await page.evaluate(() =>
+    fetch("/api/agents").then((response) => response.json()),
+  );
+  financePolicy = policyAgents.find((agent) => agent.name === "财务助手");
+  assert.equal(financePolicy.policy.output.think_tags, "keep");
+  assert.equal(financePolicy.policy.output.thinking_max_chars, 800);
+  assert.equal(financePolicy.policy.output.acknowledge, false);
+  assert.equal(financePolicy.policy.output.stream, false);
+  // Environment variable values are encrypted and never returned; only names
+  // come back to the editor.
+  await policyTab("基本信息").click();
+  const envName = page.getByLabel("新环境变量名", { exact: true });
+  await envName.fill("API_TOKEN");
+  await page
+    .getByLabel("新环境变量值", { exact: true })
+    .fill("browser-private-token");
+  await page
+    .locator(".agent-env-add")
+    .getByRole("button", { name: "添加", exact: true })
+    .click();
+  await savePolicy();
+  const envAgents = await page.evaluate(() =>
+    fetch("/api/agents").then((response) => response.json()),
+  );
+  financePolicy = envAgents.find((agent) => agent.name === "财务助手");
+  assert.deepEqual(financePolicy.env_keys, ["API_TOKEN"]);
+  assert(!JSON.stringify(envAgents).includes("browser-private-token"));
+  assert(
+    await page
+      .getByLabel("API_TOKEN 的值", { exact: true })
+      .evaluate((input) => input.value === ""),
+  );
+  // Restoring the balanced preset returns the channel defaults, including the
+  // immediate acknowledgement and streamed drafts.
+  await policyTab("回复输出").click();
   await page.getByLabel("回复预设", { exact: true }).selectOption("balanced");
   await savePolicy();
   policyAgents = await page.evaluate(() =>
@@ -1782,9 +1838,13 @@ try {
   assert.equal(financePolicy.policy.context.max_age_minutes, 60);
   assert.equal(financePolicy.policy.context.summary_threshold, 65);
   assert.equal(financePolicy.policy.output.tools, "summary");
+  assert.equal(financePolicy.policy.output.acknowledge, true);
+  assert.equal(financePolicy.policy.output.stream, true);
+  assert.equal(financePolicy.policy.output.think_tags, "strip");
+  assert.equal(financePolicy.policy.output.thinking_max_chars, 1200);
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 844 });
-    for (const label of ["会话限制", "上下文", "回复输出"]) {
+    for (const label of ["基本信息", "会话限制", "上下文", "回复输出"]) {
       await policyTab(label).click();
       await page.locator(".agent-editor").evaluate((editor) => {
         const pane = document.querySelector(".configuration-content");

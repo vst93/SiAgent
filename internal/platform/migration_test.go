@@ -58,7 +58,7 @@ func TestVersionOneUpgradePreservesCredentialsAndHistory(t *testing.T) {
 	if err := store.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 25 {
+	if version != 26 {
 		t.Fatalf("wrong migration version: %d", version)
 	}
 	server, err := New(store, &fakeRuntime{}, func() bool { return true }, "")
@@ -325,6 +325,7 @@ func downgradeChannelFixture(t *testing.T, s *Store) {
 	t.Helper()
 	_, err := s.db.Exec(`
  ALTER TABLE agents DROP COLUMN policy;
+ ALTER TABLE agents DROP COLUMN environment;
  ALTER TABLE runs DROP COLUMN thinking;
  DROP INDEX IF EXISTS active_channel_identity;
  ALTER TABLE channels RENAME TO wecom_channels;

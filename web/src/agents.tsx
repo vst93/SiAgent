@@ -40,6 +40,8 @@ export type Agent = {
   fallback_model_ids: number[];
   model_id: number;
   archived: boolean;
+  /** Names only; values stay encrypted on the server. */
+  env_keys?: string[];
 };
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 const errorText = (error: unknown) =>
@@ -76,6 +78,9 @@ export function AgentWorkspace({
   const [pending, setPending] = useState(false);
   const [advancedConfirmed, setAdvancedConfirmed] = useState(false);
   const [fallbackPick, setFallbackPick] = useState("");
+  const [envDraft, setEnvDraft] = useState<{ key: string; value: string }[]>([]);
+  const [envRemove, setEnvRemove] = useState<string[]>([]);
+  const [envNew, setEnvNew] = useState({ key: "", value: "" });
   const [instructionsPreview, setInstructionsPreview] = useState(false);
   const savedAgent = agents.find((agent) => agent.id === editor.id);
   const advancedNeedsConfirm =
@@ -86,6 +91,14 @@ export function AgentWorkspace({
     setTab(next);
     setFeedback("");
     setError("");
+  }
+  function chooseAgent(agent: Agent) {
+    setEditor(agent);
+    setEnvDraft([]);
+    setEnvRemove([]);
+    setTab("basic");
+    setError("");
+    setFeedback("");
   }
   async function action(work: () => Promise<void>) {
     setPending(true);
@@ -113,9 +126,17 @@ export function AgentWorkspace({
           enabled: editor.enabled,
           model_id: editor.model_id,
           fallback_model_ids: editor.fallback_model_ids,
+          env: Object.fromEntries(
+            envDraft
+              .map((item) => [item.key.trim(), item.value] as const)
+              .filter(([key, value]) => key && value),
+          ),
+          env_remove: envRemove,
         },
       );
       setEditor(agent);
+      setEnvDraft([]);
+      setEnvRemove([]);
       setFeedback("助手已保存，新任务使用新配置；已有任务保持提交时的配置。");
     });
   }
@@ -127,10 +148,7 @@ export function AgentWorkspace({
           <button
             disabled={pending}
             onClick={() => {
-              setEditor(blank);
-              setTab("basic");
-              setError("");
-              setFeedback("");
+              chooseAgent(blank);
             }}
           >
             新建助手
@@ -145,10 +163,7 @@ export function AgentWorkspace({
               className="agent-card-select"
               disabled={pending}
               onClick={() => {
-                setEditor(agent);
-                setTab("basic");
-                setError("");
-                setFeedback("");
+                chooseAgent(agent);
               }}
             >
               <strong title={agent.name}>{agent.name}</strong>
@@ -453,6 +468,128 @@ export function AgentWorkspace({
                     </datalist>
                     <p className="muted">
                       自动向助手提供每轮消息的接收时间，用于理解“今天”“明天”等相对日期。
+                    </p>
+                    <div className="agent-env">
+                      <span className="agent-fallback-label">系统环境变量</span>
+                      <p className="muted">
+                        供 Skills 和本地工作区命令读取的常量或密钥。值加密保存、永不回显；此处留空表示保留原值。
+                      </p>
+                      <div className="agent-env-list">
+                        {(editor.env_keys ?? [])
+                          .filter((key) => !envRemove.includes(key))
+                          .map((key) => {
+                            const draft = envDraft.find(
+                              (item) => item.key === key,
+                            );
+                            return (
+                              <div className="agent-env-item" key={key}>
+                                <code>{key}</code>
+                                <input
+                                  type="password"
+                                  autoComplete="new-password"
+                                  aria-label={`${key} 的值`}
+                                  placeholder="留空保留原值"
+                                  value={draft?.value ?? ""}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setEnvDraft((items) =>
+                                      items.some((item) => item.key === key)
+                                        ? items.map((item) =>
+                                            item.key === key
+                                              ? { key, value }
+                                              : item,
+                                          )
+                                        : [...items, { key, value }],
+                                    );
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  aria-label={`删除环境变量 ${key}`}
+                                  onClick={() =>
+                                    setEnvRemove([...envRemove, key])
+                                  }
+                                >
+                                  删除
+                                </button>
+                              </div>
+                            );
+                          })}
+                        {!(editor.env_keys ?? []).length && (
+                          <p className="muted">尚未配置系统环境变量。</p>
+                        )}
+                      </div>
+                      <div className="agent-env-add">
+                        <input
+                          aria-label="新环境变量名"
+                          placeholder="变量名，例如 API_TOKEN"
+                          value={envNew.key}
+                          onChange={(event) =>
+                            setEnvNew({ ...envNew, key: event.target.value })
+                          }
+                        />
+                        <input
+                          type="password"
+                          autoComplete="new-password"
+                          aria-label="新环境变量值"
+                          placeholder="变量值"
+                          value={envNew.value}
+                          onChange={(event) =>
+                            setEnvNew({ ...envNew, value: event.target.value })
+                          }
+                        />
+                        <button
+                          type="button"
+                          disabled={!envNew.key.trim() || !envNew.value}
+                          onClick={() => {
+                            const key = envNew.key.trim();
+                            setEnvRemove(envRemove.filter((item) => item !== key));
+                            setEnvDraft((items) => [
+                              ...items.filter((item) => item.key !== key),
+                              { key, value: envNew.value },
+                            ]);
+                            setEnvNew({ key: "", value: "" });
+                          }}
+                        >
+                          添加
+                        </button>
+                      </div>
+                      {envDraft.some(
+                        (item) =>
+                          !(editor.env_keys ?? []).includes(item.key) &&
+                          item.value,
+                      ) && (
+                        <div className="agent-env-pending">
+                          {envDraft
+                            .filter(
+                              (item) =>
+                                !(editor.env_keys ?? []).includes(item.key) &&
+                                item.value,
+                            )
+                            .map((item) => (
+                              <div className="agent-env-item" key={item.key}>
+                                <code>{item.key}</code>
+                                <span className="muted">保存后生效</span>
+                                <button
+                                  type="button"
+                                  aria-label={`移除待保存的环境变量 ${item.key}`}
+                                  onClick={() =>
+                                    setEnvDraft((items) =>
+                                      items.filter(
+                                        (entry) => entry.key !== item.key,
+                                      ),
+                                    )
+                                  }
+                                >
+                                  移除
+                                </button>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                    <p className="muted">
+                      环境变量只注入该助手的工作区命令，不会进入平台进程、MCP 或其他助手；输出中的同名值会被脱敏。
                     </p>
                     <label className="checkbox-label">
                       <input

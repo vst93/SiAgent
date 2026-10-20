@@ -138,7 +138,9 @@ stdin/stdout 使用一行一个 JSON 对象，每帧 `v:1`，最多 256 KiB。st
 {"v":1,"type":"send","id":"delivery-id","delivery":{"id":"delivery-id","inbox_id":"inbox-id","target":"stable-conversation-scope","text":"回答","kind":"final","part":0,"reply_context":{"request_id":"opaque-vendor-context"}}}
 ```
 
-`kind` 为 `hint` 或 `final`，`part` 从 0 起。若支持更新同一条消息，可用 `inbox_id + part` 生成稳定流式 ID，使提示与最终回答复用消息。平台已经持久化发送尝试；适配器只发起一次 SDK 业务请求。
+`kind` 为 `ack`、`hint`、`draft` 或 `final`，`part` 从 0 起。`ack` 是收到消息后的即时确认，`draft` 是作答过程中持续更新的已生成内容，`hint` 是 30/90 秒的排队或处理中提示，三者都必须保持消息未结束；只有 `final` 结束消息。若支持更新同一条消息，可用 `inbox_id + part` 生成稳定流式 ID，使确认、进度、提示与最终回答复用同一条消息。平台已经持久化发送尝试；适配器只发起一次 SDK 业务请求。
+
+适配器在清单的 `provider` 中声明 `streaming: true` 才表示能在同一 ID 下原地更新同一条消息。声明后平台会按 Agent 配置发送即时确认与作答进度；未声明时只发送 `hint` 和 `final`，避免给每个问题增加一条独立消息。厂商对单条内容有字节上限或有效期时（例如企微流式消息约 10 分钟），适配器应自行按 `max_text_bytes` 拒绝超长内容，并在过期前切换到新的消息 ID。
 
 ```json
 {"v":1,"type":"result","id":"delivery-id","result":{"state":"sent","code":0}}

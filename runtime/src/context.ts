@@ -13,6 +13,11 @@ export type OutputPolicy = {
   tools: "hidden" | "summary" | "detailed";
   sources: boolean;
   progress: boolean;
+  /** "strip" removes inline <think>-style reasoning from the answer; "keep" leaves it. */
+  think_tags?: "strip" | "keep";
+  thinking_max_chars?: number;
+  acknowledge?: boolean;
+  stream?: boolean;
 };
 export function contextPolicy(value?: Partial<ContextPolicy>): ContextPolicy {
   if (

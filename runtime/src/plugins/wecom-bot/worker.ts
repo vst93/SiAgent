@@ -192,19 +192,22 @@ export function runWorker(wsUrl?: string) {
       return;
     }
     try {
-      // WeCom ends a stream after ten minutes. A late final answer starts a
-      // fresh completed stream rather than refreshing the expired hint.
+      // WeCom ends a stream after ten minutes, so each nine-minute window uses a
+      // different stream ID. Within one window the acknowledgement, drafts and
+      // the final answer replace the same message; after that a new message is
+      // started rather than updating an expired one.
       const received = Number(delivery.reply_context.received_at);
-      const lateFinal =
-        delivery.kind !== "hint" &&
-        Number.isFinite(received) &&
-        received > 0 &&
-        Date.now() - received > 9 * 60 * 1000;
+      const elapsed =
+        Number.isFinite(received) && received > 0 ? Date.now() - received : 0;
+      const window = Math.max(0, Math.floor(elapsed / (9 * 60 * 1000)));
+      const streamId = `siagent-${delivery.inbox_id}-${delivery.part}${
+        window > 0 ? `-r${window}` : ""
+      }`;
       await client.replyStream(
         { headers: { req_id: delivery.reply_context.req_id } },
-        `siagent-${delivery.inbox_id}-${delivery.part}${lateFinal ? "-final" : ""}`,
+        streamId,
         delivery.text,
-        delivery.kind !== "hint",
+        delivery.kind === "final",
       );
       result("sent");
     } catch (error) {

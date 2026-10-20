@@ -181,6 +181,9 @@ func (s *Server) dispatch() error {
 		request["output_policy"] = policy.Output
 		request["capabilities"] = snapshot.Capabilities
 		request["mcp_secrets"] = credentials.MCPs
+		if len(credentials.Env) > 0 {
+			request["env"] = credentials.Env
+		}
 		request["agent_id"] = snapshot.Agent.ID
 		advanced := snapshot.Agent.Policy.AdvancedTools && !s.advancedToolsDisabled
 		request["advanced_tools"] = advanced
@@ -249,6 +252,7 @@ func (s *Server) interruptAll(message string, release bool) error {
 		return err
 	}
 	for _, id := range ids {
+		delete(s.drafts, id)
 		if err := recordEvent(tx, id, 0, "interrupted", map[string]string{"reason": message}); err != nil {
 			return err
 		}

@@ -33,6 +33,10 @@ type Descriptor struct {
 	IdentityFields []string `json:"identity_fields"`
 	MaxTextBytes   int      `json:"max_text_bytes"`
 	Legacy         bool     `json:"legacy,omitempty"`
+	// Streaming reports that the same outbound message can be updated in place
+	// under a stable stream identifier. It lets the platform acknowledge a
+	// message, publish drafts, and finish the answer without extra messages.
+	Streaming bool `json:"streaming,omitempty"`
 }
 type Config struct {
 	ID       string            `json:"id"`

@@ -14,8 +14,22 @@ func outputExcerpt(text string, limit int) string {
 }
 func (s *Server) channelRunOutput(runID, text, thinking string, snapshot runConfig) (string, error) {
 	output := snapshot.Agent.effectivePolicy().Output
-	if output.Thinking && thinking != "" {
-		text = "思考摘要：\n" + outputExcerpt(thinking, 8000) + "\n\n回答：\n" + text
+	// Inline reasoning must never reach a chat member. Old runs and runtimes that
+	// predate the filter are cleaned here as well as in the Runtime.
+	if output.ThinkTags != "keep" {
+		summary := ""
+		if output.Thinking {
+			summary = reasoningSummary(thinking, text, output.ThinkingMaxChars)
+		}
+		text = sanitizeAnswer(text)
+		if strings.TrimSpace(text) == "" {
+			text = "模型只返回了思考过程，没有产生可发送的回答。请换个问法或检查模型输出配置。"
+		}
+		if summary != "" {
+			text = "思考摘要：\n" + summary + "\n\n回答：\n" + text
+		}
+	} else if output.Thinking && thinking != "" {
+		text = "思考摘要：\n" + outputExcerpt(thinking, output.ThinkingMaxChars) + "\n\n回答：\n" + text
 	}
 	if output.Tools == "hidden" {
 		return text, nil

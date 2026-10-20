@@ -188,6 +188,7 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 	}
 	message := ""
 	data := map[string]any{}
+	staged := false
 	switch event.Type {
 	case "thinking_delta":
 		var payload struct {
@@ -223,6 +224,9 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 			return err
 		}
 		data["bytes"] = len(payload.Text)
+		// Progressive channel output is staged after the delta is durable. A
+		// failure here must not fail the run; the final answer is authoritative.
+		staged = true
 	case "run_completed":
 		status = "completed"
 		var payload struct {
@@ -232,10 +236,24 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 			return err
 		}
 		if payload.Answer != nil {
-			if _, err = tx.Exec("UPDATE messages SET content=? WHERE run_id=? AND role='assistant'", *payload.Answer, runID); err != nil {
+			answerText := *payload.Answer
+			// Safety net for a Runtime that predates inline-reasoning filtering: the
+			// final text shown to people must never carry a reasoning trace.
+			var config string
+			if err := tx.QueryRow("SELECT config FROM runs WHERE id=?", runID).Scan(&config); err != nil {
 				return err
 			}
-			data["bytes"] = len(*payload.Answer)
+			var snapshot runConfig
+			if err := json.Unmarshal([]byte(config), &snapshot); err != nil {
+				return err
+			}
+			if snapshot.Agent.effectivePolicy().Output.ThinkTags != "keep" {
+				answerText = sanitizeAnswer(answerText)
+			}
+			if _, err = tx.Exec("UPDATE messages SET content=? WHERE run_id=? AND role='assistant'", answerText, runID); err != nil {
+				return err
+			}
+			data["bytes"] = len(answerText)
 		}
 		if err = recordAnswerEvidence(tx, runID); err != nil {
 			return err
@@ -381,8 +399,24 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 	if err := recordEvent(tx, runID, logSeq, event.Type, data); err != nil {
 		return err
 	}
+	var answerText string
+	if staged {
+		// Read the accumulated answer inside the same transaction so the draft
+		// always matches durable content.
+		if err := tx.QueryRow("SELECT content FROM messages WHERE run_id=? AND role='assistant'", runID).Scan(&answerText); err != nil {
+			staged = false
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return err
+	}
+	if staged {
+		if err := s.stageChannelDraft(runID, answerText); err != nil {
+			return err
+		}
+	}
+	if terminal(status) {
+		delete(s.drafts, runID)
 	}
 	if terminal(status) && event.Type != "run_released" {
 		s.enqueueWebhooks(runID, status)
@@ -433,6 +467,7 @@ func (s *Server) reconcile(runID string, data json.RawMessage) error {
 	if _, err = tx.Exec("UPDATE tool_calls SET status='interrupted' WHERE run_id=? AND status='running'", runID); err != nil {
 		return err
 	}
+	delete(s.drafts, runID)
 	if err := recordEvent(tx, runID, 0, "reconciled", map[string]bool{"released": true}); err != nil {
 		return err
 	}
