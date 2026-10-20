@@ -233,6 +233,54 @@ func TestAgentEnvironmentIsEncryptedFrozenAndDelivered(t *testing.T) {
 	}
 }
 
+func TestAgentEnvironmentNeverLeaksToAnotherAgent(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	f.model(t, "fixture", "model-secret")
+	f.server.limits.Concurrent = 1
+	first := saveTestAgent(t, f, Agent{Name: "Token owner", Instructions: "owner role", Enabled: true, ModelID: 1})
+	requireStatus(t, f.request(t, "PUT", "/api/agents/"+first.ID, map[string]any{
+		"name": first.Name, "instructions": first.Instructions, "enabled": true, "model_id": 1,
+		"env": map[string]string{"OWNER_TOKEN": "owner-private-value"},
+	}, true, nil), 200)
+	second := saveTestAgent(t, f, Agent{Name: "Other agent", Instructions: "other role", Enabled: true, ModelID: 1})
+	ownerChat := agentConversation(t, f, first.ID)
+	otherChat := agentConversation(t, f, second.ID)
+	f.start(t, ownerChat, "owner question")
+	request := f.runtime.requests[len(f.runtime.requests)-1]
+	env, _ := request["env"].(map[string]string)
+	if env["OWNER_TOKEN"] != "owner-private-value" {
+		t.Fatalf("owning Agent did not receive its variable: %#v", request["env"])
+	}
+	// Release the first run so the second conversation can be dispatched.
+	firstRun := request["run_id"].(string)
+	emit(t, f, firstRun, "run_started", 1)
+	emit(t, f, firstRun, "run_completed", 2)
+	emit(t, f, firstRun, "run_released", 3)
+	f.start(t, otherChat, "other question")
+	request = f.runtime.requests[len(f.runtime.requests)-1]
+	if request["conversation_id"] != otherChat {
+		t.Fatalf("unexpected dispatch: %#v", request["conversation_id"])
+	}
+	if _, present := request["env"]; present {
+		t.Fatalf("another Agent's run received the owner environment: %#v", request["env"])
+	}
+	if keys, ok := request["env"].(map[string]string); ok && keys["OWNER_TOKEN"] != "" {
+		t.Fatalf("another Agent's run received the owner secret: %#v", keys)
+	}
+	// The default Agent, which never configured a variable, stays empty as well.
+	requireStatus(t, f.request(t, "GET", "/api/agents/"+first.ID, nil, true, nil), 200)
+	var loaded Agent
+	response := f.request(t, "GET", "/api/agents/"+second.ID, nil, true, nil)
+	requireStatus(t, response, 200)
+	if err := json.Unmarshal(response.Body.Bytes(), &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.EnvKeys) != 0 {
+		t.Fatalf("another Agent reported the owner's variable names: %+v", loaded.EnvKeys)
+	}
+}
+
 func TestChannelReplyHidesInlineReasoningAndBoundsSummary(t *testing.T) {
 	f := newFixture(t)
 	f.setup(t)
