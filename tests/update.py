@@ -107,8 +107,10 @@ def main():
         assert all(mode in ('web', 'cli', 'offline') for mode in modes), modes
         for mode in modes:
             prefix = root / mode / 'installation'
+            # Never register a service here: it would start a second instance on the
+            # same data directory and hold the data lock this fixture needs.
             subprocess.run(['sh', str(ROOT / 'scripts/install.sh'), '--version', 'v0.0.1', '--prefix', str(prefix),
-                            '--bin-dir', str(root / mode / 'bin'), '--no-modify-path'], env=env, check=True,
+                            '--bin-dir', str(root / mode / 'bin'), '--no-modify-path', '--no-service'], env=env, check=True,
                            stdout=subprocess.DEVNULL)
             with socket.socket() as reserved:
                 reserved.bind(('127.0.0.1', 0))
