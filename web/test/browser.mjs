@@ -161,7 +161,14 @@ const child = spawn(
     cwd: root,
     env: Object.fromEntries(
       Object.entries(process.env).filter(
-        ([key]) => !key.startsWith("SIAGENT_"),
+        ([key]) =>
+          !key.startsWith("SIAGENT_") &&
+          ![
+            "INVOCATION_ID",
+            "NOTIFY_SOCKET",
+            "SUPERVISOR_ENABLED",
+            "CONTAINER",
+          ].includes(key.toUpperCase()),
       ),
     ),
     stdio: ["ignore", "ignore", "pipe"],
