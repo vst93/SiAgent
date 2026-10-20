@@ -179,39 +179,25 @@ else
   rm -rf "$select_dir"; select_dir=
 fi
 # Report the archive transfer on one bounded line so the application updater can
-# show a progress bar. The total comes from a background HEAD request; when the
-# server does not publish one the updater shows an indeterminate bar instead.
+# show a progress bar. The expected total is supplied by the updater, which
+# already probed the release size; without it the bar stays indeterminate.
+# Keeping this out of the download path avoids an extra request that would
+# disturb source fallback and its tests.
 case $(uname -s) in
   Linux) stat_size() { stat -c %s "$1" 2>/dev/null || printf 0; } ;;
   *) stat_size() { stat -f %z "$1" 2>/dev/null || printf 0; } ;;
 esac
-remote_size() { # remote_size <source base> <release path>
-  curl -fsIL --connect-timeout 5 --max-time 15 "$1/$2" 2>/dev/null |
-    awk 'BEGIN { IGNORECASE = 1 } /^content-length:/ { gsub("\r", ""); size = $2 }
-         END { if (size ~ /^[0-9]+$/) print size; else print 0 }'
-}
-download_asset() { # download_asset <source base> <release path> <output>
-  ( remote_size "$1" "$2" > "$3.size.tmp" 2>/dev/null || printf 0 > "$3.size.tmp"
-    mv "$3.size.tmp" "$3.size" 2>/dev/null || : ) &
-  probe=$!
-  ( while :; do
-      total=$(cat "$3.size" 2>/dev/null)
-      case "$total" in ''|*[!0-9]*) total=0 ;; esac
-      printf 'progress: %s %s\n' "$(stat_size "$3")" "$total"
-      sleep 0.4
-    done ) &
-  reporter=$!
-  download "$1" "$2" "$3" 120 2
-  status=$?
-  kill "$probe" "$reporter" 2>/dev/null || :
-  wait "$probe" "$reporter" 2>/dev/null || :
-  rm -f "$3.size" "$3.size.tmp"
-  return $status
-}
-if ! download_asset "$source_base" "download/$version/$asset" "$work_dir/$asset"; then
-  printf 'progress: 0 0\n'
-  fetch_file "download/$version/$asset" "$work_dir/$asset" 120 || fail 'Cannot download release via GitHub or mirrors.'
-fi
+scale_total=${SIAGENT_RELEASE_TOTAL:-0}
+case "$scale_total" in ''|*[!0-9]*) scale_total=0 ;; esac
+( while :; do
+    printf 'progress: %s %s\n' "$(stat_size "$work_dir/$asset")" "$scale_total"
+    sleep 0.4
+  done ) &
+reporter=$!
+fetch_file "download/$version/$asset" "$work_dir/$asset" 120 || fail 'Cannot download release via GitHub or mirrors.'
+kill "$reporter" 2>/dev/null || :
+wait "$reporter" 2>/dev/null || :
+trap cleanup EXIT
 expected=$(awk -v file="$asset" '$2 == file || $2 == "./" file {print $1}' "$work_dir/SHA256SUMS")
 [ "${#expected}" -eq 64 ] || fail "Missing or ambiguous checksum for $asset"
 case "$expected" in *[!0-9a-fA-F]*) fail 'Invalid SHA-256 checksum' ;; esac

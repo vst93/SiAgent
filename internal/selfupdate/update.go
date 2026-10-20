@@ -317,7 +317,11 @@ func (m *Manager) Prepare() error {
 		command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		command.Cancel = func() error { return syscall.Kill(-command.Process.Pid, syscall.SIGKILL) }
 		command.WaitDelay = time.Second
-		command.Env = append(os.Environ(), "SIAGENT_RELEASE_BASE_URL="+m.releaseBase)
+		// A determinate total makes the maintenance progress bar meaningful; when
+		// the source does not report one the installer leaves the total at zero.
+		asset := fmt.Sprintf("siagent-%s-%s.tar.xz", runtime.GOOS, runtime.GOARCH)
+		total := ReleaseSize(ctx, m.client, m.releaseBase, latest, asset, 12*time.Second)
+		command.Env = append(os.Environ(), "SIAGENT_RELEASE_BASE_URL="+m.releaseBase, fmt.Sprintf("SIAGENT_RELEASE_TOTAL=%d", total))
 		writer := &downloadProgress{}
 		command.Stdout = writer
 		command.Stderr = writer

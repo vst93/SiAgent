@@ -98,3 +98,29 @@ func fetchAttempt(ctx context.Context, client *http.Client, source, destination 
 	}
 	return nil
 }
+
+// ReleaseSize asks the release source for the archive size so the installer can
+// report determinate progress. A missing or unknown size is not an error: the
+// progress bar simply stays indeterminate.
+func ReleaseSize(ctx context.Context, client *http.Client, base, version, asset string, timeout time.Duration) int64 {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	url := fmt.Sprintf("%s/download/%s/%s", base, version, asset)
+	req, err := http.NewRequestWithContext(ctx, "HEAD", url, nil)
+	if err != nil {
+		return 0
+	}
+	req.Header.Set("User-Agent", "SiAgent-Updater")
+	response, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return 0
+	}
+	if response.ContentLength > 0 {
+		return response.ContentLength
+	}
+	return 0
+}
