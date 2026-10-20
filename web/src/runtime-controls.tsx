@@ -92,7 +92,7 @@ function KnowledgeUploadSettings({ request }: { request: Api }) {
       <div className="panel-body">
       {value && (
         <form onSubmit={save}>
-          <div className="limits-grid">
+          <div className="limits-grid knowledge-limits-grid">
             <label>
               单文件上限（MiB）
               <input
@@ -245,6 +245,16 @@ type Limits = {
   tool_timeout_seconds: number;
   tool_rounds: number;
 };
+type Capacity = {
+  cpu_cores: number;
+  memory_bytes?: number;
+  runtime_active: number;
+  recommended: Limits;
+  note?: string;
+};
+// The limits are returned flat for compatibility with older clients, with the
+// host recommendation beside them.
+type LimitsResponse = Limits & { capacity: Capacity };
 const fields: {
   key: keyof Limits;
   label: string;
@@ -257,7 +267,7 @@ const fields: {
     key: "concurrent",
     label: "同时执行的任务数",
     min: 1,
-    max: 32,
+    max: 100000,
     unit: "个任务",
     help: "一个任务指一次用户提问及其后的回答和工具调用。调大能同时服务更多人，但每个任务都占用内存与模型并发额度；超过 Runtime 上限（32）不再接受新任务。",
   },
@@ -265,7 +275,7 @@ const fields: {
     key: "conversation_queue",
     label: "每个会话最多等待",
     min: 1,
-    max: 1000,
+    max: 1000000,
     unit: "个任务",
     help: "同一会话内按先进先出执行，等待数超过此值后拒绝新消息，避免单个会话占满队列。",
   },
@@ -273,7 +283,7 @@ const fields: {
     key: "global_queue",
     label: "整个实例最多等待",
     min: 1,
-    max: 10000,
+    max: 10000000,
     unit: "个任务",
     help: "所有会话合计的等待上限，不能小于每个会话的等待上限。达到后 Web 与渠道都会提示队列已满。",
   },
@@ -281,23 +291,23 @@ const fields: {
     key: "run_timeout_seconds",
     label: "单次运行时限",
     min: 1,
-    max: 3600,
-    unit: "秒（1–3600，即最长 1 小时）",
+    max: 604800,
+    unit: "秒（最长 7 天）",
     help: "一次任务从开始执行到结束的总时限，包含排队之后的模型与工具耗时。超时后确认停止，不自动重试，已产生的内容保留。",
   },
   {
     key: "tool_timeout_seconds",
     label: "单次工具时限",
     min: 1,
-    max: 600,
-    unit: "秒（1–600，即最长 10 分钟）",
+    max: 86400,
+    unit: "秒（最长 1 天）",
     help: "单次 Skill、MCP 或本地命令调用的时限。超时会停止后续调用并标记结果不明，需要人工核对外部系统。",
   },
   {
     key: "tool_rounds",
     label: "最多工具调用轮数",
     min: 1,
-    max: 100,
+    max: 10000,
     unit: "轮",
     help: "一次任务中模型连续调用工具的轮数上限。一轮指模型发起一批工具调用并收到结果；达到上限后停止继续调用。",
   },
@@ -442,12 +452,17 @@ export function ConversationMaintenance({
 
 function RunLimitsSettings({ request }: { request: Api }) {
   const [limits, setLimits] = useState<Limits | null>(null);
+  const [capacity, setCapacity] = useState<Capacity | null>(null);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [pending, setPending] = useState(false);
   useEffect(() => {
-    void request<Limits>("/limits")
-      .then(setLimits)
+    void request<LimitsResponse>("/limits")
+      .then((payload) => {
+        const { capacity: reported, ...saved } = payload;
+        setLimits(saved);
+        setCapacity(reported);
+      })
       .catch((error) => setError(message(error)));
   }, []);
   async function save(event: FormEvent) {
@@ -474,9 +489,48 @@ function RunLimitsSettings({ request }: { request: Api }) {
         </div>
       </header>
       <div className="panel-body">
+        {capacity && (
+          <section className="capacity-hint" aria-label="本机建议值">
+            <header>
+              <strong>本机规格</strong>
+              <span>
+                {capacity.cpu_cores} 核
+                {capacity.memory_bytes
+                  ? ` · ${(capacity.memory_bytes / 1024 ** 3).toFixed(1)} GiB 内存`
+                  : ""}
+              </span>
+            </header>
+            <p>
+              推荐同时执行{" "}
+              <strong>{capacity.recommended.concurrent}</strong>{" "}
+              个任务、每个会话等待 {capacity.recommended.conversation_queue}{" "}
+              个、整个实例等待 {capacity.recommended.global_queue}{" "}
+              个。这些只是按本机 CPU 与内存给出的建议，不是强制上限；请按模型服务配额和实际负载调整。
+            </p>
+            <small>
+              单个 Runtime 进程同时最多执行 {capacity.runtime_active}{" "}
+              个任务，超出部分会排队等待而不是被拒绝。
+              {capacity.note ? ` ${capacity.note}` : ""}
+            </small>
+            <button
+              type="button"
+              className="capacity-apply"
+              onClick={() =>
+                setLimits({
+                  ...limits!,
+                  concurrent: capacity.recommended.concurrent,
+                  conversation_queue: capacity.recommended.conversation_queue,
+                  global_queue: capacity.recommended.global_queue,
+                })
+              }
+            >
+              使用推荐值
+            </button>
+          </section>
+        )}
         {limits && (
           <form onSubmit={save}>
-            <div className="limits-grid">
+            <div className="limits-grid run-limits-grid">
               {fields.map((field) => (
                 <label key={field.key}>
                   {field.label}（{field.unit}）
@@ -501,7 +555,7 @@ function RunLimitsSettings({ request }: { request: Api }) {
             </div>
             <p className="field-note">
               并发与队列立即生效，时限和工具轮数用于新提交的任务。总等待数不能小于单个会话的等待数；上下文策略在 Agent
-              中配置，窗口与最大输出由模型连接决定。
+              中配置，窗口与最大输出由模型连接决定。这些值没有硬性上限，调整前请确认模型服务的并发配额和宿主内存。
             </p>
             <div className="form-actions">
               <button className="primary" disabled={pending}>

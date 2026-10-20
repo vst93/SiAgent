@@ -221,6 +221,10 @@ try {
   const config = async (name) => {
     const modules = page.getByRole("navigation", { name: "主导航" });
     if (await modules.isVisible()) {
+      // The rail scrolls; reset it so the target stops moving before clicking.
+      await modules.evaluate((nav) => {
+        nav.scrollTop = 0;
+      });
       await modules.getByRole("button", { name, exact: true }).click();
     } else {
       await page.getByRole("button", { name: "打开导航", exact: true }).click();
@@ -644,14 +648,43 @@ try {
   );
   // Each limit states its unit and what it bounds.
   assert.match(
-    await page.locator(".limits-grid > label").first().innerText(),
+    await page.locator(".run-limits-grid > label").first().innerText(),
     /同时执行的任务数（个任务）/,
   );
   assert.match(
-    await page.locator(".limits-grid > label").first().innerText(),
+    await page.locator(".run-limits-grid > label").first().innerText(),
     /每个任务都占用内存与模型并发额度/,
   );
+  // The host recommendation is advisory only: it is shown, can be applied with
+  // one click, and a value above it is still accepted.
+  const capacity = await page.locator(".capacity-hint").innerText();
+  assert.match(capacity, /本机规格/);
+  assert.match(capacity, /不是强制上限/);
+  assert.match(capacity, /个任务，超出部分会排队等待而不是被拒绝/);
+  await page.getByRole("button", { name: "使用推荐值", exact: true }).click();
+  const reported = await page.evaluate(() =>
+    fetch("/api/limits").then((response) => response.json()),
+  );
+  assert.equal(
+    Number(await page.getByLabel("同时执行的任务数", { exact: true }).inputValue()),
+    reported.capacity.recommended.concurrent,
+  );
+  await page
+    .getByLabel("同时执行的任务数", { exact: true })
+    .fill(String(reported.capacity.runtime_active + 5));
+  await page.getByRole("button", { name: "保存运行限制" }).click();
+  await page.getByText("限制已保存。", { exact: false }).waitFor();
+  assert.equal(
+    await page.evaluate(() =>
+      fetch("/api/limits")
+        .then((response) => response.json())
+        .then((data) => data.concurrent),
+    ),
+    reported.capacity.runtime_active + 5,
+    "values above the recommendation must be accepted",
+  );
   await page.getByLabel("单次运行时限", { exact: true }).fill("60");
+  await page.getByLabel("同时执行的任务数", { exact: true }).fill("2");
   await page.getByRole("button", { name: "保存运行限制" }).click();
   await page.getByText("限制已保存。", { exact: false }).waitFor();
   assert.equal(
@@ -1390,6 +1423,21 @@ try {
   await page.getByText("排队中", { exact: true }).waitFor();
   await page.getByRole("button", { name: "取消排队", exact: true }).click();
   await page.getByText("已取消", { exact: true }).waitFor();
+  // Copying: one message at a time and the whole transcript, both confirmed in
+  // place without a page reload or error.
+  await page.locator(".chat-stats").waitFor();
+  assert.match(await page.locator(".chat-stats").innerText(), /\d+ 轮/);
+  await page.locator(".message.assistant").last().hover();
+  await page
+    .getByRole("button", { name: "复制这条消息" })
+    .last()
+    .click();
+  await page
+    .getByRole("button", { name: "已复制这条消息", exact: true })
+    .first()
+    .waitFor();
+  await page.getByRole("button", { name: "复制对话", exact: true }).click();
+  await page.getByRole("button", { name: "已复制", exact: true }).waitFor();
   // Collapsed rail: the four footer actions stack in a single centered column
   // with distinct rows, instead of a cramped two-by-two block.
   await page.locator(".rail-collapse").click();
@@ -1423,11 +1471,29 @@ try {
     railActions.items.every((item) => item.width >= 24 && item.height >= 24),
     "collapsed rail targets are too small",
   );
+  // No horizontal scrollbar in the collapsed rail: the scroll containers clip
+  // horizontally, and the navigation content is no wider than its box.
+  const railScroll = await page.evaluate(() => {
+    const nav = document.querySelector(".rail-nav");
+    const rail = document.querySelector(".app-rail");
+    return {
+      railOverflowX: rail ? getComputedStyle(rail).overflowX : "",
+      navOverflowX: nav ? getComputedStyle(nav).overflowX : "",
+      navContent: nav ? nav.scrollWidth - nav.clientWidth : 0,
+    };
+  });
+  assert.equal(railScroll.railOverflowX, "hidden");
+  assert.equal(railScroll.navOverflowX, "hidden");
+  assert(
+    railScroll.navContent <= 0,
+    `collapsed navigation is wider than its box by ${railScroll.navContent}px`,
+  );
   await page.screenshot({
     path: join(artifacts, "rail-collapsed-desktop.png"),
   });
   await page.locator(".rail-collapse").click();
-  await page.waitForTimeout(200);
+  // Wait for the rail layout to settle before clicking inside it again.
+  await page.waitForTimeout(600);
   await config("模型连接");
   releaseHold();
   await chat();
@@ -1532,7 +1598,43 @@ try {
     });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByRole("button", { name: "取消", exact: true }).click();
+  // Close the channel editor first: an open dialog blocks navigation clicks.
+  await page
+    .locator("dialog.channel-editor, .channel-editor")
+    .getByRole("button", { name: "取消", exact: true })
+    .click()
+    .catch(() => {});
+  await config("插件接入");
+  // Skill rows follow the card rhythm, and the related-Agent block is a titled
+  // panel with pill rows instead of plain inline text.
+  const skillRow = page.locator(".skill-list-item").first();
+  await skillRow.waitFor();
+  const skillRowLayout = await skillRow.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      display: style.display,
+      columns: style.gridTemplateColumns.split(" ").length,
+      icon: Boolean(el.querySelector(".skill-list-icon")),
+    };
+  });
+  assert.equal(skillRowLayout.display, "grid");
+  assert.equal(skillRowLayout.columns, 3);
+  assert(skillRowLayout.icon, "skill rows need a leading icon");
+  const linked = page.locator(".linked-agents").first();
+  if (await linked.count()) {
+    assert.equal(
+      await linked.locator(".linked-agents-title").count(),
+      1,
+      "related-Agent block needs a title row",
+    );
+    const pill = await linked.locator("li").first().evaluate((el) => {
+      const style = getComputedStyle(el);
+      return { radius: style.borderRadius, border: style.borderTopWidth };
+    });
+    assert.match(pill.radius, /px|9999px/);
+    assert.notEqual(pill.border, "0px");
+  }
+  await config("渠道接入");
   const genericChannels = await page.evaluate(() =>
     fetch("/api/channels").then((response) => response.text()),
   );
@@ -2289,29 +2391,58 @@ try {
   await page.locator(".command-panel").waitFor();
   await page.keyboard.press("Escape");
   await page.locator(".command-panel").waitFor({ state: "detached" });
-  // Theme preference survives a reload and can be switched back.
-  await page
-    .locator(".mobile-topbar")
-    .getByRole("button", { name: "切换到深色模式", exact: true })
-    .click();
+  // Theme cycles light -> dark -> auto; automatic mode resolves from the clock
+  // and the choice survives a reload.
+  const themeButton = page.locator(".mobile-topbar .theme-toggle");
+  await themeButton.click();
   assert.equal(
     await page.evaluate(() => document.documentElement.dataset.theme),
     "dark",
   );
+  assert.equal(await themeButton.getAttribute("data-mode"), "dark");
   await page.reload();
   await page.waitForTimeout(300);
   assert.equal(
     await page.evaluate(() => document.documentElement.dataset.theme),
     "dark",
   );
-  await page
-    .locator(".mobile-topbar")
-    .getByRole("button", { name: "切换到浅色模式", exact: true })
-    .click();
+  assert.equal(
+    await page.locator(".mobile-topbar .theme-toggle").getAttribute("data-mode"),
+    "dark",
+  );
+  await page.locator(".mobile-topbar .theme-toggle").click();
+  assert.equal(
+    await page.locator(".mobile-topbar .theme-toggle").getAttribute("data-mode"),
+    "auto",
+  );
+  const resolved = await page.evaluate(() => {
+    const hour = new Date().getHours();
+    const expected = hour >= 7 && hour < 19 ? "light" : "dark";
+    return {
+      actual: document.documentElement.dataset.theme,
+      expected,
+      stored: localStorage.getItem("siagent.theme"),
+    };
+  });
+  assert.equal(resolved.stored, "auto");
+  assert.equal(
+    resolved.actual,
+    resolved.expected,
+    "automatic mode must follow the local clock",
+  );
+  await page.reload();
+  await page.waitForTimeout(400);
+  assert.equal(
+    await page.locator(".mobile-topbar .theme-toggle").getAttribute("data-mode"),
+    "auto",
+  );
+  assert.equal(await page.evaluate(() => localStorage.getItem("siagent.theme")), "auto");
+  await page.locator(".mobile-topbar .theme-toggle").click();
   assert.equal(
     await page.evaluate(() => document.documentElement.dataset.theme),
     "light",
   );
+  assert.equal(await page.evaluate(() => localStorage.getItem("siagent.theme")), "light");
   assert.deepEqual(errors, []);
   console.log(
     "Browser passed: Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, Chinese/English switch with reload persistence, no JS errors.",

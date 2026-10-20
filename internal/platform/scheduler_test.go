@@ -183,3 +183,66 @@ func TestStatusReconciliationNeverInventsSuccess(t *testing.T) {
 		t.Fatal("confirmed release did not free queue")
 	}
 }
+
+func TestRuntimeLimitsAreAdvisoryNotCapped(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	report := f.request(t, "GET", "/api/limits", nil, true, nil)
+	requireStatus(t, report, 200)
+	var payload limitsResponse
+	if err := json.Unmarshal(report.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Capacity.CPUCores < 1 || payload.Capacity.Recommended.Concurrent < 1 {
+		t.Fatalf("capacity report is empty: %+v", payload.Capacity)
+	}
+	if payload.Capacity.RuntimeActive != runtimeActiveLimit {
+		t.Fatalf("runtime ceiling not reported: %+v", payload.Capacity)
+	}
+	if payload.Capacity.Recommended.Concurrent > runtimeActiveLimit {
+		t.Fatalf("recommendation exceeds the runtime ceiling: %+v", payload.Capacity.Recommended)
+	}
+	// A large value is accepted: the administrator sizes the deployment.
+	large := defaultLimits()
+	large.Concurrent = 200
+	large.ConversationQueue = 500
+	large.GlobalQueue = 5000
+	large.RunTimeout = 7200
+	// Re-submitting the GET body (limits plus the reported capacity) is valid.
+	roundTrip, err := json.Marshal(limitsResponse{Limits: large, Capacity: payload.Capacity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(roundTrip, &body); err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, f.request(t, "PUT", "/api/limits", body, true, nil), 200)
+	if err := f.store.db.QueryRow("SELECT config FROM settings WHERE id=1").Scan(new(string)); err != nil {
+		t.Fatal(err)
+	}
+	// Inconsistent values are still rejected.
+	bad := large
+	bad.GlobalQueue = 10
+	requireStatus(t, f.request(t, "PUT", "/api/limits", bad, true, nil), 400)
+}
+
+func TestRecommendedConcurrencyFollowsHostSize(t *testing.T) {
+	cases := []struct {
+		cores  int
+		memory uint64
+		want   int
+	}{
+		{1, 0, 2},
+		{4, 4 << 30, 4},
+		{8, 4 << 30, 8},
+		{32, 128 << 30, runtimeActiveLimit},
+		{64, 512 << 30, runtimeActiveLimit},
+		{8, 1 << 30, 2},
+	}
+	for _, item := range cases {
+		if got := recommendConcurrent(item.cores, item.memory); got != item.want {
+			t.Fatalf("cores=%d memory=%d: got %d, want %d", item.cores, item.memory, got, item.want)
+		}
+	}
+}

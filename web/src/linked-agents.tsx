@@ -49,8 +49,11 @@ export function LinkedAgents({
   return (
     <div className="linked-agents">
       <div className="linked-agents-head">
-        <strong>关联 Agent</strong>
-        <span>{agents.length}</span>
+        <span className="linked-agents-title">
+          <Icon name="agent" size={14} />
+          关联 Agent
+        </span>
+        <span className="linked-agents-count">{agents.length}</span>
       </div>
       {error && (
         <p className="error" role="alert">

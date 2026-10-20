@@ -31,6 +31,9 @@ import { UploadSimpleIcon } from "@phosphor-icons/react/dist/csr/UploadSimple";
 import { WarningCircleIcon } from "@phosphor-icons/react/dist/csr/WarningCircle";
 import { XIcon } from "@phosphor-icons/react/dist/csr/X";
 import { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight";
+import { CheckIcon } from "@phosphor-icons/react/dist/csr/Check";
+import { CircleHalfIcon } from "@phosphor-icons/react/dist/csr/CircleHalf";
+import { CopyIcon } from "@phosphor-icons/react/dist/csr/Copy";
 
 // System icons belong to one family. Add future icons here; keep the logo separate.
 const icons = {
@@ -40,6 +43,9 @@ const icons = {
   "arrow-up": ArrowUpIcon,
   "arrow-up-right": ArrowUpRightIcon,
   "caret-right": CaretRightIcon,
+  auto: CircleHalfIcon,
+  check: CheckIcon,
+  copy: CopyIcon,
   channels: ArrowsLeftRightIcon,
   knowledge: BooksIcon,
   key: KeyIcon,

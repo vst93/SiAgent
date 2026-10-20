@@ -650,16 +650,25 @@ function SkillCatalog({ request }: { request: Api }) {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-            <nav aria-label="技能列表">
+            <nav className="skill-list" aria-label="技能列表">
               {visible.map((skill) => (
                 <button
                   key={skill.id}
+                  className="skill-list-item"
                   aria-current={current?.id === skill.id ? "true" : undefined}
                   onClick={() => setSelected(skill.id)}
                 >
-                  <strong title={skill.name}>{skill.name}</strong>
-                  <span title={skill.description}>{skill.description}</span>
-                  <small>{skill.files.length} 个文件</small>
+                  <span className="skill-list-icon" aria-hidden="true">
+                    <Icon name="plugins" size={16} />
+                  </span>
+                  <span className="skill-list-text">
+                    <strong title={skill.name}>{skill.name}</strong>
+                    <span title={skill.description}>{skill.description}</span>
+                  </span>
+                  <span className="skill-list-meta">
+                    {skill.files.length}
+                    <span className="skill-list-meta-label">文件</span>
+                  </span>
                 </button>
               ))}
             </nav>

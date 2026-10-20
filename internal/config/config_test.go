@@ -44,7 +44,9 @@ func TestLoadRejectsUnknownAndOutOfRange(t *testing.T) {
 	for _, body := range []string{
 		`{"unknown": true}`,
 		`{"attachments": {"max_file_bytes": -1}}`,
-		`{"limits": {"concurrent": 99, "conversation_queue": 1, "global_queue": 1, "run_timeout_seconds": 60, "tool_timeout_seconds": 20, "tool_rounds": 4}}`,
+		`{"limits": {"concurrent": 0, "conversation_queue": 1, "global_queue": 1, "run_timeout_seconds": 60, "tool_timeout_seconds": 20, "tool_rounds": 4}}`,
+		`{"limits": {"concurrent": 2, "conversation_queue": 5, "global_queue": 1, "run_timeout_seconds": 60, "tool_timeout_seconds": 20, "tool_rounds": 4}}`,
+		`{"limits": {"concurrent": 2, "conversation_queue": 1, "global_queue": 2, "run_timeout_seconds": 604801, "tool_timeout_seconds": 20, "tool_rounds": 4}}`,
 		`{"knowledge": {"max_file_bytes": 1024}}`,
 		`{"knowledge": {"allowed_extensions": ["../txt"]}}`,
 	} {

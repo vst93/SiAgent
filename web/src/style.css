@@ -567,6 +567,53 @@ textarea {
   font-variant-numeric: tabular-nums;
   color: var(--faint);
 }
+/* Copy actions stay out of the way until the reader points at the message,
+   and remain visible on touch or keyboard focus. */
+.message-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.message:hover .message-actions,
+.message:focus-within .message-actions {
+  opacity: 1;
+}
+.message-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--faint);
+}
+.message-action:hover:not(:disabled) {
+  background: var(--surface-raised);
+  color: var(--ink);
+}
+.thinking-output summary .message-action {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.chat-stats {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.chat-copy-transcript {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+}
 .message-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -889,6 +936,47 @@ summary {
   margin-left: auto;
   font-family: monospace;
 }
+.capacity-hint {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+.capacity-hint > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+.capacity-hint > header span {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.capacity-hint > p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.capacity-hint > p strong {
+  color: var(--ink);
+}
+.capacity-hint > small {
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--faint);
+}
+.capacity-hint .capacity-apply {
+  justify-self: start;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
 .limits-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -978,7 +1066,7 @@ summary {
   color: var(--muted);
 }
 .resource-preview {
-  max-height: 300px;
+  max-height: clamp(220px, 38dvh, 520px);
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1368,11 +1456,13 @@ summary {
 }
 .app-rail {
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   padding: 14px 10px 10px;
   border-right: 1px solid var(--line);
   background: var(--surface-raised);
+  overflow: hidden;
 }
 .rail-brand {
   display: flex;
@@ -1400,7 +1490,11 @@ summary {
 .rail-nav {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
+  /* Collapsed links are 44px wide inside a 64px rail with padding. Without this
+     the scroll container kept a horizontal scrollbar for a few stray pixels. */
+  overflow-x: hidden;
   padding: 0 2px;
   scrollbar-gutter: stable;
 }
@@ -1516,6 +1610,12 @@ summary {
 .theme-toggle:hover:not(:disabled) {
   background: var(--surface);
   color: var(--ink);
+}
+/* Automatic mode is a third state, not a separate control: a subtle ring marks
+   it so the icon is not mistaken for a manual light/dark choice. */
+.theme-toggle[data-mode="auto"] {
+  color: var(--teal-strong);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 .configuration-workspace {
   display: flex;
@@ -3497,48 +3597,80 @@ summary {
   font-size: 12px;
   padding: 8px 10px;
 }
-.skill-catalog-list > nav {
+/* Skill list rows follow the same card rhythm as the Agent and channel lists:
+   icon, title plus description, and a compact file count. */
+.skill-catalog-list > nav.skill-list {
   display: grid;
-  gap: 0;
-  border-top: 1px solid var(--line);
+  gap: 2px;
 }
-.skill-catalog-list > nav > button {
-  display: block;
+.skill-list-item {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
   min-width: 0;
-  text-align: left;
-  padding: 10px 9px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   background: transparent;
+  text-align: left;
   font-size: 12px;
   font-weight: 400;
-  overflow-wrap: anywhere;
 }
-.skill-catalog-list > nav > button:hover {
+.skill-list-item:hover:not(:disabled) {
   background: var(--surface-raised);
 }
-.skill-catalog-list > nav > button[aria-current="true"] {
+.skill-list-item[aria-current="true"] {
   border-color: var(--line);
   background: var(--teal-soft);
-  box-shadow: inset 2px 0 0 var(--teal);
 }
-.skill-catalog-list > nav > button strong {
-  font-size: 13px;
+.skill-list-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+}
+.skill-list-item[aria-current="true"] .skill-list-icon {
+  background: var(--paper);
+  color: var(--teal-strong);
+}
+.skill-list-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.skill-list-text strong {
+  font-size: 12.5px;
   font-weight: 600;
-  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.skill-catalog-list > nav > button span {
+.skill-list-text > span {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   color: var(--muted);
   font-size: 11px;
-  margin: 5px 0;
+  line-height: 1.45;
 }
-.skill-catalog-list > nav > button small {
+.skill-list-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-family: var(--font-mono);
   font-size: 10px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.skill-list-meta-label {
+  font-family: var(--font-sans);
 }
 .skill-detail {
   border: 1px solid var(--line);
@@ -3855,7 +3987,7 @@ summary {
   list-style: none;
   margin: 8px 0 0;
   padding: 0;
-  max-height: 130px;
+  max-height: clamp(130px, 22dvh, 280px);
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 5px;
@@ -5939,7 +6071,7 @@ select option:disabled {
 .kb-file-list {
   display: grid;
   gap: 4px;
-  max-height: 160px;
+  max-height: clamp(160px, 24dvh, 320px);
   overflow: auto;
   margin: 8px 0 0;
   padding: 0;
@@ -6040,7 +6172,7 @@ select option:disabled {
 }
 .markdown-preview {
   min-height: 150px;
-  max-height: 360px;
+  max-height: clamp(240px, 42dvh, 560px);
   overflow: auto;
   padding: 12px 14px;
   border: 1px solid var(--line);
@@ -6112,7 +6244,7 @@ select option:disabled {
   padding: 6px 0;
 }
 .tool-permission > .resource-preview {
-  max-height: 180px;
+  max-height: clamp(160px, 26dvh, 320px);
   margin: 6px 0 8px;
 }
 
@@ -6122,9 +6254,11 @@ select option:disabled {
   }
 }
 
+/* Related-Agent panel: a small titled block with pill rows, matching the
+   capability cards around it instead of looking like inline plain text. */
 .linked-agents {
-  margin: 10px 0;
-  padding: 8px 10px;
+  margin: 12px 0;
+  padding: 9px 11px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--surface);
@@ -6132,33 +6266,55 @@ select option:disabled {
 .linked-agents-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
+  justify-content: space-between;
+  gap: 8px;
 }
-.linked-agents-head span {
+.linked-agents-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.linked-agents-title .ui-icon {
   color: var(--faint);
 }
+.linked-agents-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+}
 .linked-agents > p {
-  margin: 5px 0 0;
+  margin: 7px 0 0;
   font-size: 11px;
 }
 .linked-agents ul {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin: 6px 0 0;
+  gap: 5px;
+  margin: 7px 0 0;
   padding: 0;
   list-style: none;
 }
 .linked-agents li {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 5px;
+  gap: 5px;
+  padding: 3px 4px 3px 8px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 999px;
   background: var(--paper);
-  font-size: 10px;
+  font-size: 10.5px;
+  color: var(--ink);
 }
 .linked-agents li .linked-agent-unlink {
   display: inline-flex;
@@ -6186,18 +6342,22 @@ select option:disabled {
   .channel-catalog {
     position: sticky;
     top: 0;
-    max-height: calc(100dvh - 200px);
+    max-height: calc(100dvh - clamp(120px, 14dvh, 200px));
     overflow-y: auto;
     overscroll-behavior: contain;
     align-self: start;
   }
+  /* The skill pane is a flex column: the search box stays put and only the list
+     scrolls, inside the same height budget as the other catalogs. */
   .skill-catalog-list {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    height: clamp(320px, calc(100dvh - clamp(120px, 14dvh, 200px)), 100dvh);
   }
   .skill-catalog-list > nav {
     overflow-y: auto;
+    overscroll-behavior: contain;
     min-height: 0;
   }
 }
@@ -6470,8 +6630,11 @@ select option:disabled {
   padding: 12px 10px;
   position: sticky;
   top: 0;
-  max-height: calc(100dvh - 180px);
+  /* The offset is the app header plus panel padding, expressed as a clamp so the
+     list uses the real remaining height on both short and tall screens. */
+  max-height: calc(100dvh - clamp(120px, 14dvh, 200px));
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .agents-list .pane-heading {
   margin-right: 2px;
@@ -7411,7 +7574,7 @@ select option:disabled {
   color: var(--faint);
 }
 .update-notes-body {
-  max-height: min(40vh, 340px);
+  max-height: clamp(200px, 42dvh, 480px);
   overflow: auto;
   overscroll-behavior: contain;
   padding: 12px 14px;
@@ -7580,10 +7743,24 @@ select option:disabled {
 }
 .app-shell.rail-collapsed .rail-link {
   width: 44px;
+  max-width: 100%;
   min-height: 32px;
   margin: 2px auto;
   padding: 0;
   justify-content: center;
+  flex: 0 0 auto;
+}
+/* The collapsed rail hides group titles and labels; a long localized title can
+   still force intrinsic width, so bound it explicitly. 62px of content fits the
+   64px rail (44px links plus padding and the border). */
+.app-shell.rail-collapsed .app-rail {
+  padding-inline: 8px;
+  overflow: hidden;
+}
+.app-shell.rail-collapsed .rail-nav {
+  width: 100%;
+  padding: 0;
+  scrollbar-gutter: auto;
 }
 .app-shell.rail-collapsed .rail-status {
   justify-content: center;
@@ -7694,6 +7871,11 @@ select option:disabled {
   flex: 0 1 auto;
   min-width: 0;
   margin-top: 0;
+}
+.chat-meta-row .chat-stats {
+  flex: 0 0 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .channel-view-label {
   display: inline-flex;

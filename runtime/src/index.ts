@@ -894,16 +894,19 @@ async function dispatch(req: Request) {
       )
       .run(req.run_id, req.conversation_id);
     const limits = { ...defaults, ...req.limits };
+    // Only protocol safety bounds are enforced here. Sizing for a deployment is
+    // the administrator's decision; the platform reports a recommendation
+    // instead of rejecting larger values.
     if (
       !Object.values(limits).every(
         (value) => typeof value === "number" && Number.isInteger(value),
       ) ||
       limits.run_timeout_ms < 10 ||
-      limits.run_timeout_ms > 3600000 ||
+      limits.run_timeout_ms > 7 * 24 * 60 * 60 * 1000 ||
       limits.tool_timeout_ms < 10 ||
-      limits.tool_timeout_ms > 600000 ||
+      limits.tool_timeout_ms > 24 * 60 * 60 * 1000 ||
       limits.tool_rounds < 1 ||
-      limits.tool_rounds > 100
+      limits.tool_rounds > 10000
     ) {
       journal.prepare("DELETE FROM executions WHERE run_id=?").run(req.run_id);
       throw new Error("invalid_limits");

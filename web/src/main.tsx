@@ -30,12 +30,24 @@ import "@fontsource-variable/geist-mono";
 import "./style.css";
 import {
   applyTheme,
+  nextThemeMode,
   rememberTheme,
-  storedTheme,
+  storedThemeMode,
+  themeForMode,
+  themeModeLabel,
   type Theme,
+  type ThemeMode,
 } from "./theme";
 
-applyTheme(storedTheme());
+let currentThemeMode: ThemeMode = storedThemeMode();
+applyTheme(themeForMode(currentThemeMode));
+// Automatic mode re-evaluates at the day/night boundary without a reload.
+window.setInterval(() => {
+  if (currentThemeMode === "auto") {
+    const theme = themeForMode(currentThemeMode);
+    if (document.documentElement.dataset.theme !== theme) applyTheme(theme);
+  }
+}, 60 * 1000);
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 const commandKey = isMac ? "⌘K" : "Ctrl K";
 
@@ -97,24 +109,38 @@ function LanguageToggle({
 }
 
 function ThemeToggle({
+  mode,
   theme,
   onChange,
   className = "",
 }: {
+  mode: ThemeMode;
   theme: Theme;
-  onChange: (theme: Theme) => void;
+  onChange: (mode: ThemeMode) => void;
   className?: string;
 }) {
-  const next = theme === "light" ? "dark" : "light";
+  const next = nextThemeMode(mode);
+  const action =
+    next === "auto"
+      ? "切换到自动（跟随时间）"
+      : next === "dark"
+        ? "切换到深色模式"
+        : "切换到浅色模式";
   return (
     <button
       type="button"
-      className={`theme-toggle ${className}`.trim()}
-      aria-label={next === "dark" ? "切换到深色模式" : "切换到浅色模式"}
-      title={next === "dark" ? "切换到深色模式" : "切换到浅色模式"}
+      className={`theme-toggle ${className} ${
+        mode === "auto" ? "auto" : ""
+      }`.trim()}
+      aria-label={`${themeModeLabel(mode)}，${action}`}
+      title={`${themeModeLabel(mode)}，${action}`}
+      data-mode={mode}
       onClick={() => onChange(next)}
     >
-      <Icon name={theme === "light" ? "moon" : "sun"} size={16} />
+      <Icon
+        name={mode === "auto" ? "auto" : theme === "light" ? "moon" : "sun"}
+        size={16}
+      />
     </button>
   );
 }
@@ -132,6 +158,7 @@ function AuthScreen({
   language,
   onLanguage,
   theme,
+  themeMode,
   onTheme,
 }: {
   auth: Auth;
@@ -139,7 +166,8 @@ function AuthScreen({
   language: Language;
   onLanguage: (language: Language) => void;
   theme: Theme;
-  onTheme: (theme: Theme) => void;
+  themeMode: ThemeMode;
+  onTheme: (mode: ThemeMode) => void;
 }) {
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
@@ -172,7 +200,11 @@ function AuthScreen({
         </div>
         <div className="auth-topbar-actions">
           <LanguageToggle language={language} onChange={onLanguage} />
-          <ThemeToggle theme={theme} onChange={onTheme} />
+          <ThemeToggle
+            mode={themeMode}
+            theme={theme}
+            onChange={onTheme}
+          />
         </div>
       </header>
       <div className="auth-panel">
@@ -259,7 +291,10 @@ function App() {
   const menuCloseRef = useRef<HTMLButtonElement>(null);
   const menuWasOpen = useRef(false);
   const [language, setLanguage] = useState<Language>(storedLanguage);
-  const [theme, setTheme] = useState<Theme>(storedTheme);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(storedThemeMode);
+  const [theme, setTheme] = useState<Theme>(() =>
+    themeForMode(storedThemeMode()),
+  );
   const navigation = useNavigation();
   const [auth, setAuth] = useState<Auth | null>(null);
   const [models, setModels] = useState<Model[]>([]);
@@ -282,10 +317,22 @@ function App() {
     rememberLanguage(language);
     return applyLanguage(language);
   }, [language]);
+  // One place resolves the mode into a concrete theme, remembers the choice and
+  // keeps the automatic boundary check in sync.
   useEffect(() => {
-    applyTheme(theme);
-    rememberTheme(theme);
-  }, [theme]);
+    currentThemeMode = themeMode;
+    const resolved = themeForMode(themeMode);
+    setTheme(resolved);
+    applyTheme(resolved);
+    rememberTheme(themeMode);
+    if (themeMode !== "auto") return;
+    const timer = window.setInterval(() => {
+      const next = themeForMode(themeMode);
+      setTheme(next);
+      applyTheme(next);
+    }, 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [themeMode]);
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -570,7 +617,11 @@ function App() {
         <div className="auth-panel">
           <div className="auth-language">
             <LanguageToggle language={language} onChange={setLanguage} />
-            <ThemeToggle theme={theme} onChange={setTheme} />
+            <ThemeToggle
+              mode={themeMode}
+              theme={theme}
+              onChange={setThemeMode}
+            />
           </div>
           {error ? (
             <>
@@ -602,7 +653,8 @@ function App() {
           language={language}
           onLanguage={setLanguage}
           theme={theme}
-          onTheme={setTheme}
+          themeMode={themeMode}
+          onTheme={setThemeMode}
         />
       </>
     );
@@ -642,10 +694,11 @@ function App() {
     },
     {
       id: "theme",
-      label: theme === "light" ? "切换到深色模式" : "切换到浅色模式",
+      label: themeModeLabel(themeMode),
       hint: "外观",
-      icon: theme === "light" ? "moon" : "sun",
-      run: () => setTheme(theme === "light" ? "dark" : "light"),
+      icon:
+        themeMode === "auto" ? "auto" : theme === "light" ? "moon" : "sun",
+      run: () => setThemeMode(nextThemeMode(themeMode)),
     },
     {
       id: "logout",
@@ -677,8 +730,9 @@ function App() {
           <Icon name="search" size={16} />
         </button>
         <ThemeToggle
+          mode={themeMode}
           theme={theme}
-          onChange={setTheme}
+          onChange={setThemeMode}
           className="mobile-theme-toggle"
         />
       </header>
@@ -768,8 +822,9 @@ function App() {
             </button>
             <LanguageToggle language={language} onChange={setLanguage} />
             <ThemeToggle
+              mode={themeMode}
               theme={theme}
-              onChange={setTheme}
+              onChange={setThemeMode}
               className="rail-icon-button"
             />
             <button
@@ -842,8 +897,9 @@ function App() {
           <div className="mobile-menu-actions">
             <LanguageToggle language={language} onChange={setLanguage} />
             <ThemeToggle
+              mode={themeMode}
               theme={theme}
-              onChange={setTheme}
+              onChange={setThemeMode}
               className="mobile-theme-toggle"
             />
           </div>

@@ -148,12 +148,14 @@ func (f File) Validate() error {
 	}
 	if f.Limits != nil {
 		l := *f.Limits
-		if l.Concurrent < 1 || l.Concurrent > 32 ||
-			l.ConversationQueue < 1 || l.ConversationQueue > 1000 ||
-			l.GlobalQueue < l.ConversationQueue || l.GlobalQueue > 10000 ||
-			l.RunTimeout < 1 || l.RunTimeout > 3600 ||
-			l.ToolTimeout < 1 || l.ToolTimeout > 600 ||
-			l.ToolRounds < 1 || l.ToolRounds > 100 {
+		// No product maximum: deployments differ in capacity and provider
+		// quotas. Only consistency and protocol-representable ranges apply.
+		if l.Concurrent < 1 || l.Concurrent > 100000 ||
+			l.ConversationQueue < 1 || l.ConversationQueue > 1000000 ||
+			l.GlobalQueue < l.ConversationQueue || l.GlobalQueue > 10000000 ||
+			l.RunTimeout < 1 || l.RunTimeout > 86400*7 ||
+			l.ToolTimeout < 1 || l.ToolTimeout > 86400 ||
+			l.ToolRounds < 1 || l.ToolRounds > 10000 {
 			return errors.New("limits are out of range")
 		}
 	}

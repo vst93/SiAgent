@@ -29,6 +29,33 @@ function channelLabel(conversation?: Conversation) {
       : conversation?.channel_sender;
   return detail ? `${channelKind(conversation)} · ${detail}` : channelKind(conversation);
 }
+// copyText prefers the async clipboard and falls back to a hidden textarea so
+// the action still works on plain-HTTP deployments where the API is blocked.
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the legacy path.
+  }
+  try {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 function channelBadge(conversation: Conversation) {
   if (conversation.channel_kind === "single" && conversation.channel_sender)
     return `私聊 · ${conversation.channel_sender}`;
@@ -224,6 +251,41 @@ export function ChatWorkspace({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const nearBottom = useRef(true);
+  const [copied, setCopied] = useState("");
+  const [copyFailed, setCopyFailed] = useState("");
+  const copyReset = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      if (copyReset.current) window.clearTimeout(copyReset.current);
+    },
+    [],
+  );
+  // announce copies briefly, then clear the marker so the action can be reused
+  async function copy(key: string, text: string, failed: string) {
+    setCopyFailed("");
+    const ok = await copyText(text);
+    if (!ok) {
+      setCopyFailed(failed);
+      return;
+    }
+    setCopied(key);
+    if (copyReset.current) window.clearTimeout(copyReset.current);
+    copyReset.current = window.setTimeout(() => setCopied(""), 1800);
+  }
+  function transcript() {
+    if (!snapshot) return "";
+    const lines: string[] = [];
+    const title = snapshot.conversation.title || "对话";
+    lines.push(`# ${title}`);
+    for (const message of snapshot.messages) {
+      const who =
+        message.role === "user"
+          ? message.sender || snapshot.conversation.channel_sender || "用户"
+          : "助手";
+      lines.push("", `## ${who}`, "", message.content || "(空)");
+    }
+    return lines.join("\n");
+  }
   const conversation =
     snapshot?.conversation ?? conversations.find((item) => item.id === selected);
   const channelConversation = Boolean(conversation?.channel_id);
@@ -296,6 +358,17 @@ export function ChatWorkspace({
         <Icon name="plus" size={16} />
         <span>新对话</span>
       </button>
+      {!!snapshot?.messages.length && (
+        <button
+          type="button"
+          className="chat-copy-transcript"
+          title="复制整段对话为 Markdown"
+          onClick={() => void copy("transcript", transcript(), "复制失败，请手动选择文本。")}
+        >
+          <Icon name={copied === "transcript" ? "check" : "copy"} size={16} />
+          <span>{copied === "transcript" ? "已复制" : "复制对话"}</span>
+        </button>
+      )}
       {snapshot && (
         <ConversationMaintenance
           key={snapshot.conversation.id}
@@ -353,6 +426,15 @@ export function ChatWorkspace({
                 <span>{channelKind(conversation)} · 只读</span>
               </span>
             )}
+            {!!snapshot?.messages.length && (
+              <span
+                className="chat-stats"
+                title="本会话的提问数与消息总数"
+              >
+                {snapshot.messages.filter((m) => m.role === "user").length} 轮
+                · {snapshot.messages.length} 条消息
+              </span>
+            )}
           </div>
         </div>
         {!mobile && <div className="chat-header-actions">{actions}</div>}
@@ -405,6 +487,11 @@ export function ChatWorkspace({
         {connectionLost && (
           <p className="workspace-alert muted" role="status">
             连接暂时中断，正在重新连接。已保存的内容仍然保留。
+          </p>
+        )}
+        {copyFailed && (
+          <p className="workspace-alert muted" role="alert">
+            {copyFailed}
           </p>
         )}
         {maintenanceFeedback && (
@@ -525,6 +612,36 @@ export function ChatWorkspace({
                                 hourCycle: "h23",
                               })}
                             </time>
+                            {!!message.content && (
+                              <span className="message-actions">
+                                <button
+                                  type="button"
+                                  className="message-action"
+                                  aria-label={
+                                    copied === `message-${message.id}`
+                                      ? "已复制这条消息"
+                                      : "复制这条消息"
+                                  }
+                                  title="复制这条消息"
+                                  onClick={() =>
+                                    void copy(
+                                      `message-${message.id}`,
+                                      message.content,
+                                      "复制失败，请手动选择文本。",
+                                    )
+                                  }
+                                >
+                                  <Icon
+                                    name={
+                                      copied === `message-${message.id}`
+                                        ? "check"
+                                        : "copy"
+                                    }
+                                    size={14}
+                                  />
+                                </button>
+                              </span>
+                            )}
                           </div>
                           {!!message.attachments?.length && (
                             <div className="message-attachments">
@@ -568,6 +685,29 @@ export function ChatWorkspace({
                                   className="disclosure-icon"
                                 />
                                 思考摘要
+                                <button
+                                  type="button"
+                                  className="message-action"
+                                  aria-label="复制思考摘要"
+                                  title="复制思考摘要"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    void copy(
+                                      `thinking-${message.id}`,
+                                      run.thinking ?? "",
+                                      "复制失败，请手动选择文本。",
+                                    );
+                                  }}
+                                >
+                                  <Icon
+                                    name={
+                                      copied === `thinking-${message.id}`
+                                        ? "check"
+                                        : "copy"
+                                    }
+                                    size={14}
+                                  />
+                                </button>
                               </summary>
                               <MessageMarkdown content={run.thinking} />
                             </details>
