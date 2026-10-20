@@ -248,6 +248,13 @@ function App() {
   const [maintenanceFeedback, setMaintenanceFeedback] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("siagent.rail-collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuCloseRef = useRef<HTMLButtonElement>(null);
   const menuWasOpen = useRef(false);
@@ -279,6 +286,16 @@ function App() {
     applyTheme(theme);
     rememberTheme(theme);
   }, [theme]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "siagent.rail-collapsed",
+        String(railCollapsed),
+      );
+    } catch {
+      // The rail still changes for this session.
+    }
+  }, [railCollapsed]);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -639,7 +656,7 @@ function App() {
     },
   ];
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${railCollapsed ? "rail-collapsed" : ""}`}>
       <header className="mobile-topbar">
         <button
           ref={menuButtonRef}
@@ -666,19 +683,33 @@ function App() {
         />
       </header>
       <aside className="app-rail" aria-label="应用侧栏">
-        <a
-          className="rail-brand"
-          href={`#/${navigation.defaultPage}`}
-          aria-label="打开默认页面"
-        >
-          <Mark />
-          <span>SiAgent</span>
-          <span className="rail-version">自托管</span>
-        </a>
+        <div className="rail-head">
+          <a
+            className="rail-brand"
+            href={`#/${navigation.defaultPage}`}
+            aria-label="打开默认页面"
+            title="SiAgent"
+          >
+            <Mark />
+            <span>SiAgent</span>
+            <span className="rail-version">自托管</span>
+          </a>
+          <button
+            type="button"
+            className="rail-collapse"
+            aria-label={railCollapsed ? "展开菜单" : "收起菜单"}
+            aria-expanded={!railCollapsed}
+            title={railCollapsed ? "展开菜单" : "收起菜单"}
+            onClick={() => setRailCollapsed((value) => !value)}
+          >
+            <Icon name="sidebar" size={16} />
+          </button>
+        </div>
         <button
           type="button"
           className="rail-command"
           aria-keyshortcuts="Control+K Meta+K"
+          title="搜索或跳转"
           onClick={() => setCommandOpen(true)}
         >
           <Icon name="search" size={16} />
@@ -690,6 +721,7 @@ function App() {
           <button
             className={`rail-link ${navigation.page === "chat" ? "selected" : ""}`}
             aria-current={navigation.page === "chat" ? "page" : undefined}
+            title="Agent 对话"
             onClick={() => navigation.navigate("chat")}
           >
             <Icon name="chat" size={16} />
@@ -710,6 +742,7 @@ function App() {
                     ? "page"
                     : undefined
                 }
+                title={item.title}
                 onClick={() => navigation.navigate(`settings/${item.id}`)}
               >
                 <Icon name={item.icon} size={16} />

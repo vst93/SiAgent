@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "./icons";
+import { MessageMarkdown } from "./message-markdown";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 type UpdateStatus = {
@@ -11,6 +13,7 @@ type UpdateStatus = {
   phase: string;
   message: string;
   backup?: string;
+  notes?: string;
 };
 const phases: Record<string, string> = {
   idle: "就绪",
@@ -89,8 +92,17 @@ export function ApplicationUpdates({ request }: { request: Api }) {
             <p>检查版本、下载校验并在空闲时备份重启。</p>
           </div>
         </header>
-        <div className="panel-body">
-          <p className="muted">{error || "正在读取更新状态…"}</p>
+        <div className="panel-body update-body">
+          <div className="update-status-line">
+            {!error && (
+              <span
+                className="update-spinner"
+                role="status"
+                aria-label="正在读取更新状态"
+              />
+            )}
+            <p className="muted">{error || "正在读取更新状态…"}</p>
+          </div>
         </div>
       </section>
     );
@@ -107,83 +119,116 @@ export function ApplicationUpdates({ request }: { request: Api }) {
           {phases[status.phase] ?? status.phase}
         </span>
       </header>
-      <div className="panel-body">
-      <p>
-        当前版本 <strong>{status.current}</strong>
-        {status.latest && (
-          <>
-            {" "}
-            · 最新版本 <strong>{status.latest}</strong>
-          </>
+      <div className="panel-body update-body">
+        <div className="update-version-row">
+          <div className="update-version">
+            <span>当前版本</span>
+            <strong>{status.current}</strong>
+          </div>
+          {status.latest && (
+            <>
+              <Icon name="arrow-right" size={14} />
+              <div className="update-version">
+                <span>最新版本</span>
+                <strong>{status.latest}</strong>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="update-status-line">
+          {busy && (
+            <span
+              className="update-spinner"
+              role="status"
+              aria-label="更新进行中"
+            />
+          )}
+          <p
+            className={
+              status.phase === "failed" || status.phase === "rolled_back"
+                ? "context-warning"
+                : "muted"
+            }
+            role="status"
+          >
+            {reconnecting
+              ? "更新正在重启服务，暂时断开连接。正在自动重连，请勿手动启动另一实例；成功后页面会自动刷新。"
+              : status.message}
+          </p>
+        </div>
+        {!!status.notes && (
+          <section className="update-notes" aria-labelledby="update-notes-title">
+            <header>
+              <h3 id="update-notes-title">更新内容</h3>
+              {status.latest && <span>{status.latest}</span>}
+            </header>
+            <div className="update-notes-body">
+              <MessageMarkdown content={status.notes} />
+            </div>
+          </section>
         )}
-      </p>
-      <p
-        className={
-          status.phase === "failed" || status.phase === "rolled_back"
-            ? "context-warning"
-            : "muted"
-        }
-        role="status"
-      >
-        {reconnecting
-          ? "更新正在重启服务，暂时断开连接。正在自动重连，请勿手动启动另一实例；成功后页面会自动刷新。"
-          : status.message}
-      </p>
-      {busy && <progress aria-label="更新进度" />}
-      {!status.supported && (
-        <p className="muted">
-          {status.mode === "docker"
-            ? "此部署请手动更新镜像并重建容器，保留原数据卷。"
-            : status.mode === "managed"
-              ? "请通过原服务管理器停止服务、更新程序并重新启动。"
-              : "源码部署请拉取代码并重新构建；独立安装包请使用官方安装脚本升级。"}
-        </p>
-      )}
-      {status.supported && (
-        <p className="muted">
-          发起更新后会自动下载校验、等待现有任务结束、备份数据并重启，关闭页面也会继续。新版本启动失败时自动恢复旧版本和数据。
-        </p>
-      )}
-      <div className="form-actions">
-        <button
-          type="button"
-          disabled={busy || status.phase === "ready"}
-          onClick={() => void action("check")}
-        >
-          检查新版本
-        </button>
-        {status.supported && (status.available || status.phase === "ready") && (
+        {status.available && !status.notes && (
+          <p className="muted update-notes-empty">
+            该版本没有提供更新说明。
+          </p>
+        )}
+        {!status.supported && (
+          <p className="muted">
+            {status.mode === "docker"
+              ? "此部署请手动更新镜像并重建容器，保留原数据卷。"
+              : status.mode === "managed"
+                ? "请通过原服务管理器停止服务、更新程序并重新启动。"
+                : "源码部署请拉取代码并重新构建；独立安装包请使用官方安装脚本升级。"}
+          </p>
+        )}
+        {status.supported && (
+          <p className="muted">
+            发起更新后会自动下载校验、等待现有任务结束、备份数据并重启，关闭页面也会继续。新版本启动失败时自动恢复旧版本和数据。
+          </p>
+        )}
+        <div className="form-actions">
           <button
             type="button"
-            className="primary"
-            disabled={busy}
-            onClick={() => void action("start", { confirm: true })}
+            disabled={busy || status.phase === "ready"}
+            onClick={() => void action("check")}
           >
-            更新并自动重启
+            检查新版本
           </button>
+          {status.supported && (status.available || status.phase === "ready") && (
+            <button
+              type="button"
+              className="primary"
+              disabled={busy}
+              onClick={() => void action("start", { confirm: true })}
+            >
+              更新并自动重启
+            </button>
+          )}
+          {status.supported && ["ready", "waiting"].includes(status.phase) && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => void action("cancel")}
+            >
+              取消本次更新
+            </button>
+          )}
+        </div>
+        {status.backup && (
+          <p className="muted">
+            最近更新备份：<code>{status.backup}</code>
+            。备份含私密数据，不会自动删除；请按需要离线保存或清理。
+          </p>
         )}
-        {status.supported && ["ready", "waiting"].includes(status.phase) && (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => void action("cancel")}
-          >
-            取消本次更新
-          </button>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
         )}
-      </div>
-      {status.backup && (
-        <p className="muted">
-          最近更新备份：<code>{status.backup}</code>
-          。备份含私密数据，不会自动删除；请按需要离线保存或清理。
-        </p>
-      )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      <small>命令行可使用 <code>siagent update</code> 更新，或 <code>siagent help</code> 查看帮助。</small>
+        <small>
+          命令行可使用 <code>siagent update</code> 更新，或{" "}
+          <code>siagent help</code> 查看帮助。
+        </small>
       </div>
     </section>
   );

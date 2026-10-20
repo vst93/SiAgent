@@ -336,26 +336,24 @@ export function ChatWorkspace({
           <h1 title={conversation?.title ?? undefined}>
             {conversation?.title ?? "开始一段对话"}
           </h1>
-          <p
-            className="chat-subtitle"
-            title={`${agent?.name ?? "尚未选择 Agent"}${model ? ` · ${model.name}` : ""}`}
-          >
-            {agent?.name ?? "尚未选择 Agent"}
-            {model ? ` · ${model.name}` : ""}
-          </p>
-          {channelConversation && (
-            <span
-              className="channel-view-label"
-              title={
-                conversation?.channel_kind === "group"
-                  ? conversation.channel_group
-                  : conversation?.channel_sender
-              }
+          <div className="chat-meta-row">
+            <p
+              className="chat-subtitle"
+              title={`${agent?.name ?? "尚未选择 Agent"}${model ? ` · ${model.name}` : ""}`}
             >
-              <Icon name="channels" size={14} />
-              {channelLabel(conversation)} · 只读
-            </span>
-          )}
+              {agent?.name ?? "尚未选择 Agent"}
+              {model ? ` · ${model.name}` : ""}
+            </p>
+            {channelConversation && (
+              <span
+                className="channel-view-label"
+                title={`${channelLabel(conversation)} · 只读`}
+              >
+                <Icon name="channels" size={14} />
+                <span>{channelKind(conversation)} · 只读</span>
+              </span>
+            )}
+          </div>
         </div>
         {!mobile && <div className="chat-header-actions">{actions}</div>}
       </header>

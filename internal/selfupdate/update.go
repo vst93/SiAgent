@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +33,7 @@ type Status struct {
 	Phase     string `json:"phase"`
 	Message   string `json:"message"`
 	Backup    string `json:"backup,omitempty"`
+	Notes     string `json:"notes,omitempty"`
 }
 type Config struct {
 	Context                           context.Context
@@ -173,9 +176,11 @@ func (m *Manager) check(ctx context.Context) error {
 	if !versionPattern.MatchString(latest) {
 		return m.failed(fmt.Errorf("发布版本信息无效"))
 	}
+	notes := m.fetchReleaseNotes(ctx, latest)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.status.Latest = latest
+	m.status.Notes = notes
 	m.status.Available = newer(latest, m.config.Version)
 	m.status.Phase = "idle"
 	if m.status.Available {
@@ -189,6 +194,36 @@ func (m *Manager) check(ctx context.Context) error {
 	}
 	return nil
 }
+func (m *Manager) fetchReleaseNotes(ctx context.Context, version string) string {
+	if m.repository == "" {
+		return ""
+	}
+	timeout, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	endpoint := "https://api.github.com/repos/" + m.repository + "/releases/tags/" + url.PathEscape(version)
+	request, err := http.NewRequestWithContext(timeout, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return ""
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("User-Agent", "SiAgent/"+m.config.Version)
+	response, err := m.client.Do(request)
+	if err != nil {
+		return ""
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return ""
+	}
+	var release struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 64*1024)).Decode(&release); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(release.Body)
+}
+
 func newer(latest, current string) bool {
 	if !versionPattern.MatchString(current) {
 		return latest != current

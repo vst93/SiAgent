@@ -598,7 +598,7 @@ try {
   });
   await installUpdate.click();
   await page.getByRole("status").filter({ hasText: "正在下载并校验发布包" }).waitFor();
-  assert.equal(await page.getByRole("progressbar", { name: "更新进度" }).count(), 1);
+  assert.equal(await page.locator(".update-spinner").count(), 1);
   assert.equal(await installUpdate.isDisabled(), true);
   updatePhase = "waiting";
   await page.getByRole("status").filter({ hasText: "正在等待现有任务结束" }).waitFor();
@@ -1543,7 +1543,19 @@ try {
   await page.locator(".channel-catalog button").filter({ hasText: "浏览器渠道对话" }).click();
   await page.getByRole("button", { name: "查看会话", exact: true }).waitFor();
   await page.getByRole("button", { name: "查看会话", exact: true }).click();
-  await page.getByText("私聊 · remote-member · 只读", { exact: true }).waitFor();
+  await page
+    .locator(".channel-view-label")
+    .filter({ hasText: "私聊 · 只读" })
+    .waitFor();
+  assert.equal(
+    await page.locator(".channel-view-label").getAttribute("title"),
+    "私聊 · remote-member · 只读",
+  );
+  assert(
+    (await page
+      .locator(".chat-header")
+      .evaluate((element) => element.getBoundingClientRect().height)) <= 60,
+  );
   await page.locator(".message.assistant .message-text").filter({ hasText: "渠道处理中…" }).waitFor();
   assert.equal(await page.getByLabel("发送给助手的消息").count(), 0);
   assert.equal(await page.getByRole("button", { name: "发送", exact: false }).count(), 0);
