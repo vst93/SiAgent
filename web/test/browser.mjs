@@ -1972,6 +1972,9 @@ try {
   await page
     .getByLabel("允许用户通过 /new 开启新会话", { exact: true })
     .uncheck();
+  await page
+    .getByLabel("允许渠道成员发送图片", { exact: true })
+    .uncheck();
   await savePolicy();
   let policyAgents = await page.evaluate(() =>
     fetch("/api/agents").then((response) => response.json()),
@@ -1982,6 +1985,7 @@ try {
     group_scope: "shared",
     idle_minutes: 60,
     allow_reset: false,
+    images: false,
   });
   await page.screenshot({
     path: join(artifacts, "agent-session-desktop.png"),
@@ -2597,9 +2601,11 @@ try {
   releaseHold();
   releaseChannelHold();
   // A crashed browser or a server that ignores SIGTERM must not hang the run.
+  // A failed launch leaves nothing to close, so guard the promise itself: an
+  // exception in cleanup would hide the real test failure.
   const bounded = (work, ms) =>
     Promise.race([
-      work.catch(() => {}),
+      Promise.resolve(work).catch(() => {}),
       new Promise((resolve) => setTimeout(resolve, ms)),
     ]);
   await bounded(browser?.close(), 15000);
