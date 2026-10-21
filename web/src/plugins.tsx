@@ -555,10 +555,27 @@ function SkillDetail({
   );
 }
 
+type SkillSort = "name" | "recent" | "files" | "size";
+
 function SkillCatalog({ request }: { request: Api }) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selected, setSelected] = useState("");
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SkillSort>(() => {
+    try {
+      const stored = localStorage.getItem("siagent.skill-sort");
+      if (
+        stored === "name" ||
+        stored === "files" ||
+        stored === "size" ||
+        stored === "recent"
+      )
+        return stored;
+    } catch {
+      // Fall through to the default order.
+    }
+    return "name";
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -592,11 +609,29 @@ function SkillCatalog({ request }: { request: Api }) {
       active = false;
     };
   }, [reload]);
-  const visible = skills.filter((skill) =>
-    `${skill.name} ${skill.description}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
-  );
+  useEffect(() => {
+    try {
+      localStorage.setItem("siagent.skill-sort", sort);
+    } catch {
+      // The order still applies for this session.
+    }
+  }, [sort]);
+  const sizeOf = (skill: Skill) =>
+    skill.files.reduce((sum, file) => sum + file.size, 0);
+  // The API returns skills newest first. Sorting is a view concern only, so the
+  // selected skill stays selected when the order changes.
+  const visible = skills
+    .filter((skill) =>
+      `${skill.name} ${skill.description}`
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+    )
+    .sort((a, b) => {
+      if (sort === "files") return b.files.length - a.files.length;
+      if (sort === "size") return sizeOf(b) - sizeOf(a);
+      // "recent" keeps the server order (newest first); "name" is A-Z.
+      return sort === "recent" ? 0 : a.name.localeCompare(b.name, "zh-CN");
+    });
   const current = visible.find((skill) => skill.id === selected) ?? visible[0];
   return (
     <div className="skill-catalog">
@@ -643,13 +678,30 @@ function SkillCatalog({ request }: { request: Api }) {
                 技能列表 <span>{skills.length}</span>
               </h2>
             </div>
-            <input
-              type="search"
-              aria-label="搜索技能"
-              placeholder="搜索名称或说明"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
+            <div className="skill-list-filter">
+              <input
+                type="search"
+                aria-label="搜索技能"
+                placeholder="搜索名称或说明"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              <label className="skill-list-sort">
+                <span className="sr-only">技能排序方式</span>
+                <select
+                  aria-label="技能排序方式"
+                  value={sort}
+                  onChange={(event) =>
+                    setSort(event.target.value as SkillSort)
+                  }
+                >
+                  <option value="name">名称 A→Z</option>
+                  <option value="recent">最近上传</option>
+                  <option value="files">文件数最多</option>
+                  <option value="size">体积最大</option>
+                </select>
+              </label>
+            </div>
             <nav className="skill-list" aria-label="技能列表">
               {visible.map((skill) => (
                 <button

@@ -1625,6 +1625,36 @@ try {
   assert.equal(skillRowLayout.columns, 2);
   assert.equal(skillRowLayout.icons, 0);
   assert(skillRowLayout.title.length > 0, "skill rows must show a title");
+  // Sorting changes the visible order and is remembered for the browser.
+  const skillNames = () =>
+    page.locator(".skill-list-item strong").allInnerTexts();
+  await page.getByLabel("技能排序方式", { exact: true }).selectOption("name");
+  await page.waitForTimeout(200);
+  const byName = await skillNames();
+  assert.deepEqual(
+    byName,
+    [...byName].sort((a, b) => a.localeCompare(b, "zh-CN")),
+    "name sort must be ascending",
+  );
+  await page.getByLabel("技能排序方式", { exact: true }).selectOption("files");
+  await page.waitForTimeout(200);
+  const counts = await page.evaluate(() =>
+    fetch("/api/skills")
+      .then((response) => response.json())
+      .then((values) => Object.fromEntries(values.map((s) => [s.name, s.files.length]))),
+  );
+  const byFiles = await skillNames();
+  for (let index = 1; index < byFiles.length; index++) {
+    assert(
+      counts[byFiles[index - 1]] >= counts[byFiles[index]],
+      `file-count sort must be descending: ${byFiles.join(",")}`,
+    );
+  }
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("siagent.skill-sort")),
+    "files",
+  );
+  await page.getByLabel("技能排序方式", { exact: true }).selectOption("name");
   assert(/\d/.test(skillRowLayout.meta), "skill rows must show a file count");
   // The file tree starts at the left edge, and the related-Agent block is an
   // inline row without its own container.
@@ -2424,6 +2454,19 @@ try {
   }));
   assert(mobileSkill.text.length > 0, "skill rows must not be empty on phones");
   assert(mobileSkill.height > 24, "skill rows must keep a readable height");
+  // The list may not be trapped in a short fixed-height box on phones.
+  const mobileSkillList = await page.evaluate(() => {
+    const nav = document.querySelector(".skill-list");
+    const style = getComputedStyle(nav);
+    const page = document.querySelector(".configuration-content");
+    return {
+      overflow: style.overflowY,
+      maxHeight: style.maxHeight,
+      pageMax: page ? page.scrollHeight - page.clientHeight : 0,
+    };
+  });
+  assert.equal(mobileSkillList.overflow, "visible");
+  assert.equal(mobileSkillList.maxHeight, "none");
   await chat();
   // The conversation switcher must be reachable in the header on phones; it
   // used to live in a bar above the composer and was effectively hidden.

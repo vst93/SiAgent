@@ -478,6 +478,21 @@ export function ChatWorkspace({
             <p className="nav-empty">开始对话后，记录会保存在这里。</p>
           )}
         </nav>
+        {!channelConversation && (
+          <div className="chat-history-actions">
+            <button
+              type="button"
+              className="chat-copy-transcript"
+              disabled={!snapshot?.messages.length}
+              onClick={() =>
+                void copy("transcript", transcript(), "复制失败，请手动选择文本。")
+              }
+            >
+              <Icon name={copied === "transcript" ? "check" : "copy"} size={14} />
+              {copied === "transcript" ? "已复制" : "复制对话"}
+            </button>
+          </div>
+        )}
         <div className="chat-sidebar-status">
           <Icon name="history" size={14} />
           <span>会话保存在此实例</span>

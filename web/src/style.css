@@ -2634,25 +2634,6 @@ summary {
   gap: 8px;
   flex-shrink: 0;
 }
-.kb-library-controls > button,
-.kb-library-controls > .row-menu-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 34px;
-  height: 34px;
-  padding: 0 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 18px;
-  white-space: nowrap;
-  box-sizing: border-box;
-}
-.kb-library-controls > button .ui-icon,
-.kb-library-controls > .row-menu-trigger .ui-icon {
-  flex-shrink: 0;
-}
 .kb-library-content {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -2879,6 +2860,39 @@ summary {
   line-height: 1.4;
   white-space: nowrap;
 }
+/* The knowledge toolbar pairs a dropdown trigger with a primary button; they
+   must share one visual box. The generic trigger is transparent and 30px tall,
+   so this has to come after it and be specific enough to win. */
+.kb-library-controls > button,
+.kb-library-controls > .row-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 18px;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+.kb-library-controls > button .ui-icon,
+.kb-library-controls > .row-menu-trigger .ui-icon {
+  flex-shrink: 0;
+}
+.kb-library-controls > .row-menu-trigger:hover,
+.kb-library-controls > .row-menu-trigger[aria-expanded="true"] {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
 .row-menu-trigger:hover,
 .row-menu-trigger[aria-expanded="true"] {
   border-color: var(--line);
@@ -3274,8 +3288,17 @@ summary {
     max-height: none;
     overflow: visible;
   }
+  /* The card's background must cover every row, not just the viewport. Its
+     height came from the flex/grid parent, so the list painted outside the card
+     and the page background showed through below the fold. */
   .kb-library-content {
     overflow: visible;
+    height: auto;
+    min-height: 0;
+  }
+  .kb-library-content,
+  .knowledge-workspace {
+    display: block;
   }
   .kb-document-row:not(.kb-table-heading) {
     grid-template-columns: 22px minmax(0, 1fr) auto 32px;
@@ -3612,10 +3635,26 @@ summary {
 .skill-catalog-list {
   min-width: 0;
 }
-.skill-catalog-list > input {
+.skill-list-filter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
   margin: 0 0 10px;
+}
+.skill-list-filter > input {
+  margin: 0;
+  min-width: 0;
   font-size: 12px;
   padding: 8px 10px;
+}
+.skill-list-sort select {
+  height: 34px;
+  padding: 0 26px 0 8px;
+  font-size: 11.5px;
+  background-position:
+    calc(100% - 13px) calc(50% + 1px),
+    calc(100% - 8px) calc(50% + 1px);
 }
 /* Skill list rows follow the same card rhythm as the Agent and channel lists:
    icon, title plus description, and a compact file count. */
@@ -4084,9 +4123,14 @@ summary {
   .skill-catalog-layout {
     grid-template-columns: minmax(0, 1fr);
   }
-  .skill-catalog-list > nav {
-    max-height: 190px;
-    overflow: auto;
+  /* A 190px window showed barely four rows and felt frozen; give the list room
+     and let it scroll inside the page. */
+  .skill-catalog-list {
+    height: auto;
+  }
+  .skill-catalog-list > nav.skill-list {
+    max-height: none;
+    overflow: visible;
   }
   .skill-catalog-list > nav > button {
     padding: 10px;
@@ -4461,20 +4505,6 @@ summary {
 }
 .configuration-link.selected > .ui-icon {
   color: var(--teal);
-}
-.kb-library-controls > button,
-.kb-library-controls > .row-menu-trigger {
-  gap: 5px;
-}
-.kb-library-controls > .row-menu-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  padding: 7px 10px;
-  border-color: var(--line-strong);
-  background: var(--paper);
-  color: var(--ink);
 }
 .skill-file-tree button {
   align-items: center;
@@ -5619,30 +5649,84 @@ details[open] > summary > .disclosure-icon {
   }
   /* Actions stay in the header on phones: the old bar above the composer put
      the conversation switcher out of sight. */
+  /* One compact row: assistant selector, new chat, history. Secondary actions
+     (copy transcript, delete) move into the history panel so the header does not
+     eat a fifth of a small screen. */
   .chat-header-actions {
     display: flex;
     align-items: center;
     gap: 6px;
     flex: 1 1 100%;
     min-width: 0;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
   .chat-header-actions .chat-agent-select {
-    flex: 1 1 120px;
+    flex: 1 1 auto;
     min-width: 0;
   }
   .chat-header-actions .chat-agent-select select {
     width: 100%;
     max-width: none;
-    min-height: 34px;
+    min-height: 32px;
     font-size: 13px;
   }
+  .chat-header-actions .new-chat,
   .chat-header-actions .history-toggle {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    min-height: 34px;
-    padding: 6px 10px;
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 5px 9px;
+    font-size: 12px;
+  }
+  .chat-header-actions .new-chat span,
+  .chat-header-actions .history-toggle span {
+    display: none;
+  }
+  .chat-header-actions .new-chat,
+  .chat-header-actions .history-toggle {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+  .chat-header-actions .chat-agent-select select {
+    padding-right: 26px;
+  }
+  .chat-header-actions .chat-copy-transcript {
+    display: none;
+  }
+  .chat-header-actions .delete-conversation-button {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+    padding: 0;
+  }
+  .chat-history-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+  }
+}
+
+/* Desktop: the header already carries copy and delete. */
+@media (min-width: 981px) {
+  .chat-history-actions {
+    display: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .chat-history-actions .delete-conversation-button {
+    min-width: 32px;
+    height: 32px;
+  }
+  .chat-history-actions .chat-copy-transcript {
+    flex: 1;
+    justify-content: center;
+    min-height: 32px;
     font-size: 12px;
   }
   .chat-main {
@@ -6352,8 +6436,11 @@ select option:disabled {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  /* Match the detail's 18px gutter so the row starts on the same vertical line
+     as the title, description and compatibility summary. No negative margin: the
+     hairline stays inside the card instead of stretching past its border. */
   margin: 10px 0 0;
-  padding: 10px 0 0;
+  padding: 10px 18px 0;
   border: 0;
   border-top: 1px solid var(--line);
   border-radius: 0;
@@ -7711,14 +7798,17 @@ select option:disabled {
   }
 }
 
-/* List panes use the window height instead of stopping at an arbitrary 64vh. */
-.kb-document-table {
-  max-height: calc(100dvh - 320px);
-}
-.skill-resource-browser {
-  height: clamp(320px, calc(100dvh - 320px), 760px);
-}
+/* Desktop list panes use the window height instead of an arbitrary fixed cap.
+   These stay inside a min-width query: on phones the document list must grow with
+   its content so the card background covers every row, and the skill pane has its
+   own narrow-screen rules. */
 @media (min-width: 901px) {
+  .kb-document-table {
+    max-height: calc(100dvh - 320px);
+  }
+  .skill-resource-browser {
+    height: clamp(320px, calc(100dvh - 320px), 760px);
+  }
   .agents-list,
   .skill-catalog-list,
   .channel-catalog {
