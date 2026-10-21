@@ -2636,16 +2636,22 @@ summary {
 }
 .kb-library-controls > button,
 .kb-library-controls > .row-menu-trigger {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 5px;
   min-height: 34px;
-  padding: 7px 10px;
+  height: 34px;
+  padding: 0 12px;
   border-radius: 6px;
   font-size: 12px;
   line-height: 18px;
   white-space: nowrap;
   box-sizing: border-box;
+}
+.kb-library-controls > button .ui-icon,
+.kb-library-controls > .row-menu-trigger .ui-icon {
+  flex-shrink: 0;
 }
 .kb-library-content {
   border: 1px solid var(--line);
@@ -3786,6 +3792,21 @@ summary {
   margin: 0;
   padding: 0;
 }
+/* Tree rows must start at the left edge; inherited centring made nested files
+   drift to the middle of the pane. */
+.skill-file-tree,
+.skill-file-tree ul,
+.skill-file-tree li,
+.skill-file-tree summary,
+.skill-file-tree button {
+  text-align: left;
+}
+.skill-file-tree button {
+  justify-content: flex-start;
+}
+.skill-file-tree details > ul {
+  padding-left: 12px;
+}
 .skill-file-tree li {
   margin: 1px 0;
 }
@@ -4746,14 +4767,44 @@ details[open] > summary > .disclosure-icon {
 }
 .kb-eval-form {
   display: grid;
-  gap: 12px;
+  gap: 14px;
   margin-top: 14px;
-  padding: 16px;
+}
+/* The form is split into labelled blocks: adding questions, then running and
+   exchanging them. Everything used to sit in one dense column. */
+.kb-eval-block {
+  display: grid;
+  gap: 11px;
+  padding: 14px 16px 16px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-raised);
 }
-.kb-eval-form > label {
+.kb-eval-block > header h3 {
+  margin: 0 0 2px;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.kb-eval-block > header p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.kb-eval-block-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.kb-eval-count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.kb-eval-form > label,
+.kb-eval-block > label {
   margin: 0;
 }
 .kb-eval-docs {
@@ -5268,6 +5319,13 @@ details[open] > summary > .disclosure-icon {
 .kb-eval-io {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+  display: flex;
+  align-items: center;
   gap: 12px;
   flex-wrap: wrap;
   margin-top: 10px;
@@ -5544,9 +5602,14 @@ details[open] > summary > .disclosure-icon {
   }
   .chat-header {
     display: flex;
-    padding: 8px 14px;
+    padding: 8px 12px;
     min-height: 0;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .chat-heading {
+    min-width: 0;
+    flex: 1 1 auto;
   }
   .chat-heading h1 {
     font-size: 15px;
@@ -5554,8 +5617,33 @@ details[open] > summary > .disclosure-icon {
   .chat-subtitle {
     display: none;
   }
+  /* Actions stay in the header on phones: the old bar above the composer put
+     the conversation switcher out of sight. */
   .chat-header-actions {
-    display: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1 1 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  .chat-header-actions .chat-agent-select {
+    flex: 1 1 120px;
+    min-width: 0;
+  }
+  .chat-header-actions .chat-agent-select select {
+    width: 100%;
+    max-width: none;
+    min-height: 34px;
+    font-size: 13px;
+  }
+  .chat-header-actions .history-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 34px;
+    padding: 6px 10px;
+    font-size: 12px;
   }
   .chat-main {
     flex: 1;
@@ -6256,20 +6344,25 @@ select option:disabled {
   }
 }
 
-/* Related-Agent panel: a small titled block with pill rows, matching the
-   capability cards around it instead of looking like inline plain text. */
+/* Related-Agent row: part of the detail's metadata block, not a card of its
+   own. A hairline above and no container keeps it inline with the description
+   and compatibility summary around it. */
 .linked-agents {
-  margin: 12px 0;
-  padding: 9px 11px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-.linked-agents-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+.linked-agents-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .linked-agents-title {
   display: inline-flex;
@@ -6296,14 +6389,14 @@ select option:disabled {
   color: var(--muted);
 }
 .linked-agents > p {
-  margin: 7px 0 0;
+  margin: 0;
   font-size: 11px;
 }
 .linked-agents ul {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-  margin: 7px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
 }

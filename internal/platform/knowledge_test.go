@@ -50,9 +50,11 @@ func knowledgeWorker(t *testing.T, f *fixture) {
 }
 func waitDocument(t *testing.T, f *fixture, id string) knowledge.Document {
 	t.Helper()
-	// Cold dictionary initialization is substantially slower with race instrumentation.
-	// Allow the supported 15-second parser budget plus startup/indexing overhead.
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	// Cold dictionary initialization is substantially slower with race
+	// instrumentation, and slower still when the whole platform suite runs in
+	// parallel: the observed worst case exceeds 40 seconds. Allow a generous
+	// budget so the wait tests completion, not machine speed.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()

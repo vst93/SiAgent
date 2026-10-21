@@ -1626,6 +1626,22 @@ try {
   assert.equal(skillRowLayout.icons, 0);
   assert(skillRowLayout.title.length > 0, "skill rows must show a title");
   assert(/\d/.test(skillRowLayout.meta), "skill rows must show a file count");
+  // The file tree starts at the left edge, and the related-Agent block is an
+  // inline row without its own container.
+  const treeRows = await page.locator(".skill-file-tree button").first().evaluate((el) => ({
+    align: getComputedStyle(el).textAlign,
+    justify: getComputedStyle(el).justifyContent,
+  }));
+  assert.equal(treeRows.align, "left");
+  assert.equal(treeRows.justify, "flex-start");
+  const linkedBox = await page.locator(".linked-agents").first().evaluate((el) => ({
+    bg: getComputedStyle(el).backgroundColor,
+    radius: getComputedStyle(el).borderTopLeftRadius,
+    border: getComputedStyle(el).borderTopWidth,
+  }));
+  assert.equal(linkedBox.bg, "rgba(0, 0, 0, 0)", "related agents must not look like a card");
+  assert.equal(linkedBox.radius, "0px");
+  assert.notEqual(linkedBox.border, "0px");
   const linked = page.locator(".linked-agents").first();
   if (await linked.count()) {
     assert.equal(
@@ -2409,6 +2425,11 @@ try {
   assert(mobileSkill.text.length > 0, "skill rows must not be empty on phones");
   assert(mobileSkill.height > 24, "skill rows must keep a readable height");
   await chat();
+  // The conversation switcher must be reachable in the header on phones; it
+  // used to live in a bar above the composer and was effectively hidden.
+  const toggleBox = await page.locator(".history-toggle").first().boundingBox();
+  assert(toggleBox && toggleBox.width > 24 && toggleBox.height > 24, "history toggle must be visible on phones");
+  assert(toggleBox.y >= 0 && toggleBox.y + toggleBox.height <= 664, "history toggle must be inside the viewport");
   await page.locator(".history-toggle").first().click();
   const mobileHistory = await page.evaluate(() => {
     const list = document.querySelector(".conversation-list");
@@ -2430,6 +2451,22 @@ try {
     await page.waitForTimeout(400);
   }
   await config("知识库");
+  const kbButtons = await page.evaluate(() =>
+    [...document.querySelectorAll(".kb-library-controls > button, .kb-library-controls > .row-menu-trigger")].map(
+      (el) => {
+        const rect = el.getBoundingClientRect();
+        return { h: Math.round(rect.height), font: getComputedStyle(el).fontSize };
+      },
+    ),
+  );
+  if (kbButtons.length > 1) {
+    assert.equal(
+      new Set(kbButtons.map((b) => b.h)).size,
+      1,
+      `knowledge toolbar buttons must share one height: ${JSON.stringify(kbButtons)}`,
+    );
+    assert.equal(new Set(kbButtons.map((b) => b.font)).size, 1);
+  }
   const mobileKnowledge = await page.evaluate(() => {
     const card = document.querySelector(".kb-library-content");
     const content = document.querySelector(".configuration-content");

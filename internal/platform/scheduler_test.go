@@ -234,18 +234,29 @@ func TestRecommendedConcurrencyFollowsHostSize(t *testing.T) {
 		memory uint64
 		want   int
 	}{
-		// Two tasks per core: a run waits on the model most of the time.
-		{"one core", 1, 0, 2},
-		{"four cores", 4, 8 << 30, 8},
-		{"eight cores", 8, 16 << 30, 16},
-		{"memory bound", 8, 3 << 30, 4},
-		{"two cores two gigabytes", 2, 2 << 30, 3},
-		{"clamped to runtime", 64, 512 << 30, runtimeActiveLimit},
-		{"floor of two", 1, 512 << 20, 2},
+		// Two runs per core, memory at 512 MiB per run after OS and runtime
+		// reserves, clamped into [2, 8].
+		{"one core one gib", 1, 1 << 30, 2},
+		{"two cores two gib", 2, 2 << 30, 2},
+		{"two cores four gib", 2, 4 << 30, 4},
+		{"four cores four gib", 4, 4 << 30, 5},
+		{"four cores eight gib", 4, 8 << 30, 8},
+		{"eight cores sixteen gib", 8, 16 << 30, 8},
+		{"sixteen cores thirtytwo gib", 16, 32 << 30, 8},
+		{"memory bound at sixtyfour gib", 32, 64 << 30, 8},
+		// No memory reading falls back to a low CPU estimate and says so.
+		{"two cores unknown memory", 2, 0, 4},
+		{"thirtytwo cores unknown memory", 32, 0, 4},
 	}
 	for _, item := range cases {
 		if got := recommendConcurrent(item.cores, item.memory); got != item.want {
 			t.Fatalf("%s (cores=%d memory=%d): got %d, want %d", item.name, item.cores, item.memory, got, item.want)
+		}
+	}
+	// The suggestion never exceeds what one Runtime process will accept.
+	for _, cores := range []int{1, 2, 8, 64, 256} {
+		if got := recommendConcurrent(cores, 1<<40); got > maxConcurrent {
+			t.Fatalf("%d cores recommended %d, above the practical ceiling %d", cores, got, maxConcurrent)
 		}
 	}
 }

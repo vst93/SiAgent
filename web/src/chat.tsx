@@ -437,7 +437,7 @@ export function ChatWorkspace({
             )}
           </div>
         </div>
-        {!mobile && <div className="chat-header-actions">{actions}</div>}
+        <div className="chat-header-actions">{actions}</div>
       </header>
       <aside
         id="chat-history"
@@ -865,12 +865,9 @@ export function ChatWorkspace({
                 </button>
               )}
             </div>
-            {mobile && <div className="chat-mobile-actions">{actions}</div>}
             {channelConversation ? (
               <div className="channel-conversation-notice">
-                <p>
-                  请在原聊天平台发送新消息。这里可查看对话记录和取消任务。
-                </p>
+                <p>请在原聊天平台发送新消息。</p>
                 {(currentRun || waitingCount > 0) && (
                   <p className="muted" role="status">
                     {currentRun ? statusNames[currentRun.status] : "等待处理"}

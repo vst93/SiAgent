@@ -2094,104 +2094,122 @@ function KnowledgeEval({
         </p>
       )}
       <form className="kb-eval-form" onSubmit={add}>
-        <label>
-          评测问题
-          <input
-            required
-            maxLength={2000}
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            placeholder="例如：出差住宿标准是多少？"
-          />
-        </label>
-        <label className="checkbox-label">
-          <input
-            type="checkbox"
-            checked={!answerable}
-            onChange={(event) => setAnswerable(!event.target.checked)}
-          />
-          资料中无法回答（用于衡量拒答）
-        </label>
-        <fieldset className="kb-eval-docs" disabled={!answerable}>
-          <legend>期望来源文档</legend>
-          {!ready.length && (
-            <p className="muted">先上传并等待文档变为可检索。</p>
-          )}
-          {ready.map((doc) => (
-            <label key={doc.id} className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={expected.includes(doc.id)}
-                onChange={(event) =>
-                  setExpected((values) =>
-                    event.target.checked
-                      ? [...values, doc.id]
-                      : values.filter((id) => id !== doc.id),
-                  )
-                }
-              />
-              {doc.title}
-            </label>
-          ))}
-        </fieldset>
-        <div className="form-actions">
-          <button
-            className="primary"
-            disabled={pending === "add" || !question.trim() || !expected.length}
-          >
-            {pending === "add" ? "正在添加…" : "添加问题"}
-          </button>
-          <button
-            type="button"
-            disabled={!questions.length || pending === "run"}
-            onClick={() => void evaluate()}
-          >
-            {pending === "run" ? "正在评测…" : "运行检索评测"}
-          </button>
-          <button
-            type="button"
-            disabled={!questions.length || pending === "answers"}
-            onClick={() => void evaluateAnswers()}
-          >
-            {pending === "answers" ? "正在评测…" : "评测回答质量"}
-          </button>
-        </div>
-        <div className="kb-eval-io">
-          <label className="kb-eval-import">
-            {importing ? "正在导入…" : "导入 CSV / JSON"}
+        <section className="kb-eval-block">
+          <header>
+            <h3>新增评测问题</h3>
+            <p>选择期望命中的文档；标记为无法回答时，用于衡量拒答。</p>
+          </header>
+          <label>
+            评测问题
             <input
-              type="file"
-              accept=".csv,.json,text/csv,application/json"
-              disabled={importing}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void importFile(file);
-                event.target.value = "";
-              }}
+              required
+              maxLength={2000}
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              placeholder="例如：出差住宿标准是多少？"
             />
           </label>
-          <a
-            href={appURL(
-              `/api/knowledge/bases/${baseID}/eval/questions/export?format=csv`,
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={!answerable}
+              onChange={(event) => setAnswerable(!event.target.checked)}
+            />
+            资料中无法回答（用于衡量拒答）
+          </label>
+          <fieldset className="kb-eval-docs" disabled={!answerable}>
+            <legend>期望来源文档</legend>
+            {!ready.length && (
+              <p className="muted">先上传并等待文档变为可检索。</p>
             )}
-            download
-          >
-            导出 CSV
-          </a>
-          <a
-            href={appURL(
-              `/api/knowledge/bases/${baseID}/eval/questions/export`,
-            )}
-            download="eval-questions.json"
-          >
-            导出 JSON
-          </a>
-        </div>
-        {importFeedback && (
-          <p className="kb-feedback success" role="status">
-            {importFeedback}
-          </p>
-        )}
+            {ready.map((doc) => (
+              <label key={doc.id} className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={expected.includes(doc.id)}
+                  onChange={(event) =>
+                    setExpected((values) =>
+                      event.target.checked
+                        ? [...values, doc.id]
+                        : values.filter((id) => id !== doc.id),
+                    )
+                  }
+                />
+                {doc.title}
+              </label>
+            ))}
+          </fieldset>
+          <div className="kb-eval-block-actions">
+            <button
+              className="primary"
+              disabled={pending === "add" || !question.trim() || !expected.length}
+            >
+              {pending === "add" ? "正在添加…" : "添加问题"}
+            </button>
+            <span className="kb-eval-count">
+              已添加 {questions.length} 个问题
+            </span>
+          </div>
+        </section>
+
+        <section className="kb-eval-block">
+          <header>
+            <h3>运行评测</h3>
+            <p>检索评测只查询本地索引，不调用模型；回答质量评测会调用一次模型。</p>
+          </header>
+          <div className="kb-eval-block-actions">
+            <button
+              type="button"
+              disabled={!questions.length || pending === "run"}
+              onClick={() => void evaluate()}
+            >
+              {pending === "run" ? "正在评测…" : "运行检索评测"}
+            </button>
+            <button
+              type="button"
+              disabled={!questions.length || pending === "answers"}
+              onClick={() => void evaluateAnswers()}
+            >
+              {pending === "answers" ? "正在评测…" : "评测回答质量"}
+            </button>
+            <div className="kb-eval-io">
+              <label className="kb-eval-import">
+                {importing ? "正在导入…" : "导入 CSV / JSON"}
+                <input
+                  type="file"
+                  accept=".csv,.json,text/csv,application/json"
+                  disabled={importing}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void importFile(file);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+              <a
+                href={appURL(
+                  `/api/knowledge/bases/${baseID}/eval/questions/export?format=csv`,
+                )}
+                download
+              >
+                导出 CSV
+              </a>
+              <a
+                href={appURL(
+                  `/api/knowledge/bases/${baseID}/eval/questions/export`,
+                )}
+                download="eval-questions.json"
+              >
+                导出 JSON
+              </a>
+            </div>
+          </div>
+          {importFeedback && (
+            <p className="kb-feedback success" role="status">
+              {importFeedback}
+            </p>
+          )}
+        </section>
       </form>
       {questions.length > 0 && (
         <ul className="kb-eval-questions">
