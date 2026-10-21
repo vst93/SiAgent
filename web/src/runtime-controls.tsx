@@ -246,12 +246,18 @@ type Limits = {
   tool_rounds: number;
 };
 type Capacity = {
+  host_cores: number;
+  host_memory_bytes?: number;
   cpu_cores: number;
   memory_bytes?: number;
+  cpu_limit?: string;
+  memory_limit?: string;
   runtime_active: number;
   recommended: Limits;
   note?: string;
 };
+const gib = (bytes?: number) =>
+  bytes ? `${(bytes / 1024 ** 3).toFixed(1)} GiB` : "";
 // The limits are returned flat for compatibility with older clients, with the
 // host recommendation beside them.
 type LimitsResponse = Limits & { capacity: Capacity };
@@ -494,10 +500,16 @@ function RunLimitsSettings({ request }: { request: Api }) {
             <header>
               <strong>本机规格</strong>
               <span>
-                {capacity.cpu_cores} 核
-                {capacity.memory_bytes
-                  ? ` · ${(capacity.memory_bytes / 1024 ** 3).toFixed(1)} GiB 内存`
+                {capacity.host_cores} 核
+                {capacity.host_memory_bytes
+                  ? ` · ${gib(capacity.host_memory_bytes)} 内存`
                   : ""}
+                {(capacity.cpu_limit || capacity.memory_limit) &&
+                  `（本进程可见：${capacity.cpu_cores} 核${
+                    capacity.memory_bytes
+                      ? ` / ${gib(capacity.memory_bytes)}`
+                      : ""
+                  }）`}
               </span>
             </header>
             <p>

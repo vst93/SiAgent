@@ -469,6 +469,10 @@ func (m *Manager) StartWorker() error {
 type downloadProgress struct {
 	mu   sync.Mutex
 	tail string
+	// maxDownloaded keeps the reported transfer monotonic. An installer retry
+	// reopens the archive from zero, and showing that reset made the bar jump
+	// back to 0% several times during one update.
+	maxDownloaded int64
 }
 
 func (w *downloadProgress) Write(value []byte) (int, error) {
@@ -492,6 +496,10 @@ var progressLine = regexp.MustCompile(`(?m)^progress: (\d+) (\d+)$`)
 func (w *downloadProgress) transfer() (int64, int64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	return w.transferLocked()
+}
+
+func (w *downloadProgress) transferLocked() (int64, int64) {
 	matches := progressLine.FindAllStringSubmatch(w.tail, -1)
 	if len(matches) == 0 {
 		return 0, 0
@@ -503,6 +511,16 @@ func (w *downloadProgress) transfer() (int64, int64) {
 	}
 	total, err := strconv.ParseInt(last[2], 10, 64)
 	if err != nil || total < 0 {
+		total = 0
+	}
+	if current < w.maxDownloaded {
+		current = w.maxDownloaded
+	} else {
+		w.maxDownloaded = current
+	}
+	// A probed total that the file has already passed is wrong; an indeterminate
+	// bar is more honest than one pinned at the end.
+	if total > 0 && current > total {
 		total = 0
 	}
 	return current, total

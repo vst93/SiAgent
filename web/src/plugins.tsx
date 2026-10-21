@@ -658,9 +658,6 @@ function SkillCatalog({ request }: { request: Api }) {
                   aria-current={current?.id === skill.id ? "true" : undefined}
                   onClick={() => setSelected(skill.id)}
                 >
-                  <span className="skill-list-icon" aria-hidden="true">
-                    <Icon name="plugins" size={16} />
-                  </span>
                   <span className="skill-list-text">
                     <strong title={skill.name}>{skill.name}</strong>
                     <span title={skill.description}>{skill.description}</span>

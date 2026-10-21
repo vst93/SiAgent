@@ -2117,7 +2117,16 @@ summary {
     border-right: 0;
     border-bottom: 1px solid var(--line);
     padding: 15px;
-    max-height: 30dvh;
+    /* The list needs enough rows to pick a conversation; the chat pane keeps
+       priority, so this is a share of the viewport rather than a fixed cap. */
+    max-height: min(46dvh, 420px);
+    min-height: 0;
+    overflow: hidden;
+  }
+  .chat-history-panel .conversation-list {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .chat-history-panel.is-open {
     display: flex;
@@ -3253,8 +3262,13 @@ summary {
     padding: 0;
     border: 0;
   }
+  /* Let the document list scroll on its own: the library card clips overflow,
+     so an unbounded table left the last rows unreachable on phones. */
   .kb-document-table {
     max-height: none;
+    overflow: visible;
+  }
+  .kb-library-content {
     overflow: visible;
   }
   .kb-document-row:not(.kb-table-heading) {
@@ -3605,7 +3619,7 @@ summary {
 }
 .skill-list-item {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
   min-width: 0;
@@ -3624,20 +3638,6 @@ summary {
 .skill-list-item[aria-current="true"] {
   border-color: var(--line);
   background: var(--teal-soft);
-}
-.skill-list-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--muted);
-}
-.skill-list-item[aria-current="true"] .skill-list-icon {
-  background: var(--paper);
-  color: var(--teal-strong);
 }
 .skill-list-text {
   display: grid;
@@ -4070,7 +4070,9 @@ summary {
   .skill-catalog-list > nav > button {
     padding: 10px;
   }
-  .skill-catalog-list > nav > button span {
+  /* Only the description is hidden on narrow screens; hiding every span also
+     removed the title and file count, which left visibly empty rows. */
+  .skill-list-text > span {
     display: none;
   }
   .skill-resource-browser {

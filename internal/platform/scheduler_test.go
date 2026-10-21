@@ -229,20 +229,23 @@ func TestRuntimeLimitsAreAdvisoryNotCapped(t *testing.T) {
 
 func TestRecommendedConcurrencyFollowsHostSize(t *testing.T) {
 	cases := []struct {
+		name   string
 		cores  int
 		memory uint64
 		want   int
 	}{
-		{1, 0, 2},
-		{4, 4 << 30, 4},
-		{8, 4 << 30, 8},
-		{32, 128 << 30, runtimeActiveLimit},
-		{64, 512 << 30, runtimeActiveLimit},
-		{8, 1 << 30, 2},
+		// Two tasks per core: a run waits on the model most of the time.
+		{"one core", 1, 0, 2},
+		{"four cores", 4, 8 << 30, 8},
+		{"eight cores", 8, 16 << 30, 16},
+		{"memory bound", 8, 3 << 30, 4},
+		{"two cores two gigabytes", 2, 2 << 30, 3},
+		{"clamped to runtime", 64, 512 << 30, runtimeActiveLimit},
+		{"floor of two", 1, 512 << 20, 2},
 	}
 	for _, item := range cases {
 		if got := recommendConcurrent(item.cores, item.memory); got != item.want {
-			t.Fatalf("cores=%d memory=%d: got %d, want %d", item.cores, item.memory, got, item.want)
+			t.Fatalf("%s (cores=%d memory=%d): got %d, want %d", item.name, item.cores, item.memory, got, item.want)
 		}
 	}
 }

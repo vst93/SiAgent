@@ -1614,12 +1614,18 @@ try {
     return {
       display: style.display,
       columns: style.gridTemplateColumns.split(" ").length,
-      icon: Boolean(el.querySelector(".skill-list-icon")),
+      icons: el.querySelectorAll(".skill-list-icon").length,
+      title: el.querySelector("strong")?.textContent ?? "",
+      meta: el.querySelector(".skill-list-meta")?.textContent ?? "",
     };
   });
   assert.equal(skillRowLayout.display, "grid");
-  assert.equal(skillRowLayout.columns, 3);
-  assert(skillRowLayout.icon, "skill rows need a leading icon");
+  // Two columns only: the list is already narrow, so a repeated decorative icon
+  // was removed.
+  assert.equal(skillRowLayout.columns, 2);
+  assert.equal(skillRowLayout.icons, 0);
+  assert(skillRowLayout.title.length > 0, "skill rows must show a title");
+  assert(/\d/.test(skillRowLayout.meta), "skill rows must show a file count");
   const linked = page.locator(".linked-agents").first();
   if (await linked.count()) {
     assert.equal(
@@ -2391,6 +2397,65 @@ try {
   await page.locator(".command-panel").waitFor();
   await page.keyboard.press("Escape");
   await page.locator(".command-panel").waitFor({ state: "detached" });
+  // Phones: the skill list keeps its title and file count (only the description
+  // is hidden), the chat history panel leaves enough room to switch, and the
+  // knowledge list is no longer clipped by its card.
+  await page.setViewportSize({ width: 390, height: 664 });
+  await config("插件接入");
+  const mobileSkill = await page.locator(".skill-list-item").first().evaluate((el) => ({
+    text: el.innerText.replace(/\n+/g, "|"),
+    height: Math.round(el.getBoundingClientRect().height),
+  }));
+  assert(mobileSkill.text.length > 0, "skill rows must not be empty on phones");
+  assert(mobileSkill.height > 24, "skill rows must keep a readable height");
+  await chat();
+  await page.locator(".history-toggle").first().click();
+  const mobileHistory = await page.evaluate(() => {
+    const list = document.querySelector(".conversation-list");
+    const panel = document.querySelector(".chat-history-panel");
+    return {
+      panelH: Math.round(panel.getBoundingClientRect().height),
+      listH: Math.round(list.getBoundingClientRect().height),
+      rows: document.querySelectorAll(".conversation").length,
+      scrollable: list.scrollHeight >= list.clientHeight,
+    };
+  });
+  assert(
+    mobileHistory.rows < 2 || mobileHistory.listH >= 2 * 32,
+    `history list must show at least two rows: ${JSON.stringify(mobileHistory)}`,
+  );
+  if (mobileHistory.rows > 0) {
+    assert(mobileHistory.scrollable, "history list must scroll on phones");
+    await page.locator(".conversation").first().click();
+    await page.waitForTimeout(400);
+  }
+  await config("知识库");
+  const mobileKnowledge = await page.evaluate(() => {
+    const card = document.querySelector(".kb-library-content");
+    const content = document.querySelector(".configuration-content");
+    return {
+      cardOverflow: card ? getComputedStyle(card).overflowY : "missing",
+      contentOverflow: content ? getComputedStyle(content).overflowY : null,
+      rows: document.querySelectorAll(".kb-document-row").length,
+      overflowY: content ? content.scrollHeight - content.clientHeight : 0,
+    };
+  });
+  if (mobileKnowledge.cardOverflow !== "missing") {
+    // The card must not clip the list. With documents present the page must also
+    // be able to scroll to the last row.
+    assert.equal(
+      mobileKnowledge.cardOverflow,
+      "visible",
+      "the knowledge card must not clip its document list on phones",
+    );
+    assert.equal(mobileKnowledge.contentOverflow, "auto");
+    if (mobileKnowledge.rows > 0) {
+      assert(
+        mobileKnowledge.overflowY > 0,
+        "the knowledge page must scroll when documents overflow on phones",
+      );
+    }
+  }
   // Theme cycles light -> dark -> auto; automatic mode resolves from the clock
   // and the choice survives a reload.
   const themeButton = page.locator(".mobile-topbar .theme-toggle");
@@ -2443,6 +2508,7 @@ try {
     "light",
   );
   assert.equal(await page.evaluate(() => localStorage.getItem("siagent.theme")), "light");
+  await page.setViewportSize({ width: 1440, height: 1000 });
   assert.deepEqual(errors, []);
   console.log(
     "Browser passed: Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, Chinese/English switch with reload persistence, no JS errors.",
