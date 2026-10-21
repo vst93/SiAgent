@@ -62,6 +62,8 @@ func (s *Server) archiveChannel(w http.ResponseWriter, r *http.Request) {
 		internal(w)
 		return
 	}
+	// A rejected message never reaches a run, so its staged pictures are unusable.
+	s.resetChannelMedia(c.ID)
 	respond(w, 200, map[string]bool{"archived": true})
 }
 
@@ -164,10 +166,41 @@ func (s *Server) admitChannelInbox(ctx context.Context) error {
 			continue
 		}
 		if err == nil {
-			_, err = s.enqueueRun(ctx, conversation, text, receivedAt, func(tx *sql.Tx, run string) error {
-				_, err := tx.ExecContext(ctx, "UPDATE channel_inbox SET state='admitted',run_id=?,conversation_id=? WHERE id=? AND state='pending'", run, conversation, inbox)
-				return err
-			})
+			images, readErr := s.inboxStagedImages(inbox)
+			if readErr != nil {
+				if _, err := s.store.db.ExecContext(ctx, "UPDATE channel_inbox SET state='rejected',error='图片消息已损坏，请重新发送。' WHERE id=? AND state='pending'", inbox); err != nil {
+					return err
+				}
+				continue
+			}
+			// A picture-only message carries no text of its own; the prompt tells the
+			// model what to look at without inventing content the member did not send.
+			prompt := text
+			if prompt == "" && len(images) > 0 {
+				prompt = "请查看图片。"
+			}
+			var attachmentIDs []string
+			if len(images) > 0 {
+				attachmentIDs, err = s.promoteStagedImages(inbox, conversation, images)
+			}
+			if err == nil {
+				_, err = s.enqueueRunWithAttachments(ctx, conversation, prompt, receivedAt, attachmentIDs, func(tx *sql.Tx, run string) error {
+					_, err := tx.ExecContext(ctx, "UPDATE channel_inbox SET state='admitted',run_id=?,conversation_id=? WHERE id=? AND state='pending'", run, conversation, inbox)
+					return err
+				})
+			}
+			if err != nil {
+				// A rejected run must not leave orphan pictures behind. Promoted IDs stay
+				// on the inbox row so a deferred admission can retry them; a rejection
+				// removes both the rows and the staging list.
+				var rejected *admissionError
+				if errors.As(err, &rejected) && rejected.Status != 503 {
+					s.discardInboundAttachments(attachmentIDs)
+					if _, resetErr := s.store.db.ExecContext(ctx, "UPDATE channel_inbox SET attachments='[]' WHERE id=?", inbox); resetErr != nil {
+						return resetErr
+					}
+				}
+			}
 		}
 		if err != nil {
 			var rejected *admissionError
@@ -260,6 +293,28 @@ func (s *Server) streamingChannel(channel string) (bool, int) {
 	}
 	descriptor := entry.Descriptor()
 	return descriptor.Streaming, descriptor.MaxTextBytes
+}
+
+// supportsChannelImages reports whether the bound adapter declares inbound image
+// support. A text-only adapter keeps the text-only notice instead of accepting
+// pictures it can never deliver.
+func (s *Server) supportsChannelImages(provider string) bool {
+	entry, ok := s.channelProviders.Get(provider)
+	if !ok {
+		return false
+	}
+	return entry.Descriptor().Images
+}
+
+// agentAcceptsImages reports the bound Agent's own switch. Images are on by
+// default; an administrator can turn them off for a text-only assistant even
+// when the model and adapter could accept them.
+func (s *Server) agentAcceptsImages(agentID string) bool {
+	a, err := s.agentByID(agentID)
+	if err != nil {
+		return false
+	}
+	return a.effectivePolicy().Session.Images
 }
 
 // queueChannelAck acknowledges a received message immediately. Only adapters

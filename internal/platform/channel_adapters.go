@@ -157,7 +157,16 @@ func (s *Server) syncChannelConnections(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		connection, err := provider.Open(ctx, channels.Config{ID: id, Provider: c.Provider, Version: c.Version, Values: c.Config, Secrets: secret}, func(ctx context.Context, in channels.Incoming) error { return s.receiveChannel(ctx, id, c.Version, in) })
+		// Staged inbound media cannot survive a closed adapter, so any file here is
+		// a remnant of a previous connection attempt.
+		s.resetChannelMedia(id)
+		// The adapter may only write into its own upload directory; the directory
+		// exists before Open so the worker can rely on it.
+		mediaDir := s.channelAdapterDir(id)
+		if err := os.MkdirAll(mediaDir, 0700); err != nil {
+			mediaDir = ""
+		}
+		connection, err := provider.Open(ctx, channels.Config{ID: id, Provider: c.Provider, Version: c.Version, Values: c.Config, Secrets: secret, MediaDir: mediaDir}, func(ctx context.Context, in channels.Incoming) error { return s.receiveChannel(ctx, id, c.Version, in) })
 		if err != nil {
 			connection = &unavailableChannel{}
 		}

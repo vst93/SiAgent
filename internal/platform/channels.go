@@ -352,14 +352,29 @@ func (s *Server) receiveChannel(ctx context.Context, channelID string, version i
 	if err := normalizeIncoming(&in); err != nil {
 		return err
 	}
-	if in.ID == "" || len(in.ID) > 256 || in.Session == "" || len(in.Session) > 2048 || len(in.Text) > 100000 || len(in.Kind) > 64 || !utf8.ValidString(in.ID+in.Session+in.Text+in.Kind) || strings.ContainsAny(in.ID+in.Session, "\x00\r\n") {
+	if in.ID == "" || len(in.ID) > 256 || in.Session == "" || len(in.Session) > 2048 || len(in.Text) > 100000 || len(in.Kind) > 64 || len(in.Images) > 8 || !utf8.ValidString(in.ID+in.Session+in.Text+in.Kind) || strings.ContainsAny(in.ID+in.Session, "\x00\r\n") {
 		return errors.New("invalid channel message")
 	}
 	reply, err := json.Marshal(in.ReplyContext)
 	if err != nil || len(reply) > 8192 || len(in.ReplyContext) > 16 {
 		return errors.New("invalid reply context")
 	}
-	original, _ := json.Marshal([]string{in.Session, in.Kind, in.Text})
+	// Adapter media is consumed once, up front: the same vendor message can be
+	// redelivered, and the fingerprint must describe its content rather than the
+	// staging file names that differ per attempt.
+	media, err := s.consumeAdapterImages(channelID, in.Images)
+	if err != nil {
+		return err
+	}
+	// The text-only fingerprint stays byte-identical to earlier versions so a
+	// vendor replay after upgrade still matches its stored row. Images extend the
+	// same digest, so the same message ID with different pictures is a conflict.
+	fields := []string{in.Session, in.Kind, in.Text}
+	for _, image := range media {
+		hashed := sha256.Sum256(image.data)
+		fields = append(fields, hex.EncodeToString(hashed[:]))
+	}
+	original, _ := json.Marshal(fields)
 	digest := sha256.Sum256(original)
 	fingerprint := hex.EncodeToString(digest[:])
 	if in.Fingerprint != "" {
@@ -401,14 +416,42 @@ func (s *Server) receiveChannel(ctx context.Context, channelID string, version i
 	}
 	text := strings.TrimSpace(in.Text)
 	state, reason := "pending", ""
-	if in.Kind != "text" {
-		state, reason = "rejected", "目前仅支持文字消息，请发送文本问题。"
-	} else if text == "" {
-		state, reason = "rejected", "未收到可处理的文本，请重新发送问题。"
+	// Only text and image messages are consumed. Anything else (a file, a video,
+	// an unsupported vendor type) keeps the explicit scope notice instead of being
+	// silently degraded, even when it carries a caption.
+	if in.Kind != "text" && in.Kind != "image" {
+		state, reason = "rejected", "目前仅支持文字和图片消息，请重新发送。"
+	} else if text == "" && len(media) == 0 {
+		state, reason = "rejected", "未收到可处理的内容，请重新发送问题。"
+	}
+	staged := []stagedImage{}
+	if state == "pending" && len(media) > 0 {
+		if !s.supportsChannelImages(c.Provider) {
+			state, reason = "rejected", "当前渠道适配器不能接收图片，请发送文本问题。"
+		} else if !s.agentAcceptsImages(c.AgentID) {
+			state, reason = "rejected", "此助手已关闭图片接收，请发送文本问题或联系管理员。"
+		} else if staged, err = s.stageChannelImages(channelID, in.ID, media); err != nil {
+			var rejected *admissionError
+			if errors.As(err, &rejected) {
+				state, reason = "rejected", rejected.Message
+			} else {
+				return err
+			}
+		}
+	}
+	encodedMedia := "[]"
+	if len(staged) > 0 {
+		encoded, err := json.Marshal(staged)
+		if err != nil {
+			s.discardStagedImages(staged)
+			return err
+		}
+		encodedMedia = string(encoded)
 	}
 	inboxID := id()
-	_, err = s.store.db.ExecContext(ctx, "INSERT INTO channel_inbox(id,channel_id,msg_id,member,agent_id,content,fingerprint,state,error,created,reply_context) VALUES(?,?,?,?,?,?,?,?,?,?,?)", inboxID, channelID, in.ID, in.Session, c.AgentID, text, fingerprint, state, reason, time.Now().UnixMilli(), string(reply))
+	_, err = s.store.db.ExecContext(ctx, "INSERT INTO channel_inbox(id,channel_id,msg_id,member,agent_id,content,fingerprint,state,error,created,reply_context,attachments) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", inboxID, channelID, in.ID, in.Session, c.AgentID, text, fingerprint, state, reason, time.Now().UnixMilli(), string(reply), encodedMedia)
 	if err != nil {
+		s.discardStagedImages(staged)
 		return err
 	}
 	if state != "pending" {

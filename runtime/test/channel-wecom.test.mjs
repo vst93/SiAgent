@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { createServer } from "node:http";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { createInterface } from "node:readline";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { once } from "node:events";
 
 const require = createRequire(import.meta.url);
@@ -24,9 +28,30 @@ function waitUntil(check, timeout = 6000) {
     }, 10);
   });
 }
+// One-pixel PNG: the platform detects content, not the advertised name.
+const pixelPNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
 async function fixture(t) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, "listening");
+  // Images arrive as an expiring URL the worker must download itself.
+  const media = createServer((request, response) => {
+    if (request.url === "/broken.png") {
+      response.writeHead(500).end();
+      return;
+    }
+    response.writeHead(200, {
+      "content-type": "image/png",
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent("截图.png")}`,
+    });
+    response.end(pixelPNG);
+  });
+  media.listen(0, "127.0.0.1");
+  await once(media, "listening");
+  const mediaURL = `http://127.0.0.1:${media.address().port}/photo.png`;
+  const stagingRoot = await mkdtemp(join(tmpdir(), "siagent-channel-media-"));
   const packets = [],
     sockets = [],
     frames = [];
@@ -97,6 +122,8 @@ async function fixture(t) {
     ]);
     for (const socket of server.clients) socket.terminate();
     await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => media.close(resolve));
+    await rm(stagingRoot, { recursive: true, force: true });
     assert.equal(stderr, "");
   });
   process.stdin.write(
@@ -109,6 +136,7 @@ async function fixture(t) {
         version: 1,
         config: { bot_id: "fixture-bot" },
         secrets: { secret: "fixture-private-secret" },
+        media_dir: stagingRoot,
       },
     }) + "\n",
   );
@@ -122,6 +150,8 @@ async function fixture(t) {
     sockets,
     frames,
     packets,
+    stagingRoot,
+    mediaURL,
     send: (value) =>
       process.stdin.write(JSON.stringify({ v: 1, ...value }) + "\n"),
   };
@@ -308,4 +338,98 @@ test("official SDK rejection is definite, a disconnected send remains unknown an
     ).length,
     1,
   );
+});
+
+test("inbound images are downloaded, decrypted and staged for the platform instead of travelling inside a frame", async (t) => {
+  const f = await fixture(t);
+  const callback = (msgid, body) => ({
+    cmd: "aibot_msg_callback",
+    headers: { req_id: `req-${msgid}` },
+    body: {
+      msgid,
+      aibotid: "fixture-bot",
+      chattype: "single",
+      from: { userid: "member" },
+      ...body,
+    },
+  });
+  // A picture-only message.
+  f.sockets[0].send(
+    JSON.stringify(
+      callback("image-only", {
+        msgtype: "image",
+        image: { url: f.mediaURL, aeskey: undefined },
+      }),
+    ),
+  );
+  // A text + image message (WeCom "mixed").
+  f.sockets[0].send(
+    JSON.stringify(
+      callback("mixed", {
+        msgtype: "mixed",
+        mixed: {
+          msg_item: [
+            { msgtype: "text", text: { content: "这张图说了什么？" } },
+            { msgtype: "image", image: { url: f.mediaURL } },
+          ],
+        },
+      }),
+    ),
+  );
+  // A picture whose download fails must still produce an inbound frame.
+  f.sockets[0].send(
+    JSON.stringify(
+      callback("broken", {
+        msgtype: "image",
+        image: { url: f.mediaURL.replace("photo.png", "broken.png") },
+      }),
+    ),
+  );
+  await waitUntil(
+    () => f.frames.filter((frame) => frame.type === "incoming").length === 3,
+  );
+  const byID = Object.fromEntries(
+    f.frames
+      .filter((frame) => frame.type === "incoming")
+      .map((frame) => [frame.incoming.id, frame.incoming]),
+  );
+  // The frame carries a staged file name, never the image bytes.
+  const imageOnly = byID["image-only"];
+  assert.equal(imageOnly.kind, "image");
+  assert.equal(imageOnly.text, "");
+  assert.equal(imageOnly.images.length, 1);
+  assert.equal(imageOnly.images[0].file.includes("/"), false);
+  assert.equal(imageOnly.images[0].data, undefined);
+  assert.match(imageOnly.images[0].name, /截图\.png$/);
+  const staged = await readFile(join(f.stagingRoot, imageOnly.images[0].file));
+  assert.deepEqual(staged, pixelPNG);
+
+  const mixed = byID["mixed"];
+  assert.equal(mixed.kind, "image");
+  // The text part survives flattening so the picture is not asked about blindly.
+  assert.match(mixed.text, /这张图说了什么/);
+  assert.equal(mixed.images.length, 1);
+
+  // A failed download degrades to text instead of losing the message.
+  const broken = byID["broken"];
+  assert.equal(broken.kind, "text");
+  assert.equal(broken.images, undefined);
+  assert.equal(broken.text, "");
+
+  // Voice messages keep their transcript, which is the useful content.
+  f.sockets[0].send(
+    JSON.stringify(
+      callback("voice", {
+        msgtype: "voice",
+        voice: { content: "语音转写内容" },
+      }),
+    ),
+  );
+  await waitUntil(
+    () => f.frames.filter((frame) => frame.type === "incoming").length === 4,
+  );
+  const voice = f.frames
+    .filter((frame) => frame.type === "incoming")
+    .find((frame) => frame.incoming.id === "voice").incoming;
+  assert.equal(voice.text, "语音转写内容");
 });

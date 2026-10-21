@@ -37,6 +37,10 @@ type Descriptor struct {
 	// under a stable stream identifier. It lets the platform acknowledge a
 	// message, publish drafts, and finish the answer without extra messages.
 	Streaming bool `json:"streaming,omitempty"`
+	// Images reports that the adapter can download and supply inbound images.
+	// Without it the platform rejects image messages with a text-only notice
+	// instead of promising a capability the transport does not have.
+	Images bool `json:"images,omitempty"`
 }
 type Config struct {
 	ID       string            `json:"id"`
@@ -44,6 +48,21 @@ type Config struct {
 	Version  int               `json:"version"`
 	Values   map[string]string `json:"config"`
 	Secrets  map[string]string `json:"secrets"`
+	// MediaDir is a private staging directory the platform owns for this channel.
+	// A process adapter writes downloaded inbound media there and declares only
+	// the base file name, so images never travel inside a protocol frame.
+	MediaDir string `json:"media_dir,omitempty"`
+}
+
+// IncomingImage is one image the adapter downloaded and decrypted for a single
+// inbound message. It carries either inline base64 data or the base name of a
+// file staged in Config.MediaDir. The platform verifies the bytes, stores them
+// as ordinary chat attachments and deletes a staged file.
+type IncomingImage struct {
+	Name string `json:"name,omitempty"`
+	Mime string `json:"mime,omitempty"`
+	Data string `json:"data,omitempty"`
+	File string `json:"file,omitempty"`
 }
 type Incoming struct {
 	ChatType     string            `json:"chat_type,omitempty"`
@@ -54,6 +73,7 @@ type Incoming struct {
 	Session      string            `json:"session"`
 	Kind         string            `json:"kind"`
 	Text         string            `json:"text"`
+	Images       []IncomingImage   `json:"images,omitempty"`
 	ReplyContext map[string]string `json:"reply_context"`
 }
 type Delivery struct {

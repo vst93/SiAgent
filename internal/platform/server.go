@@ -139,6 +139,9 @@ func New(store *Store, runtime Runtime, ready func() bool, publicURL string, opt
 	if err := s.recoverChannels(); err != nil {
 		return nil, err
 	}
+	// A pending inbound message never survives a restart, so every staged picture
+	// on disk at this point is a remnant of a crash.
+	s.cleanupChannelMedia()
 	return s, nil
 }
 

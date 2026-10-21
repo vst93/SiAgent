@@ -35,5 +35,8 @@ func (s *Store) migrateSensitiveReveal() error {
 	if _, err := tx.Exec("PRAGMA user_version=27;"); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateChannelMedia()
 }

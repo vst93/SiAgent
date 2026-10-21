@@ -41,6 +41,15 @@ var imageTypes = map[string]string{
 	".gif":  "image/gif",
 }
 
+// imageMIMETypes is the inverse of imageTypes for media an adapter supplied
+// without a usable file name.
+var imageMIMETypes = map[string]string{
+	"image/png":  ".png",
+	"image/jpeg": ".jpg",
+	"image/webp": ".webp",
+	"image/gif":  ".gif",
+}
+
 var fileTypes = map[string]string{
 	".txt":      "text/plain",
 	".md":       "text/markdown",

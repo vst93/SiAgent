@@ -13,6 +13,10 @@ type SessionPolicy struct {
 	GroupScope  string `json:"group_scope"`
 	IdleMinutes int    `json:"idle_minutes"`
 	AllowReset  bool   `json:"allow_reset"`
+	// Images accepts picture messages from channels. It is on by default and only
+	// takes effect when the bound model declares image input and the adapter can
+	// download pictures; the Web composer follows the model option instead.
+	Images bool `json:"images"`
 }
 type ContextPolicy struct {
 	Strategy         string `json:"strategy"`
@@ -53,7 +57,7 @@ type AgentPolicy struct {
 func defaultAgentPolicy() AgentPolicy {
 	return AgentPolicy{
 		Timezone: "Asia/Shanghai",
-		Session:  SessionPolicy{Types: "all", GroupScope: "member", AllowReset: true},
+		Session:  SessionPolicy{Types: "all", GroupScope: "member", AllowReset: true, Images: true},
 		Context:  ContextPolicy{Strategy: "recent", MaxTurns: 20, MaxAgeMinutes: 1440, SummaryThreshold: 70, KeepRecentTokens: 4096},
 		Output: OutputPolicy{
 			Tools:            "summary",

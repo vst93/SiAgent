@@ -9,6 +9,7 @@ import (
 // downgradeSteps removes the artifacts of each migration, newest first. Index i
 // downgrades from version i+1 to i.
 var downgradeSteps = map[int]string{
+	28: `ALTER TABLE channel_inbox DROP COLUMN attachments;`,
 	27: `ALTER TABLE sessions DROP COLUMN reveal_until;`,
 	26: `ALTER TABLE agents DROP COLUMN environment;`,
 	25: `DROP TABLE knowledge_settings;`,
@@ -36,7 +37,7 @@ var downgradeSteps = map[int]string{
 // for Open() to migrate forward again.
 func downgradeTo(t *testing.T, db *sql.DB, target int) {
 	t.Helper()
-	for version := 27; version > target; version-- {
+	for version := 28; version > target; version-- {
 		step, ok := downgradeSteps[version]
 		if !ok {
 			t.Fatalf("missing downgrade step for %d", version)
@@ -51,7 +52,7 @@ func downgradeTo(t *testing.T, db *sql.DB, target int) {
 }
 
 func TestUpgradeFromEveryRecentVersionPreservesData(t *testing.T) {
-	for target := 10; target <= 26; target++ {
+	for target := 10; target <= 27; target++ {
 		t.Run(fmt.Sprintf("from-v%d", target), func(t *testing.T) {
 			f := newFixture(t)
 			f.setup(t)
@@ -69,8 +70,8 @@ func TestUpgradeFromEveryRecentVersionPreservesData(t *testing.T) {
 			}
 			defer upgraded.Close()
 			var version int
-			if err := upgraded.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 27 {
-				t.Fatalf("expected schema 27, got %d (%v)", version, err)
+			if err := upgraded.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 28 {
+				t.Fatalf("expected schema 28, got %d (%v)", version, err)
 			}
 			var admin int
 			if err := upgraded.db.QueryRow("SELECT count(*) FROM admin").Scan(&admin); err != nil || admin != 1 {

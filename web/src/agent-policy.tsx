@@ -6,6 +6,7 @@ export type AgentPolicy = {
     group_scope: "member" | "shared";
     idle_minutes: number;
     allow_reset: boolean;
+    images: boolean;
   };
   context: {
     strategy: "full" | "recent" | "time" | "summary";
@@ -33,6 +34,7 @@ export const defaultAgentPolicy: AgentPolicy = {
     group_scope: "member",
     idle_minutes: 0,
     allow_reset: true,
+    images: true,
   },
   context: {
     strategy: "recent",
@@ -156,6 +158,18 @@ export function AgentPolicySettings({
         <small>
           仅识别适配器传入的完整 /new 命令；此设置不限制管理员在 Web
           中新建或清理对话。
+        </small>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={session.images}
+            onChange={(e) => setSession({ images: e.target.checked })}
+          />
+          允许渠道成员发送图片
+        </label>
+        <small>
+          开启后，企微智能机器人收到的图片会下载并作为对话附件交给助手，与 Web
+          附件使用同一套视觉模型与大小限制。需同时满足：渠道适配器支持图片、助手主模型声明了图片输入。关闭后图片消息只收到文字说明，不创建任务。
         </small>
       </div>
     );
