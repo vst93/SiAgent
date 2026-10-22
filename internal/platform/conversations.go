@@ -34,6 +34,24 @@ type Conversation struct {
 	// TurnCount counts user messages, which is what a reader thinks of as the
 	// number of questions in the conversation.
 	TurnCount int `json:"turn_count"`
+	// Scope is the context isolation unit of a channel conversation: "group"
+	// when the whole group shares one context, "member" when each member has
+	// their own. It is empty for private chats and Web conversations.
+	Scope string `json:"scope,omitempty"`
+	// LastSender and LastSenderName identify who asked most recently. A shared
+	// group holds several participants in one conversation, so the reader needs
+	// to see whose question is at the top of the list.
+	LastSender     string `json:"last_sender,omitempty"`
+	LastSenderName string `json:"last_sender_name,omitempty"`
+	// LabelSource is "admin" or "member" for the label shown on this row, so the
+	// console can tell a name a member set from one the administrator set.
+	LabelSource string `json:"label_source,omitempty"`
+}
+
+// contactLabel is one resolved display name with its origin.
+type contactLabel struct {
+	Name   string
+	Source string
 }
 type Message struct {
 	Attachments []Attachment `json:"attachments,omitempty"`
@@ -82,14 +100,16 @@ const conversationColumns = `
  SELECT c.id,c.title,c.created,c.agent_id,c.channel_id,c.channel_kind,c.channel_sender,c.channel_group,
    coalesce(ch.name,'') AS channel_name,
    coalesce((SELECT max(m.created) FROM messages m WHERE m.conversation_id=c.id), c.created) AS last_activity,
-   (SELECT count(*) FROM messages m WHERE m.conversation_id=c.id AND m.role='user') AS turn_count
+   (SELECT count(*) FROM messages m WHERE m.conversation_id=c.id AND m.role='user') AS turn_count,
+   coalesce((SELECT i.member FROM channel_inbox i JOIN messages m ON m.run_id=i.run_id
+     WHERE i.conversation_id=c.id AND m.role='user' ORDER BY m.id DESC LIMIT 1),'') AS last_member
  FROM conversations c
  LEFT JOIN channels ch ON ch.id=c.channel_id`
 
-// channelNames resolves the administrator labels for a set of conversations in
-// one query, keyed by "<channel id>\x1f<kind>\x1f<target>".
-func (s *Server) channelNames(values []Conversation) (map[string]string, error) {
-	names := map[string]string{}
+// channelNames resolves the labels for a set of conversations in one query,
+// keyed by "<channel id>\x1f<kind>\x1f<target>".
+func (s *Server) channelNames(values []Conversation) (map[string]contactLabel, error) {
+	names := map[string]contactLabel{}
 	ids := map[string]bool{}
 	for _, value := range values {
 		if value.ChannelID != "" {
@@ -99,38 +119,51 @@ func (s *Server) channelNames(values []Conversation) (map[string]string, error) 
 	if len(ids) == 0 {
 		return names, nil
 	}
-	rows, err := s.store.db.Query("SELECT channel_id,kind,target,name FROM channel_contacts")
+	rows, err := s.store.db.Query("SELECT channel_id,kind,target,name,source FROM channel_contacts")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var channelID, kind, target, name string
-		if err := rows.Scan(&channelID, &kind, &target, &name); err != nil {
+		var channelID, kind, target, name, source string
+		if err := rows.Scan(&channelID, &kind, &target, &name, &source); err != nil {
 			return nil, err
 		}
 		if ids[channelID] {
-			names[channelID+"\x1f"+kind+"\x1f"+target] = name
+			names[channelID+"\x1f"+kind+"\x1f"+target] = contactLabel{Name: name, Source: source}
 		}
 	}
 	return names, rows.Err()
 }
 
-// applyChannelName fills the display labels of one conversation.
-func applyChannelName(names map[string]string, v *Conversation) {
+// applyChannelName fills the display labels of one conversation. The row shows
+// the label of the contact it belongs to, so the group label wins for a group
+// chat and the member label for a private chat.
+func applyChannelName(names map[string]contactLabel, v *Conversation) {
 	if v.ChannelID == "" {
 		return
 	}
 	if v.ChannelGroup != "" {
-		v.GroupName = names[v.ChannelID+"\x1fgroup\x1f"+v.ChannelGroup]
+		if label, ok := names[v.ChannelID+"\x1fgroup\x1f"+v.ChannelGroup]; ok {
+			v.GroupName = label.Name
+			v.LabelSource = label.Source
+		}
 	}
 	if v.ChannelSender != "" {
-		v.SenderName = names[v.ChannelID+"\x1fsender\x1f"+v.ChannelSender]
+		if label, ok := names[v.ChannelID+"\x1fsender\x1f"+v.ChannelSender]; ok {
+			v.SenderName = label.Name
+			if v.ChannelKind != "group" {
+				v.LabelSource = label.Source
+			}
+		}
+	}
+	if v.LastSender != "" {
+		v.LastSenderName = names[v.ChannelID+"\x1fsender\x1f"+v.LastSender].Name
 	}
 }
 
 // applyChannelNames fills the display labels of every conversation.
-func applyChannelNames(values []Conversation, names map[string]string) {
+func applyChannelNames(values []Conversation, names map[string]contactLabel) {
 	for i := range values {
 		applyChannelName(names, &values[i])
 	}
@@ -138,8 +171,51 @@ func applyChannelNames(values []Conversation, names map[string]string) {
 
 func scanConversation(scan func(...any) error) (Conversation, error) {
 	var v Conversation
-	err := scan(&v.ID, &v.Title, &v.Created, &v.AgentID, &v.ChannelID, &v.ChannelKind, &v.ChannelSender, &v.ChannelGroup, &v.ChannelName, &v.LastActivity, &v.TurnCount)
-	return v, err
+	var lastMember string
+	err := scan(&v.ID, &v.Title, &v.Created, &v.AgentID, &v.ChannelID, &v.ChannelKind, &v.ChannelSender, &v.ChannelGroup, &v.ChannelName, &v.LastActivity, &v.TurnCount, &lastMember)
+	if err != nil {
+		return v, err
+	}
+	if who := sessionParticipants(lastMember); who.sender != "" {
+		v.LastSender = who.sender
+	}
+	return v, nil
+}
+
+// agentGroupScopes maps each Agent to its group context scope. The list spans
+// every Agent, so the isolation unit is resolved per Agent rather than once.
+func (s *Server) agentGroupScopes(values []Conversation) (map[string]string, error) {
+	scopes := map[string]string{}
+	for _, value := range values {
+		if _, ok := scopes[value.AgentID]; ok {
+			continue
+		}
+		scopes[value.AgentID] = ""
+	}
+	for agentID := range scopes {
+		a, err := s.agentByID(agentID)
+		if err != nil {
+			continue
+		}
+		scopes[agentID] = a.effectivePolicy().Session.GroupScope
+	}
+	return scopes, nil
+}
+
+// applyConversationScope labels the isolation unit of each channel conversation.
+// A shared group keeps one context for every member; otherwise each member has
+// their own.
+func applyConversationScope(values []Conversation, scopes map[string]string) {
+	for i := range values {
+		if values[i].ChannelID == "" || values[i].ChannelKind != "group" {
+			continue
+		}
+		if scopes[values[i].AgentID] == "shared" {
+			values[i].Scope = "group"
+		} else {
+			values[i].Scope = "member"
+		}
+	}
 }
 
 func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
@@ -176,6 +252,12 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	applyChannelNames(values, names)
+	scopes, err := s.agentGroupScopes(values)
+	if err != nil {
+		internal(w)
+		return
+	}
+	applyConversationScope(values, scopes)
 	respond(w, 200, values)
 }
 func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {

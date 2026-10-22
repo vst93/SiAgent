@@ -17,7 +17,7 @@ import (
 // when no filter is given.
 func (s *Server) listChannelContacts(w http.ResponseWriter, r *http.Request) {
 	channelID := strings.TrimSpace(r.URL.Query().Get("channel_id"))
-	query := "SELECT channel_id,kind,target,name,updated FROM channel_contacts"
+	query := "SELECT channel_id,kind,target,name,updated,source,set_by FROM channel_contacts"
 	args := []any{}
 	if channelID != "" {
 		query += " WHERE channel_id=?"
@@ -33,7 +33,7 @@ func (s *Server) listChannelContacts(w http.ResponseWriter, r *http.Request) {
 	values := []ChannelContact{}
 	for rows.Next() {
 		var v ChannelContact
-		if err := rows.Scan(&v.ChannelID, &v.Kind, &v.Target, &v.Name, &v.Updated); err != nil {
+		if err := rows.Scan(&v.ChannelID, &v.Kind, &v.Target, &v.Name, &v.Updated, &v.Source, &v.SetBy); err != nil {
 			internal(w)
 			return
 		}
@@ -97,11 +97,12 @@ func (s *Server) saveChannelContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated := time.Now().UnixMilli()
-	if _, err := s.store.db.Exec("INSERT INTO channel_contacts(channel_id,kind,target,name,updated) VALUES(?,?,?,?,?) ON CONFLICT(channel_id,kind,target) DO UPDATE SET name=excluded.name,updated=excluded.updated", input.ChannelID, input.Kind, input.Target, input.Name, updated); err != nil {
+	// An administrator label always wins and clears the member provenance.
+	if _, err := s.store.db.Exec("INSERT INTO channel_contacts(channel_id,kind,target,name,updated,source,set_by) VALUES(?,?,?,?,?,'admin','') ON CONFLICT(channel_id,kind,target) DO UPDATE SET name=excluded.name,updated=excluded.updated,source='admin',set_by=''", input.ChannelID, input.Kind, input.Target, input.Name, updated); err != nil {
 		internal(w)
 		return
 	}
-	respond(w, 200, ChannelContact{ChannelID: input.ChannelID, Kind: input.Kind, Target: input.Target, Name: input.Name, Updated: updated})
+	respond(w, 200, ChannelContact{ChannelID: input.ChannelID, Kind: input.Kind, Target: input.Target, Name: input.Name, Updated: updated, Source: "admin"})
 }
 
 func (s *Server) deleteChannelContact(w http.ResponseWriter, r *http.Request) {

@@ -1809,14 +1809,18 @@ try {
   await page.locator(".channel-catalog button").filter({ hasText: "浏览器渠道对话" }).click();
   await page.getByRole("button", { name: "查看会话", exact: true }).waitFor();
   await page.getByRole("button", { name: "查看会话", exact: true }).click();
+  // The header spells out the whole identity: channel, chat kind and member.
   await page
     .locator(".channel-view-label")
-    .filter({ hasText: "私聊 · 只读" })
+    .filter({ hasText: "私聊" })
     .waitFor();
-  assert.equal(
-    await page.locator(".channel-view-label").getAttribute("title"),
-    "私聊 · remote-member · 只读",
+  const viewLabel = await page.locator(".channel-view-label").getAttribute("title");
+  assert(viewLabel.includes("私聊"), `header lost the chat kind: ${viewLabel}`);
+  assert(
+    viewLabel.includes("remote-member"),
+    `header lost the member: ${viewLabel}`,
   );
+  assert(viewLabel.includes("只读"), `header lost the read-only marker: ${viewLabel}`);
   assert(
     (await page
       .locator(".chat-header")
@@ -1826,7 +1830,16 @@ try {
   assert.equal(await page.getByLabel("发送给助手的消息").count(), 0);
   assert.equal(await page.getByRole("button", { name: "发送", exact: false }).count(), 0);
   assert.equal(await page.locator(".message.user .message-meta strong").textContent(), "remote-member");
-  assert.equal(await page.locator(".conversation .channel-tag").textContent(), "私聊 · remote-member");
+  // The sidebar groups by contact, so the session row itself no longer repeats
+  // the chat kind; the contact header carries it.
+  assert.equal(
+    await page.locator(".tree-kind .tree-label").first().textContent(),
+    "私聊",
+  );
+  assert.equal(
+    await page.locator(".level-contact .tree-label").first().textContent(),
+    "remote-member",
+  );
   assert.match(await page.locator(".message.user time").textContent(), /\d{2}\/\d{2} \d{2}:\d{2}/);
   await page.screenshot({ path: join(artifacts, "channel-chat-desktop.png"), fullPage: true });
   for (const width of [390, 320]) {
@@ -2007,6 +2020,9 @@ try {
   await page
     .getByLabel("允许渠道成员发送图片", { exact: true })
     .uncheck();
+  await page
+    .getByLabel("允许成员用 /user 和 /group 命令标记名称", { exact: true })
+    .uncheck();
   await savePolicy();
   let policyAgents = await page.evaluate(() =>
     fetch("/api/agents").then((response) => response.json()),
@@ -2018,6 +2034,7 @@ try {
     idle_minutes: 60,
     allow_reset: false,
     images: false,
+    allow_naming: false,
   });
   await page.screenshot({
     path: join(artifacts, "agent-session-desktop.png"),

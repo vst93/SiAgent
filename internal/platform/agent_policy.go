@@ -17,6 +17,10 @@ type SessionPolicy struct {
 	// takes effect when the bound model declares image input and the adapter can
 	// download pictures; the Web composer follows the model option instead.
 	Images bool `json:"images"`
+	// AllowNaming lets channel members label themselves and their group with the
+	// /user and /group commands. On by default: the vendor protocol returns IDs
+	// only, so member-supplied names are the main way to read the console.
+	AllowNaming bool `json:"allow_naming"`
 }
 type ContextPolicy struct {
 	Strategy         string `json:"strategy"`
@@ -57,7 +61,7 @@ type AgentPolicy struct {
 func defaultAgentPolicy() AgentPolicy {
 	return AgentPolicy{
 		Timezone: "Asia/Shanghai",
-		Session:  SessionPolicy{Types: "all", GroupScope: "member", AllowReset: true, Images: true},
+		Session:  SessionPolicy{Types: "all", GroupScope: "member", AllowReset: true, Images: true, AllowNaming: true},
 		Context:  ContextPolicy{Strategy: "recent", MaxTurns: 20, MaxAgeMinutes: 1440, SummaryThreshold: 70, KeepRecentTokens: 4096},
 		Output: OutputPolicy{
 			Tools:            "summary",

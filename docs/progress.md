@@ -4,6 +4,8 @@
 
 ## 会话列表、分页与渠道联系人标记
 
+- [x] 成员名称命令：新增 `/user 名称` 与 `/group 名称`，在创建任务前处理、不调用模型；重复发送以最后一次为准，命令前允许一个 @ 提及。由 Agent 策略 `session.allow_naming`（默认开启）控制。schema 30 为 `channel_contacts` 增加 `source`/`set_by`，区分成员自设与管理员设置，管理员保存会覆盖并清除成员来源。
+
 - [x] 会话列表按最近活动排序：`listConversations` 用最新消息时间（`messages.created` 最大值）排序，并返回 `last_activity` 与 `turn_count`；管理后台每 5 秒静默轮询，渠道消息不再需要手动刷新。
 - [x] 分组展示：前端按“渠道 + 群/成员”收拢，组内按最近活动倒序，会话之间用长横线分隔；未标记时显示原始 ID。
 - [x] 详情分页：`GET /api/conversations/{id}?before=&limit=` 返回最近一页并带 `has_more`/`oldest_id`，SSE 也只推送最近一页；前端向上滚动加载更早消息并保持阅读位置。

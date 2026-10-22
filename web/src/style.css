@@ -429,6 +429,129 @@ textarea {
   font-weight: 600;
   white-space: nowrap;
 }
+/* The conversation sidebar is a four-level tree: channel, chat kind, contact,
+   optional member, then sessions. Each level is indented and labelled so a
+   group, a member and a session are never confused. */
+.tree-channel {
+  padding: 2px 0 6px;
+}
+.tree-channel + .tree-channel {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 6px;
+}
+.tree-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 3px 9px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--muted);
+}
+.tree-head .tree-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tree-head > small {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 500;
+}
+.level-channel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.level-channel:hover {
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+}
+.level-kind {
+  padding-left: 18px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.tree-contact {
+  padding-left: 8px;
+}
+.level-contact {
+  padding-left: 22px;
+}
+.tree-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+.level-member {
+  padding-left: 36px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.tree-session {
+  padding-left: 34px;
+}
+.tree-channel > .tree-session,
+.level-channel + .tree-session {
+  padding-left: 9px;
+}
+.scope-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-raised);
+}
+.scope-badge.group {
+  border-color: var(--line-strong);
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+}
+.conversation-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conversation-sender {
+  max-width: 90px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+.conversation-meta time {
+  color: var(--faint);
+}
+.channel-view-path {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.channel-view-readonly {
+  flex: 0 0 auto;
+  color: var(--faint);
+}
 .conversation-group {
   padding: 2px 0 6px;
 }

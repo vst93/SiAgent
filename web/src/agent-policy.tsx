@@ -7,6 +7,7 @@ export type AgentPolicy = {
     idle_minutes: number;
     allow_reset: boolean;
     images: boolean;
+    allow_naming: boolean;
   };
   context: {
     strategy: "full" | "recent" | "time" | "summary";
@@ -35,6 +36,7 @@ export const defaultAgentPolicy: AgentPolicy = {
     idle_minutes: 0,
     allow_reset: true,
     images: true,
+    allow_naming: true,
   },
   context: {
     strategy: "recent",
@@ -170,6 +172,19 @@ export function AgentPolicySettings({
         <small>
           开启后，企微智能机器人收到的图片会下载并作为对话附件交给助手，与 Web
           附件使用同一套视觉模型与大小限制。需同时满足：渠道适配器支持图片、助手主模型声明了图片输入。关闭后图片消息只收到文字说明，不创建任务。
+        </small>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={session.allow_naming}
+            onChange={(e) => setSession({ allow_naming: e.target.checked })}
+          />
+          允许成员用 /user 和 /group 命令标记名称
+        </label>
+        <small>
+          企微长连接只返回成员和群的 ID，没有名称字段。开启后成员可发送
+          <code>/user 张三</code> 标记自己、<code>/group 产品讨论群</code>
+          标记群，重复发送以最后一次为准；这些命令不会调用模型。管理员在对话记录中保存的名称会覆盖成员设置。
         </small>
       </div>
     );

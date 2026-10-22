@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -228,5 +229,144 @@ func TestChannelSessionsGroupUnderOneContact(t *testing.T) {
 		if value.LastActivity == 0 || value.TurnCount != 1 {
 			t.Fatalf("session counters missing: %+v", value)
 		}
+	}
+}
+
+// Members can name themselves and their group because the vendor protocol has no
+// names. The command must be answered without creating a run.
+func TestChannelNamingCommandsLabelWithoutRunning(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	f.model(t, "fixture", "secret")
+	c, _ := newImageChannel(t, f)
+	send := func(id, text, sender, group string) {
+		t.Helper()
+		in := channels.Incoming{ID: id, ChatType: "group", SenderID: sender, GroupID: group, Kind: "text", Text: text}
+		if group == "" {
+			in = channels.Incoming{ID: id, ChatType: "single", SenderID: sender, Kind: "text", Text: text}
+		}
+		if err := f.server.receiveChannel(context.Background(), c.ID, c.Version, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send("cmd-1", "/user 张三", "member-1", "room-1")
+	send("cmd-2", "/group 产品讨论群", "member-1", "room-1")
+	var state, reason string
+	if err := f.store.db.QueryRow("SELECT state,error FROM channel_inbox WHERE msg_id='cmd-1'").Scan(&state, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if state != "rejected" || !strings.Contains(reason, "张三") {
+		t.Fatalf("user command was not acknowledged: %s %q", state, reason)
+	}
+	if len(f.runtime.requests) != 0 {
+		t.Fatal("naming command created a run")
+	}
+	// Repeated commands keep the last value.
+	send("cmd-3", "/user 张三丰", "member-1", "room-1")
+	if err := f.server.admitChannelInbox(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.runtime.requests) != 0 {
+		t.Fatal("naming commands reached the model")
+	}
+	var name, source string
+	if err := f.store.db.QueryRow("SELECT name,source FROM channel_contacts WHERE channel_id=? AND kind='sender' AND target='member-1'", c.ID).Scan(&name, &source); err != nil {
+		t.Fatal(err)
+	}
+	if name != "张三丰" || source != "member" {
+		t.Fatalf("member label was not replaced: %q %q", name, source)
+	}
+	// The label reaches the console list.
+	response := f.request(t, "GET", "/api/conversations", nil, true, nil)
+	requireStatus(t, response, 200)
+	var values []Conversation
+	if err := json.Unmarshal(response.Body.Bytes(), &values); err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 0 {
+		t.Fatalf("naming commands must not create conversations: %+v", values)
+	}
+	// A real question then appears with both labels resolved.
+	send("q-1", "群里的问题", "member-1", "room-1")
+	if err := f.server.admitChannelInbox(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	response = f.request(t, "GET", "/api/conversations", nil, true, nil)
+	requireStatus(t, response, 200)
+	values = nil
+	if err := json.Unmarshal(response.Body.Bytes(), &values); err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 {
+		t.Fatalf("expected one conversation: %+v", values)
+	}
+	if values[0].GroupName != "产品讨论群" || values[0].SenderName != "张三丰" || values[0].LastSenderName != "张三丰" {
+		t.Fatalf("member labels did not resolve: %+v", values[0])
+	}
+	if values[0].LabelSource != "member" {
+		t.Fatalf("label provenance missing: %+v", values[0])
+	}
+	// An administrator override wins and records its own provenance.
+	requireStatus(t, f.request(t, "PUT", "/api/channel-contacts", map[string]any{"channel_id": c.ID, "kind": "group", "target": "room-1", "name": "客服群"}, true, nil), 200)
+	if err := f.store.db.QueryRow("SELECT source FROM channel_contacts WHERE channel_id=? AND kind='group' AND target='room-1'", c.ID).Scan(&source); err != nil || source != "admin" {
+		t.Fatalf("admin override did not win: %q %v", source, err)
+	}
+	// The Agent switch turns the commands off.
+	policy := defaultAgentPolicy()
+	policy.Session.AllowNaming = false
+	setTestPolicy(t, f, policy)
+	send("cmd-4", "/user 不应保存", "member-2", "room-1")
+	if err := f.store.db.QueryRow("SELECT error FROM channel_inbox WHERE msg_id='cmd-4'").Scan(&reason); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reason, "关闭") {
+		t.Fatalf("disabled naming was not reported: %q", reason)
+	}
+	var stored int
+	if err := f.store.db.QueryRow("SELECT count(*) FROM channel_contacts WHERE target='member-2'").Scan(&stored); err != nil || stored != 0 {
+		t.Fatalf("disabled naming still wrote a label: %d %v", stored, err)
+	}
+}
+
+func TestChannelNamingCommandUsageAndMentions(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	f.model(t, "fixture", "secret")
+	c, _ := newImageChannel(t, f)
+	reply := func(id, text, chatType, sender, group string) string {
+		t.Helper()
+		in := channels.Incoming{ID: id, ChatType: chatType, SenderID: sender, GroupID: group, Kind: "text", Text: text}
+		if err := f.server.receiveChannel(context.Background(), c.ID, c.Version, in); err != nil {
+			t.Fatal(err)
+		}
+		var reason string
+		if err := f.store.db.QueryRow("SELECT error FROM channel_inbox WHERE msg_id=?", id).Scan(&reason); err != nil {
+			t.Fatal(err)
+		}
+		return reason
+	}
+	// A missing argument explains the syntax instead of writing a label.
+	if got := reply("u1", "/user", "single", "member-1", ""); !strings.Contains(got, "用法") {
+		t.Fatalf("missing argument was accepted: %q", got)
+	}
+	// /group is meaningless in a private chat.
+	if got := reply("g1", "/group 群名", "single", "member-1", ""); !strings.Contains(got, "仅群聊") {
+		t.Fatalf("private group rename was accepted: %q", got)
+	}
+	// Too long names are refused.
+	if got := reply("u2", "/user "+strings.Repeat("名", 80), "single", "member-1", ""); !strings.Contains(got, "64") {
+		t.Fatalf("over-long name was accepted: %q", got)
+	}
+	// A leading mention is tolerated, because WeCom keeps it in the body.
+	if got := reply("u3", "@机器人 /user 李四", "single", "member-1", ""); !strings.Contains(got, "李四") {
+		t.Fatalf("mention-prefixed command was ignored: %q", got)
+	}
+	// Ordinary text that merely starts with a slash is not a command.
+	if got := reply("t1", "/userland 不是命令", "single", "member-1", ""); !strings.Contains(got, "文字") && got != "" {
+		t.Fatalf("non-command was intercepted: %q", got)
+	}
+	var name string
+	if err := f.store.db.QueryRow("SELECT name FROM channel_contacts WHERE target='member-1'").Scan(&name); err != nil || name != "李四" {
+		t.Fatalf("label not stored: %q %v", name, err)
 	}
 }

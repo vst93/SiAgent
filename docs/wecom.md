@@ -81,7 +81,7 @@ schema **6** 增加 `wecom_channels`、`wecom_sessions`、`wecom_inbox`、`wecom
 | `GET /callbacks/wecom/{id}` | 公开签名加密 URL 验证 |
 | `POST /callbacks/wecom/{id}` | 公开签名加密消息接收 |
 
-当前 schema 29，支持版本 1–28 → 29；渠道表在版本 6 引入，版本 7 增加持久化清理请求，版本 8 增加模型协议和参数，版本 9 将旧企微表迁移至通用 `channels` / `channel_*` 表，保留原 ID、密文与投递状态。升级前停止服务并备份完整数据目录，回退需恢复旧备份。
+当前 schema 30，支持版本 1–29 → 30；渠道表在版本 6 引入，版本 7 增加持久化清理请求，版本 8 增加模型协议和参数，版本 9 将旧企微表迁移至通用 `channels` / `channel_*` 表，保留原 ID、密文与投递状态。升级前停止服务并备份完整数据目录，回退需恢复旧备份。
 
 ## 验证证据与官方依据
 

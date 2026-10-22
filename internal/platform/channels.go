@@ -415,6 +415,26 @@ func (s *Server) receiveChannel(ctx context.Context, channelID string, version i
 		return errors.New("invalid conversation identity")
 	}
 	text := strings.TrimSpace(in.Text)
+	// Member commands are answered here, before any run exists: they configure
+	// labels rather than ask a question, and must never reach the model.
+	if command, ok := parseChannelCommand(text); ok {
+		switch command.Name {
+		case "new":
+			// Canonicalise so admission recognises the reset even when WeCom kept a
+			// leading @mention in the body.
+			text = "/new"
+		case "user", "group":
+			notice := "管理员已关闭名称标记命令。"
+			if s.agentAcceptsNaming(c.AgentID) {
+				notice = s.applyNamingCommand(channelID, incomingIdentity{kind: kind, group: group, sender: sender}, command)
+			}
+			inboxID := id()
+			if _, err := s.store.db.ExecContext(ctx, "INSERT INTO channel_inbox(id,channel_id,msg_id,member,agent_id,content,fingerprint,state,error,created,reply_context,attachments) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", inboxID, channelID, in.ID, in.Session, c.AgentID, text, fingerprint, "rejected", notice, time.Now().UnixMilli(), string(reply), "[]"); err != nil {
+				return err
+			}
+			return nil
+		}
+	}
 	state, reason := "pending", ""
 	// Only text and image messages are consumed. Anything else (a file, a video,
 	// an unsupported vendor type) keeps the explicit scope notice instead of being

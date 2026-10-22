@@ -21,6 +21,10 @@ export type Conversation = {
   sender_name?: string;
   last_activity: number;
   turn_count: number;
+  scope?: "group" | "member";
+  last_sender?: string;
+  last_sender_name?: string;
+  label_source?: "admin" | "member";
 };
 
 // conversationGroupKey identifies who a conversation belongs to. The WeCom
@@ -39,18 +43,58 @@ export function contactTarget(item: Conversation) {
     ? item.channel_group ?? ""
     : item.channel_sender ?? "";
 }
+// relativeTime keeps the session list scannable: an absolute date on every row
+// would crowd out the title.
+function relativeTime(value: number) {
+  const diff = Date.now() - value;
+  const minutes = Math.round(diff / 60000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days} 天前`;
+  return new Date(value).toLocaleDateString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
 function channelKind(conversation?: Conversation) {
   if (conversation?.channel_kind === "group") return "群聊";
   if (conversation?.channel_kind === "single") return "私聊";
   return "渠道对话";
 }
-function channelLabel(conversation?: Conversation) {
-  const detail =
-    conversation?.channel_kind === "group"
-      ? conversation.channel_group
-      : conversation?.channel_sender;
-  return detail ? `${channelKind(conversation)} · ${detail}` : channelKind(conversation);
+
+// channelPath spells out the full identity of a channel conversation, because a
+// group, a member and a session are three different things and the header must
+// not blur them.
+function channelPath(conversation?: Conversation) {
+  if (!conversation?.channel_id) return "本机对话";
+  const parts = [conversation.channel_name || "渠道"];
+  if (conversation.channel_kind === "group") {
+    parts.push("群聊");
+    parts.push(conversation.group_name || conversation.channel_group || "未命名群");
+    if (conversation.scope === "group") parts.push("全群共享上下文");
+    else
+      parts.push(
+        `成员 ${conversation.sender_name || conversation.channel_sender || "未命名"}`,
+      );
+  } else {
+    parts.push("私聊");
+    parts.push(conversation.sender_name || conversation.channel_sender || "未命名成员");
+  }
+  return parts.join(" · ");
 }
+
+function channelBadge(conversation: Conversation) {
+  if (conversation.channel_kind === "group")
+    return `群聊 · ${conversation.group_name || conversation.channel_group || "未命名群"}`;
+  if (conversation.channel_kind === "single")
+    return `私聊 · ${conversation.sender_name || conversation.channel_sender || "未命名成员"}`;
+  return "渠道";
+}
+
 // copyText prefers the async clipboard and falls back to a hidden textarea so
 // the action still works on plain-HTTP deployments where the API is blocked.
 async function copyText(text: string): Promise<boolean> {
@@ -78,66 +122,174 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-function channelBadge(conversation: Conversation) {
-  if (conversation.channel_kind === "group")
-    return `群聊 · ${conversation.group_name || conversation.channel_group || "未命名群"}`;
-  if (conversation.channel_kind === "single")
-    return `私聊 · ${conversation.sender_name || conversation.channel_sender || "未命名成员"}`;
-  return "渠道";
-}
-
-// conversationGroups collects conversations by who they belong to: one entry per
-// group or member, each holding its sessions newest first. Web conversations
-// form their own group because they belong to the administrator.
-export type ConversationGroup = {
+// The sidebar mirrors the real isolation model, because the four levels are
+// easy to confuse:
+//
+//   渠道 → 群聊/私聊 → 群 → [成员] → 会话
+//
+// A private chat is keyed by member, a group by group, and a group that isolates
+// per member by group plus member. A session is one conversation; a contact can
+// hold several after an idle reset or /new. The member level only exists when the
+// Agent isolates group context per member, so the tree never invents a level the
+// data does not have.
+export type SessionNode = { kind: "session"; conversation: Conversation };
+export type ContactNode = {
+  kind: "contact";
   key: string;
   label: string;
   detail: string;
-  kind: "web" | "group" | "member";
   channelID?: string;
   target?: string;
-  sessions: Conversation[];
+  scope?: "group" | "member";
+  labelSource?: "admin" | "member";
   lastActivity: number;
+  turns: number;
+  members: MemberNode[];
+  sessions: SessionNode[];
+};
+export type MemberNode = {
+  kind: "member";
+  key: string;
+  label: string;
+  channelID: string;
+  target: string;
+  lastActivity: number;
+  turns: number;
+  sessions: SessionNode[];
+};
+export type KindNode = {
+  kind: "kind";
+  key: string;
+  label: string;
+  contacts: ContactNode[];
+};
+export type ChannelNode = {
+  kind: "channel";
+  key: string;
+  label: string;
+  detail: string;
+  kinds: KindNode[];
 };
 
-export function conversationGroups(
-  conversations: Conversation[],
-): ConversationGroup[] {
-  const groups = new Map<string, ConversationGroup>();
-  for (const item of conversations) {
-    const key = conversationGroupKey(item);
-    let group = groups.get(key);
-    if (!group) {
-      const isWeb = !item.channel_id;
-      const target = isWeb ? undefined : contactTarget(item);
-      const named = item.channel_kind === "group" ? item.group_name : item.sender_name;
-      group = {
-        key,
-        kind: isWeb ? "web" : item.channel_kind === "group" ? "group" : "member",
-        channelID: item.channel_id,
-        target,
-        label: isWeb
-          ? "本机对话"
-          : named ||
-            (item.channel_kind === "group"
-              ? item.channel_group || "未命名群"
-              : item.channel_sender || "未命名成员"),
-        detail: isWeb ? "管理员在 Web 中发起" : item.channel_name || "渠道",
-        sessions: [],
-        lastActivity: 0,
-      };
-      groups.set(key, group);
-    }
-    group.sessions.push(item);
-    group.lastActivity = Math.max(group.lastActivity, item.last_activity || item.created);
-  }
-  for (const group of groups.values()) {
-    group.sessions.sort(
-      (a, b) => (b.last_activity || b.created) - (a.last_activity || a.created),
-    );
-  }
-  return [...groups.values()].sort((a, b) => b.lastActivity - a.lastActivity);
+function sessionOf(item: Conversation): SessionNode {
+  return { kind: "session", conversation: item };
 }
+
+// conversationTree builds the channel hierarchy. Web conversations are returned
+// separately because they belong to the administrator, not to a chat contact.
+export function conversationTree(conversations: Conversation[]) {
+  const channels = new Map<string, ChannelNode>();
+  const web: SessionNode[] = [];
+  for (const item of conversations) {
+    if (!item.channel_id) {
+      web.push(sessionOf(item));
+      continue;
+    }
+    const channelKey = item.channel_id;
+    let channel = channels.get(channelKey);
+    if (!channel) {
+      channel = {
+        kind: "channel",
+        key: channelKey,
+        label: item.channel_name || "渠道",
+        detail: item.channel_id,
+        kinds: [],
+      };
+      channels.set(channelKey, channel);
+    }
+    const kindKey = item.channel_kind === "group" ? "group" : "single";
+    let kind = channel.kinds.find((value) => value.key === kindKey);
+    if (!kind) {
+      kind = {
+        kind: "kind",
+        key: kindKey,
+        label: kindKey === "group" ? "群聊" : "私聊",
+        contacts: [],
+      };
+      channel.kinds.push(kind);
+    }
+    // A private chat is its own contact; a group contact is the group itself.
+    const target =
+      kindKey === "group"
+        ? item.channel_group || ""
+        : item.channel_sender || "";
+    const contactKey = `${channelKey}\u001f${kindKey}\u001f${target}`;
+    let contact = kind.contacts.find((value) => value.key === contactKey);
+    if (!contact) {
+      contact = {
+        kind: "contact",
+        key: contactKey,
+        channelID: channelKey,
+        target,
+        scope: kindKey === "group" ? item.scope : undefined,
+        labelSource: item.label_source,
+        label:
+          kindKey === "group"
+            ? item.group_name || item.channel_group || "未命名群"
+            : item.sender_name || item.channel_sender || "未命名成员",
+        detail: kindKey === "group" ? "群" : "成员",
+        lastActivity: 0,
+        turns: 0,
+        members: [],
+        sessions: [],
+      };
+      kind.contacts.push(contact);
+    }
+    contact.lastActivity = Math.max(
+      contact.lastActivity,
+      item.last_activity || item.created,
+    );
+    contact.turns += item.turn_count || 0;
+    if (kindKey === "group" && item.scope === "member") {
+      const sender = item.channel_sender || "";
+      let member = contact.members.find((value) => value.target === sender);
+      if (!member) {
+        member = {
+          kind: "member",
+          key: `${contactKey}\u001f${sender}`,
+          channelID: channelKey,
+          target: sender,
+          label: item.sender_name || sender || "未命名成员",
+          lastActivity: 0,
+          turns: 0,
+          sessions: [],
+        };
+        contact.members.push(member);
+      }
+      member.lastActivity = Math.max(
+        member.lastActivity,
+        item.last_activity || item.created,
+      );
+      member.turns += item.turn_count || 0;
+      member.sessions.push(sessionOf(item));
+    } else {
+      contact.sessions.push(sessionOf(item));
+    }
+  }
+  const order = (a: { lastActivity: number }, b: { lastActivity: number }) =>
+    b.lastActivity - a.lastActivity;
+  const orderSessions = (nodes: SessionNode[]) =>
+    nodes.sort(
+      (a, b) =>
+        (b.conversation.last_activity || b.conversation.created) -
+        (a.conversation.last_activity || a.conversation.created),
+    );
+  for (const channel of channels.values()) {
+    channel.kinds.sort((a, b) => (a.key === "group" ? -1 : 1));
+    for (const kind of channel.kinds) {
+      kind.contacts.sort(order);
+      for (const contact of kind.contacts) {
+        contact.members.sort(order);
+        orderSessions(contact.sessions);
+        for (const member of contact.members) orderSessions(member.sessions);
+      }
+    }
+  }
+  const list = [...channels.values()].sort((a, b) => a.label.localeCompare(b.label));
+  orderSessions(web);
+  return { channels: list, web };
+}
+
 export type Run = {
   output?: AgentPolicy["output"];
   thinking?: string;
@@ -343,6 +495,16 @@ export function ChatWorkspace({
     hasMore: boolean;
   }>({ messages: [], runs: [], sources: [], hasMore: false });
   const [loadingOlder, setLoadingOlder] = useState(false);
+  // Collapsed tree nodes. Everything starts expanded; the reader folds what they
+  // are not looking at, which is what keeps a busy channel readable.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const toggleCollapsed = (key: string) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   const [labelEditing, setLabelEditing] = useState("");
   const [labelValue, setLabelValue] = useState("");
   const [labelSaving, setLabelSaving] = useState(false);
@@ -432,10 +594,53 @@ export function ChatWorkspace({
       setLoadingOlder(false);
     }
   }
-  const groups = useMemo(
-    () => conversationGroups(conversations),
-    [conversations],
-  );
+  const tree = useMemo(() => conversationTree(conversations), [conversations]);
+  // Counts at each level describe sessions, not messages, so "3 会话" always
+  // means three separate contexts that were created for that contact.
+  const countContact = (contact: ContactNode) =>
+    contact.members.length > 0
+      ? contact.members.reduce((sum, m) => sum + m.sessions.length, 0)
+      : contact.sessions.length;
+  const countSessions = (channel: ChannelNode) =>
+    channel.kinds.reduce(
+      (sum, kind) => sum + kind.contacts.reduce((n, c) => n + countContact(c), 0),
+      0,
+    );
+  function sessionRow(item: Conversation) {
+    const when = item.last_activity || item.created;
+    return (
+      <button
+        className={selected === item.id ? "conversation selected" : "conversation"}
+        aria-current={selected === item.id ? "page" : undefined}
+        key={item.id}
+        title={item.title}
+        onClick={() => {
+          selectConversation(item.id);
+          setHistoryOpen(false);
+        }}
+      >
+        <span className="conversation-title">{item.title}</span>
+        <small className="conversation-meta">
+          {item.turn_count} 问
+          <time dateTime={new Date(when).toISOString()}>
+            {relativeTime(when)}
+          </time>
+          {item.scope === "group" && item.last_sender && (
+            <span className="conversation-sender">
+              {item.last_sender_name || item.last_sender}
+            </span>
+          )}
+        </small>
+      </button>
+    );
+  }
+  const renderSessions = (nodes: SessionNode[]) =>
+    nodes.map((node, index) => (
+      <div className="tree-session" key={node.conversation.id}>
+        {index > 0 && <hr className="conversation-divider" aria-hidden="true" />}
+        {sessionRow(node.conversation)}
+      </div>
+    ));
   const conversation =
     snapshot?.conversation ?? conversations.find((item) => item.id === selected);
   const channelConversation = Boolean(conversation?.channel_id);
@@ -570,10 +775,11 @@ export function ChatWorkspace({
             {channelConversation && (
               <span
                 className="channel-view-label"
-                title={`${channelLabel(conversation)} · 只读`}
+                title={`${channelPath(conversation)} · 只读`}
               >
                 <Icon name="channels" size={14} />
-                <span>{channelKind(conversation)} · 只读</span>
+                <span className="channel-view-path">{channelPath(conversation)}</span>
+                <span className="channel-view-readonly">只读</span>
               </span>
             )}
             {!!snapshot?.messages.length && (
@@ -599,126 +805,190 @@ export function ChatWorkspace({
           <span>{conversations.length}</span>
         </div>
         <nav aria-label="对话记录" className="conversation-list">
-          {groups.map((group) => (
-            <section className="conversation-group" key={group.key}>
-              <header className="conversation-group-head">
+          {tree.channels.map((channel) => (
+            <section className="tree-channel" key={channel.key}>
+              <button
+                type="button"
+                className="tree-head level-channel"
+                aria-expanded={!collapsed.has(channel.key)}
+                onClick={() => toggleCollapsed(channel.key)}
+              >
                 <Icon
-                  name={group.kind === "group" ? "users" : group.kind === "member" ? "user" : "chat"}
+                  name={collapsed.has(channel.key) ? "caret-right" : "caret-down"}
                   size={14}
-                  className="chat-glyph"
+                  className="disclosure-icon"
                 />
-                <span className="conversation-group-label" title={group.label}>
-                  {group.label}
-                </span>
-                <small>{group.sessions.length} 个会话</small>
-                {group.channelID && group.target && (
-                  <button
-                    type="button"
-                    className="conversation-group-rename"
-                    title={group.label}
-                    aria-label={`标记 ${group.label} 的名称`}
-                    onClick={() => {
-                      setLabelError("");
-                      setLabelEditing(group.key);
-                      setLabelValue(
-                        group.kind === "web" || group.label.startsWith("未命名")
-                          ? ""
-                          : group.label,
-                      );
-                    }}
-                  >
-                    <Icon name="edit" size={14} />
-                  </button>
-                )}
-              </header>
-              {labelEditing === group.key && group.channelID && group.target && (
-                <form
-                  className="conversation-group-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (!group.channelID || !group.target || labelSaving) return;
-                    setLabelSaving(true);
-                    setLabelError("");
-                    void request("/channel-contacts", "PUT", {
-                      channel_id: group.channelID,
-                      kind: group.kind === "group" ? "group" : "sender",
-                      target: group.target,
-                      name: labelValue.trim(),
-                    })
-                      .then(() => {
-                        setLabelEditing("");
-                        onLabelsChanged();
-                      })
-                      .catch((error) =>
-                        setLabelError(
-                          error instanceof Error ? error.message : "标记失败。",
-                        ),
-                      )
-                      .finally(() => setLabelSaving(false));
-                  }}
-                >
-                  <input
-                    autoFocus
-                    aria-label="群或成员名称"
-                    placeholder="例如：产品讨论群 / 张三"
-                    maxLength={64}
-                    value={labelValue}
-                    onChange={(event) => setLabelValue(event.target.value)}
-                  />
-                  <button type="submit" disabled={labelSaving}>
-                    保存
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLabelEditing("");
-                      setLabelError("");
-                    }}
-                  >
-                    取消
-                  </button>
-                  {labelError && <p className="error">{labelError}</p>}
-                  <small>
-                    企微长连接只提供 ID，不提供群名或用户名；这里设置的名称会用于该群或成员的所有会话。
-                  </small>
-                </form>
-              )}
-              {group.sessions.map((item, index) => (
-                <div key={item.id}>
-                  {index > 0 && (
-                    <hr className="conversation-divider" aria-hidden="true" />
-                  )}
-                  <button
-                    className={
-                      selected === item.id
-                        ? "conversation selected"
-                        : "conversation"
-                    }
-                    aria-current={selected === item.id ? "page" : undefined}
-                    title={item.title}
-                    onClick={() => {
-                      selectConversation(item.id);
-                      setHistoryOpen(false);
-                    }}
-                  >
-                    <Icon name="chat" size={16} className="chat-glyph" />
-                    <span>{item.title}</span>
-                    <small className="conversation-meta">
-                      {item.turn_count} 问
-                      {item.channel_id && (
-                        <span
-                          className={`channel-tag ${item.channel_kind === "group" ? "group" : ""}`}
-                          title={channelLabel(item)}
-                        >
-                          {channelBadge(item)}
-                        </span>
-                      )}
-                    </small>
-                  </button>
-                </div>
-              ))}
+                <span className="tree-label">{channel.label}</span>
+                <small>{countSessions(channel)} 会话</small>
+              </button>
+              {!collapsed.has(channel.key) &&
+                channel.kinds.map((kind) => (
+                  <div className="tree-kind" key={kind.key}>
+                    <p className="tree-head level-kind">
+                      <Icon
+                        name={kind.key === "group" ? "users" : "user"}
+                        size={14}
+                        className="chat-glyph"
+                      />
+                      <span className="tree-label">{kind.label}</span>
+                    </p>
+                    {kind.contacts.map((contact) => (
+                      <section className="tree-contact" key={contact.key}>
+                        <header className="tree-head level-contact">
+                          <button
+                            type="button"
+                            className="tree-toggle"
+                            aria-expanded={!collapsed.has(contact.key)}
+                            onClick={() => toggleCollapsed(contact.key)}
+                          >
+                            <Icon
+                              name={
+                                collapsed.has(contact.key)
+                                  ? "caret-right"
+                                  : "caret-down"
+                              }
+                              size={14}
+                              className="disclosure-icon"
+                            />
+                            <span className="tree-label" title={contact.label}>
+                              {contact.label}
+                            </span>
+                          </button>
+                          {contact.scope && (
+                            <em
+                              className={`scope-badge ${contact.scope}`}
+                              title={
+                                contact.scope === "group"
+                                  ? "全群共用一个上下文，成员之间可以看到彼此的提问"
+                                  : "每位成员各自独立上下文"
+                              }
+                            >
+                              {contact.scope === "group" ? "共享" : "按成员"}
+                            </em>
+                          )}
+                          {contact.labelSource === "member" && (
+                            <em
+                              className="scope-badge member"
+                              title="该名称由成员通过 /user 或 /group 命令设置；管理员保存会覆盖它"
+                            >
+                              成员设置
+                            </em>
+                          )}
+                          <small>{countContact(contact)} 会话</small>
+                          {contact.channelID && contact.target && (
+                            <button
+                              type="button"
+                              className="conversation-group-rename"
+                              aria-label={`标记 ${contact.label} 的名称`}
+                              title={`标记 ${contact.label} 的名称`}
+                              onClick={() => {
+                                setLabelError("");
+                                setLabelEditing(contact.key);
+                                setLabelValue(
+                                  contact.label.startsWith("未命名")
+                                    ? ""
+                                    : contact.label,
+                                );
+                              }}
+                            >
+                              <Icon name="edit" size={14} />
+                            </button>
+                          )}
+                        </header>
+                        {labelEditing === contact.key &&
+                          contact.channelID &&
+                          contact.target && (
+                            <form
+                              className="conversation-group-form"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                if (labelSaving) return;
+                                setLabelSaving(true);
+                                setLabelError("");
+                                void request("/channel-contacts", "PUT", {
+                                  channel_id: contact.channelID,
+                                  kind: kind.key === "group" ? "group" : "sender",
+                                  target: contact.target,
+                                  name: labelValue.trim(),
+                                })
+                                  .then(() => {
+                                    setLabelEditing("");
+                                    onLabelsChanged();
+                                  })
+                                  .catch((error) =>
+                                    setLabelError(
+                                      error instanceof Error
+                                        ? error.message
+                                        : "标记失败。",
+                                    ),
+                                  )
+                                  .finally(() => setLabelSaving(false));
+                              }}
+                            >
+                              <input
+                                autoFocus
+                                aria-label="群或成员名称"
+                                placeholder="例如：产品讨论群 / 张三"
+                                maxLength={64}
+                                value={labelValue}
+                                onChange={(event) => setLabelValue(event.target.value)}
+                              />
+                              <button type="submit" disabled={labelSaving}>
+                                保存
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setLabelEditing("");
+                                  setLabelError("");
+                                }}
+                              >
+                                取消
+                              </button>
+                              {labelError && <p className="error">{labelError}</p>}
+                              <small>
+                                企微长连接只提供 ID，不提供群名或用户名。成员也可以用
+                                /user 或 /group 命令自行标记；这里设置的值由管理员维护。
+                              </small>
+                            </form>
+                          )}
+                        {!collapsed.has(contact.key) &&
+                          (contact.members.length > 0 ? (
+                            contact.members.map((member) => (
+                              <section className="tree-member" key={member.key}>
+                                <header className="tree-head level-member">
+                                  <Icon
+                                    name="user"
+                                    size={14}
+                                    className="chat-glyph"
+                                  />
+                                  <span className="tree-label" title={member.label}>
+                                    {member.label}
+                                  </span>
+                                  <small>{member.sessions.length} 会话</small>
+                                </header>
+                                {renderSessions(member.sessions)}
+                              </section>
+                            ))
+                          ) : (
+                            renderSessions(contact.sessions)
+                          ))}
+                      </section>
+                    ))}
+                  </div>
+                ))}
             </section>
           ))}
+          {!!tree.web.length && (
+            <section className="tree-channel">
+              <p className="tree-head level-channel">
+                <Icon name="chat" size={14} className="chat-glyph" />
+                <span className="tree-label">本机对话</span>
+                <small>{tree.web.length} 会话</small>
+              </p>
+              {renderSessions(tree.web)}
+            </section>
+          )}
           {!conversations.length && (
             <p className="nav-empty">开始对话后，记录会保存在这里。</p>
           )}

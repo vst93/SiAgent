@@ -34,6 +34,7 @@ import { PencilSimpleIcon } from "@phosphor-icons/react/dist/csr/PencilSimple";
 import { WarningCircleIcon } from "@phosphor-icons/react/dist/csr/WarningCircle";
 import { XIcon } from "@phosphor-icons/react/dist/csr/X";
 import { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight";
+import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
 import { CheckIcon } from "@phosphor-icons/react/dist/csr/Check";
 import { CircleHalfIcon } from "@phosphor-icons/react/dist/csr/CircleHalf";
 import { CopyIcon } from "@phosphor-icons/react/dist/csr/Copy";
@@ -46,6 +47,7 @@ const icons = {
   "arrow-up": ArrowUpIcon,
   "arrow-up-right": ArrowUpRightIcon,
   "caret-right": CaretRightIcon,
+  "caret-down": CaretDownIcon,
   auto: CircleHalfIcon,
   check: CheckIcon,
   copy: CopyIcon,

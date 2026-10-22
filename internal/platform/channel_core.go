@@ -316,6 +316,16 @@ func (s *Server) supportsChannelImages(provider string) bool {
 	return entry.Descriptor().Images
 }
 
+// agentAcceptsNaming reports whether members may label themselves and their
+// group with the /user and /group commands. It is on by default.
+func (s *Server) agentAcceptsNaming(agentID string) bool {
+	a, err := s.agentByID(agentID)
+	if err != nil {
+		return false
+	}
+	return a.effectivePolicy().Session.AllowNaming
+}
+
 // agentAcceptsImages reports the bound Agent's own switch. Images are on by
 // default; an administrator can turn them off for a text-only assistant even
 // when the model and adapter could accept them.
