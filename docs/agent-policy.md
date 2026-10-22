@@ -137,6 +137,6 @@
 
 保存助手时另可传 `env`（键值对象，空值保留原值）和 `env_remove`（要删除的变量名数组）；读取助手只返回 `env_keys` 变量名列表，从不返回值。旧客户端省略这两个字段时保留已保存的变量。
 
-schema **10** 为 `agents` 增加 `policy`，为 `runs` 增加 `thinking`；schema **26** 为 `agents` 增加加密的 `environment`，schema **28** 记录渠道入站图片，schema **29** 增加渠道联系人标记，schema **30** 记录标记来源。当前 schema **30**，自动从版本 1–29 迁移，保留认证、凭据、会话、消息、工具和渠道数据。运行快照内保存完整策略，旧格式快照仍可读取；快照缺少新输出字段时按默认值解释。升级前停止服务并完整备份，旧程序不能直接读取 schema 30，回退须恢复旧备份。
+schema **10** 为 `agents` 增加 `policy`，为 `runs` 增加 `thinking`；schema **26** 为 `agents` 增加加密的 `environment`，schema **28** 记录渠道入站图片，schema **29** 增加渠道联系人标记，schema **30** 记录标记来源，schema **31** 为会话列表补索引。当前 schema **31**，自动从版本 1–30 迁移，保留认证、凭据、会话、消息、工具和渠道数据。运行快照内保存完整策略，旧格式快照仍可读取；快照缺少新输出字段时按默认值解释。升级前停止服务并完整备份，旧程序不能直接读取 schema 31，回退须恢复旧备份。
 
 渠道适配器通过 `chat_type`、`sender_id`、`group_id` 传入稳定身份，由平台决定上下文范围。兼容旧企微三元组 session；只提供不透明 session 的旧适配器按私聊处理，不能借此声明群共享，协议见 [channel-adapters.md](channel-adapters.md)。

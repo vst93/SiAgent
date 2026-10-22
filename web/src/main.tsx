@@ -388,6 +388,7 @@ function App() {
       setAgents(agents);
       if (!models.length && !sourceID) navigation.navigate("settings/models");
       setAgentID(list[0]?.agent_id ?? "default");
+      listSignature.current = conversationSignature(list);
       setConversations(list);
       setSelected((current) =>
         list.some((item) => item.id === current)
@@ -403,9 +404,27 @@ function App() {
   // refreshConversations keeps the sidebar current without a page reload. It is
   // intentionally silent: a transient failure must not replace the list with an
   // error while the user is reading.
+  //
+  // The poll compares a cheap signature first. Rebuilding the grouped tree and
+  // re-rendering every row on a tick that changed nothing is the difference
+  // between a sidebar that sits still and one that flickers while you read it.
+  const listSignature = useRef("");
+  function conversationSignature(list: Conversation[]) {
+    return list
+      .map(
+        (item) =>
+          `${item.id}:${item.last_activity || 0}:${item.turn_count || 0}:${
+            item.sender_name || ""
+          }:${item.group_name || ""}:${item.label_source || ""}`,
+      )
+      .join("|");
+  }
   async function refreshConversations() {
     try {
       const list = await api<Conversation[]>("/conversations");
+      const signature = conversationSignature(list);
+      if (signature === listSignature.current) return;
+      listSignature.current = signature;
       setConversations(list);
     } catch {
       // The next tick retries; the existing list stays usable.
@@ -458,10 +477,20 @@ function App() {
   // to stay cheap; the open conversation also refreshes on its own SSE stream.
   useEffect(() => {
     if (!auth?.authenticated) return;
-    const timer = window.setInterval(() => {
-      void refreshConversations();
-    }, 5000);
-    return () => window.clearInterval(timer);
+    const tick = () => {
+      // A hidden tab has nobody reading the list, so it stops asking.
+      if (document.visibilityState === "visible") void refreshConversations();
+    };
+    const timer = window.setInterval(tick, 5000);
+    // Coming back to the tab refreshes immediately instead of waiting a tick.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshConversations();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [auth?.authenticated]);
   useEffect(() => {
     setSnapshot(null);

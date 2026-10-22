@@ -81,5 +81,10 @@ func (s *Store) migrateChannelContactSource() error {
 	if _, err := tx.Exec("PRAGMA user_version=30;"); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// Each step chains to the next one, so an older database still reaches the
+	// newest schema in a single Open.
+	return s.migrateConversationIndexes()
 }

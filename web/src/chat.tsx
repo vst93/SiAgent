@@ -355,7 +355,7 @@ function buildGroupTree(atoms: Atom[]): TreeNode[] {
     nodes.push({
       key,
       label: first.groupLabel,
-      sublabel: `${children.length} 人 · ${all.length} 会话`,
+      sublabel: `${all.length} 会话`,
       icon: first.groupKind === "private" ? "user" : "users",
       lastActivity: activity(all),
       children,
@@ -419,10 +419,7 @@ function buildPersonTree(atoms: Atom[]): TreeNode[] {
     nodes.push({
       key,
       label: first.personLabel,
-      sublabel:
-        first.personKey === "self"
-          ? `${all.length} 会话`
-          : `${children.length} 处 · ${all.length} 会话`,
+      sublabel: `${all.length} 会话`,
       icon: first.personKey === "self" ? "chat" : "user",
       lastActivity: activity(all),
       children,
@@ -764,9 +761,22 @@ export function ChatWorkspace({
   // in each group", "person" answers "what has this person asked"; the reader
   // picks whichever question they have instead of switching between kind filters.
   const [aggregation, setAggregation] = useState<Aggregation>("group");
+const [search, setSearch] = useState("");
+  // Filter conversations by search query before building the tree.
+  const filtered = useMemo(() => {
+    if (!search.trim()) return conversations;
+    const q = search.trim().toLowerCase();
+    return conversations.filter((item) => {
+      const title = (item.title || "").toLowerCase();
+      const sender = (item.sender_name || item.channel_sender || "").toLowerCase();
+      const group = (item.group_name || item.channel_group || "").toLowerCase();
+      return title.includes(q) || sender.includes(q) || group.includes(q);
+    });
+  }, [conversations, search]);
+
   const nodes = useMemo(
-    () => conversationTree(conversations, aggregation),
-    [conversations, aggregation],
+    () => conversationTree(filtered, aggregation),
+    [filtered, aggregation],
   );
   // The branch holding the selected conversation always stays open, so selecting
   // a row can never make it disappear from the list.
@@ -874,14 +884,22 @@ export function ChatWorkspace({
       </form>
     );
   }
+  // While searching, every branch that survived the filter is opened: the result
+  // set is small by definition, and leaving it collapsed would hide the matches.
+  const searching = search.trim() !== "";
   function renderNodes(list: TreeNode[], depth: number): ReactNode {
     return list.map((node) => {
-      const open = expandedKeys.has(node.key);
+      const open = searching || expandedKeys.has(node.key);
       const hasDeeper = Boolean(node.children?.length || node.sessions?.length);
       const rename = node.rename;
+      const active = path.includes(node.key);
       return (
         <div className={`tree-node depth-${depth}`} key={node.key}>
-          <div className={`tree-row ${open ? "is-open" : ""}`}>
+          <div
+            className={`tree-row ${open ? "is-open" : ""} ${
+              active ? "is-active" : ""
+            }`}
+          >
             <button
               type="button"
               className="tree-toggle"
@@ -1120,6 +1138,19 @@ export function ChatWorkspace({
             <Icon name="caret-right" size={14} />
           </button>
         </div>
+        <div className="history-search">
+          <input
+            type="text"
+            placeholder="搜索群名、人名或会话标题"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button type="button" onClick={() => setSearch("")} aria-label="清除搜索">
+              <Icon name="close" size={14} />
+            </button>
+          )}
+        </div>
         <div className="aggregation-switch" role="group" aria-label="聚合方式">
           {(
             [
@@ -1141,7 +1172,11 @@ export function ChatWorkspace({
         <nav aria-label="对话记录" className="conversation-list">
           {renderNodes(nodes, 0)}
           {!conversations.length && (
-            <p className="nav-empty">开始对话后，记录会保存在这里。</p>
+            <p className="nav-empty">
+              {search.trim()
+                ? "没有匹配的群、成员或会话。"
+                : "开始对话后，记录会保存在这里。"}
+            </p>
           )}
         </nav>
         {!channelConversation && (

@@ -463,13 +463,46 @@ textarea {
   font-size: 11px;
   font-weight: 600;
 }
-.aggregation-switch button.selected {
-  border-color: var(--teal);
-  background: var(--teal-soft);
-  color: var(--teal-strong);
+  /* Search box for filtering conversations */
+.history-search {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px 8px;
 }
-.tree-node + .tree-node {
-  margin-top: 1px;
+.history-search input {
+  flex: 1 1 auto;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.history-search input:focus {
+  outline: none;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 2px var(--teal-soft);
+}
+.history-search button {
+  flex: 0 0 auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+.history-search button:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+
+/* Three levels share one column, so they are told apart by weight, not only by
+   indent: a group/person reads as a heading, a member as a row, a conversation as
+   a quiet line under a single rail. */
+.tree-node.depth-0 + .tree-node.depth-0 {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--line);
 }
 .tree-row {
   display: flex;
@@ -478,29 +511,38 @@ textarea {
   padding-right: 4px;
   border-radius: var(--radius-sm);
 }
-.tree-row.is-open {
-  background: var(--surface);
+.tree-row {
+  transition: background-color 120ms ease;
 }
 .tree-row:hover {
   background: var(--surface);
 }
+/* The branch that holds the open conversation is marked all the way up, so the
+   reader can see where they are even when the panel is scrolled. */
+.tree-row.is-active {
+  box-shadow: inset 2px 0 0 var(--teal);
+}
+.tree-row.is-active .tree-label {
+  color: var(--teal-strong);
+}
 .tree-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   flex: 1 1 auto;
   min-width: 0;
-  padding: 5px 0 5px 4px;
+  padding: 6px 0 6px 2px;
   border: 0;
   background: transparent;
   text-align: left;
   color: inherit;
 }
-.tree-node.depth-1 .tree-toggle {
-  padding-left: 16px;
+.tree-node.depth-0 > .tree-row .tree-toggle {
+  padding-top: 7px;
+  padding-bottom: 7px;
 }
-.tree-node.depth-2 .tree-toggle {
-  padding-left: 28px;
+.tree-node.depth-1 > .tree-row .tree-toggle {
+  padding-left: 16px;
 }
 .tree-caret {
   display: inline-flex;
@@ -509,10 +551,18 @@ textarea {
   flex: 0 0 auto;
   width: 14px;
   color: var(--faint);
+  transition: color 120ms ease;
+}
+.tree-row:hover .tree-caret {
+  color: var(--muted);
+}
+.tree-node.depth-0 > .tree-row .tree-caret {
+  color: var(--muted);
 }
 .tree-copy {
-  display: grid;
-  gap: 1px;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
   min-width: 0;
   flex: 1 1 auto;
 }
@@ -522,34 +572,82 @@ textarea {
   text-overflow: ellipsis;
   color: var(--text);
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 500;
+  min-width: 0;
 }
+/* A group or a person is a heading: heavier type, and its counts sit in a pill so
+   they read as metadata rather than as another column of text. */
 .tree-node.depth-0 > .tree-row .tree-label {
   font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.005em;
 }
 .tree-sublabel {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
   color: var(--faint);
   font-size: 10px;
+}
+.tree-node.depth-0 > .tree-row .tree-sublabel {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 600;
 }
 .tree-time {
   flex: 0 0 auto;
   color: var(--faint);
   font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
+.tree-node.depth-0 > .tree-row .tree-time {
+  font-weight: 500;
+}
+/* One rail under a heading groups everything that belongs to it, so the eye can
+   stop scanning at the boundary instead of at every row. */
 .tree-sessions {
-  margin: 2px 0 6px 18px;
-  padding-left: 8px;
+  margin: 0 0 4px 20px;
+  padding-left: 9px;
   border-left: 1px solid var(--line);
 }
-.tree-sessions.depth-2 {
-  margin-left: 30px;
+/* Sessions under a second-level row sit deeper, aligned with its label. */
+.tree-node.depth-1 > .tree-sessions {
+  margin-left: 34px;
 }
 .tree-sessions .conversation {
-  min-height: 30px;
-  font-size: 12px;
+  min-height: 27px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+}
+.tree-sessions .conversation:hover:not(.selected) {
+  background: var(--surface);
+  color: var(--text);
+}
+.tree-sessions .conversation.selected {
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+  font-weight: 500;
+  box-shadow: inset 2px 0 0 var(--teal);
+}
+.tree-sessions .conversation .conversation-title {
+  color: inherit;
+}
+.tree-sessions .conversation .conversation-meta {
+  font-size: 9.5px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+.tree-sessions .conversation.selected .conversation-meta {
+  opacity: 1;
 }
 .session-ordinal {
   color: var(--muted);

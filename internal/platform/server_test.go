@@ -303,7 +303,7 @@ func TestRefuseMissingKeyAndNewerSchema(t *testing.T) {
 		t.Fatal("must refuse missing encryption key")
 	}
 	other := newFixture(t)
-	if _, err := other.store.db.Exec("PRAGMA user_version=31"); err != nil {
+	if _, err := other.store.db.Exec("PRAGMA user_version=32"); err != nil {
 		t.Fatal(err)
 	}
 	other.store.Close()

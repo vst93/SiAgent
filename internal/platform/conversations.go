@@ -101,8 +101,8 @@ const conversationColumns = `
    coalesce(ch.name,'') AS channel_name,
    coalesce((SELECT max(m.created) FROM messages m WHERE m.conversation_id=c.id), c.created) AS last_activity,
    (SELECT count(*) FROM messages m WHERE m.conversation_id=c.id AND m.role='user') AS turn_count,
-   coalesce((SELECT i.member FROM channel_inbox i JOIN messages m ON m.run_id=i.run_id
-     WHERE i.conversation_id=c.id AND m.role='user' ORDER BY m.id DESC LIMIT 1),'') AS last_member
+   coalesce((SELECT i.member FROM channel_inbox i
+     WHERE i.conversation_id=c.id ORDER BY i.created DESC, i.rowid DESC LIMIT 1),'') AS last_member
  FROM conversations c
  LEFT JOIN channels ch ON ch.id=c.channel_id`
 
@@ -193,11 +193,17 @@ func (s *Server) agentGroupScopes(values []Conversation) (map[string]string, err
 		scopes[value.AgentID] = ""
 	}
 	for agentID := range scopes {
-		a, err := s.agentByID(agentID)
+		// Read only the policy column: agentByID also decrypts the environment,
+		// which costs tens of milliseconds and the list needs none of it.
+		var raw string
+		if err := s.store.db.QueryRow("SELECT policy FROM agents WHERE id=?", agentID).Scan(&raw); err != nil {
+			continue
+		}
+		policy, err := parseAgentPolicy([]byte(raw), defaultAgentPolicy())
 		if err != nil {
 			continue
 		}
-		scopes[agentID] = a.effectivePolicy().Session.GroupScope
+		scopes[agentID] = policy.Session.GroupScope
 	}
 	return scopes, nil
 }
