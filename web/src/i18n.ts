@@ -56,7 +56,7 @@ function polish(value: string): string {
 
 const attributeNames = ["placeholder", "title", "aria-label", "alt"] as const;
 const skipSelector =
-  "script,style,noscript,textarea,[data-i18n-skip],.message-text,.markdown,.conversation,.agent-card-select strong,.kb-document-title,.kb-source-title";
+  "script,style,noscript,textarea,[data-i18n-skip],.message-text,.markdown,.conversation,.tree-label,.agent-card-select strong,.kb-document-title,.kb-source-title";
 
 let language: Language = "zh";
 let observer: MutationObserver | null = null;

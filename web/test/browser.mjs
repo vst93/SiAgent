@@ -1830,16 +1830,20 @@ try {
   assert.equal(await page.getByLabel("发送给助手的消息").count(), 0);
   assert.equal(await page.getByRole("button", { name: "发送", exact: false }).count(), 0);
   assert.equal(await page.locator(".message.user .message-meta strong").textContent(), "remote-member");
-  // The sidebar lists contacts, so the section header carries the chat kind and
-  // the contact row carries the member; the session row only appears once the
-  // contact is expanded.
+  // The sidebar groups by 群 → 人 → 会话. A private chat becomes the virtual group
+  // 私聊, so the first level carries the chat kind and the second the member; the
+  // session row only appears once that branch is open.
   assert.equal(
-    await page.locator(".contact-section-head").first().textContent(),
+    await page.locator(".tree-node.depth-0 .tree-label").first().textContent(),
     "私聊",
   );
   assert.equal(
-    await page.locator(".contact-label").first().textContent(),
+    await page.locator(".tree-node.depth-1 .tree-label").first().textContent(),
     "remote-member",
+  );
+  assert(
+    (await page.locator(".tree-sessions .conversation").count()) >= 1,
+    "the selected conversation must stay visible under its branch",
   );
   assert.match(await page.locator(".message.user time").textContent(), /\d{2}\/\d{2} \d{2}:\d{2}/);
   await page.screenshot({ path: join(artifacts, "channel-chat-desktop.png"), fullPage: true });

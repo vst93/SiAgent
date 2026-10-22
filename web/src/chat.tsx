@@ -2,7 +2,14 @@ import type { AgentPolicy } from "./agent-policy";
 import { ToolCallDetails } from "./capabilities";
 import { Icon } from "./icons";
 import { MessageMarkdown } from "./message-markdown";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Agent, Model } from "./agents";
 import type { KnowledgeHit } from "./knowledge";
 import { ConversationMaintenance, RunDiagnostics } from "./runtime-controls";
@@ -131,124 +138,332 @@ async function copyText(text: string): Promise<boolean> {
 // contact, "全群共享" makes the group the contact. A conversation without an
 // explicit scope is treated as per-member, matching the default policy, so an
 // item can never fall out of the list.
-export type ContactEntry = {
+// How the sidebar aggregates conversations. Every conversation carries two
+// dimensions — which group it happened in, and which person wrote — so the same
+// data can be read either way:
+//
+//   按群聚合: 群 → 人 → 每次对话
+//   按人聚合: 人 → 群 → 每次对话
+//
+// Private chats and local Web conversations are real dimensions too, so they
+// become virtual groups (私聊 / 本机对话) instead of a separate section. That way
+// one rule describes the whole list and nothing needs a special case.
+export type Aggregation = "group" | "person";
+
+// A conversation with both of its dimensions resolved.
+type Atom = {
+  conversation: Conversation;
+  groupKey: string;
+  groupLabel: string;
+  groupKind: "group" | "private" | "web";
+  groupID?: string;
+  groupLabelSource?: "admin" | "member";
+  /** A shared group has one context for everyone, so it has no single author. */
+  shared: boolean;
+  personKey: string;
+  personLabel: string;
+  personID?: string;
+  personLabelSource?: "admin" | "member";
+  channelID: string;
+};
+
+// One node of the sidebar tree. A node either has children (one more level to
+// expand) or holds the conversations of that branch.
+export type TreeNode = {
   key: string;
-  // "group" is a shared group, "group-member" is one member inside a group, and
-  // "private" is a direct chat. Keeping the last two apart is what places a
-  // per-member group conversation under 群聊 instead of 私聊.
-  kind: "group" | "group-member" | "private" | "web";
   label: string;
   sublabel: string;
-  channelID?: string;
-  target?: string;
-  scope?: "group" | "member";
-  labelSource?: "admin" | "member";
+  icon: "users" | "user" | "chat";
   lastActivity: number;
-  turns: number;
-  /** Newest first. */
-  sessions: Conversation[];
-};
-
-export type ContactList = {
-  group: ContactEntry[];
-  single: ContactEntry[];
-  web: ContactEntry[];
-};
-
-function contactOf(item: Conversation): {
-  key: string;
-  kind: "group" | "group-member" | "private";
-  label: string;
-  sublabel: string;
-  scope?: "group" | "member";
-} {
-  if (item.channel_kind !== "group") {
-    return {
-      key: `${item.channel_id}\u001fsingle\u001f${item.channel_sender ?? ""}`,
-      kind: "private",
-      label: item.sender_name || item.channel_sender || "未命名成员",
-      sublabel: "私聊",
-    };
-  }
-  const groupName = item.group_name || item.channel_group || "未命名群";
-  if (item.scope === "group") {
-    return {
-      key: `${item.channel_id}\u001fgroup\u001f${item.channel_group ?? ""}`,
-      kind: "group",
-      label: groupName,
-      sublabel: "全群共享",
-      scope: "group",
-    };
-  }
-  return {
-    key: `${item.channel_id}\u001fmember\u001f${item.channel_group ?? ""}\u001f${item.channel_sender ?? ""}`,
-    kind: "group-member",
-    label: item.sender_name || item.channel_sender || "未命名成员",
-    sublabel: groupName,
-    scope: "member",
+  children?: TreeNode[];
+  sessions?: Conversation[];
+  /** Set when this node names a contact the administrator can relabel. */
+  rename?: {
+    channelID: string;
+    kind: "group" | "sender";
+    target: string;
+    label: string;
+    source?: "admin" | "member";
   };
-}
+};
 
-export function conversationContacts(conversations: Conversation[]): ContactList {
-  const byKey = new Map<string, ContactEntry>();
-  const web: ContactEntry[] = [];
+const EMPTY_PERSON = "\u0000group";
+
+// conversationAtoms resolves both dimensions of every conversation.
+function conversationAtoms(conversations: Conversation[]): Atom[] {
+  const atoms: Atom[] = [];
   for (const item of conversations) {
-    if (!item.channel_id) {
-      web.push({
-        key: `web\u001f${item.id}`,
-        kind: "web",
-        label: item.title || "新对话",
-        sublabel: "本机对话",
-        lastActivity: item.last_activity || item.created,
-        turns: item.turn_count || 0,
-        sessions: [item],
+    const channelID = item.channel_id ?? "";
+    if (!channelID) {
+      atoms.push({
+        conversation: item,
+        groupKey: "web",
+        groupLabel: "本机对话",
+        groupKind: "web",
+        shared: false,
+        // The administrator is the author of a local conversation.
+        personKey: "self",
+        personLabel: "我",
+        channelID: "",
       });
       continue;
     }
-    const shape = contactOf(item);
-    let entry = byKey.get(shape.key);
-    if (!entry) {
-      entry = {
-        key: shape.key,
-        kind: shape.kind,
-        label: shape.label,
-        sublabel: shape.sublabel,
-        scope: shape.scope,
-        channelID: item.channel_id,
-        target:
-          shape.kind === "group" ? item.channel_group ?? "" : item.channel_sender ?? "",
-        labelSource: item.label_source,
-        lastActivity: 0,
-        turns: 0,
-        sessions: [],
-      };
-      byKey.set(shape.key, entry);
+    if (item.channel_kind !== "group") {
+      const sender = item.channel_sender ?? "";
+      atoms.push({
+        conversation: item,
+        groupKey: "private",
+        groupLabel: "私聊",
+        groupKind: "private",
+        shared: false,
+        personKey: `${channelID}\u001f${sender}`,
+        personLabel: item.sender_name || sender || "未命名成员",
+        personID: sender,
+        personLabelSource: item.label_source,
+        channelID,
+      });
+      continue;
     }
-    entry.sessions.push(item);
-    entry.lastActivity = Math.max(
-      entry.lastActivity,
-      item.last_activity || item.created,
-    );
-    entry.turns += item.turn_count || 0;
+    const group = item.channel_group ?? "";
+    const groupLabel = item.group_name || group || "未命名群";
+    const shared = item.scope === "group";
+    const sender = item.channel_sender ?? "";
+    atoms.push({
+      conversation: item,
+      groupKey: `${channelID}\u001f${group}`,
+      groupLabel,
+      groupKind: "group",
+      groupID: group,
+      groupLabelSource: shared ? item.label_source : undefined,
+      shared,
+      personKey: shared ? `${channelID}\u001f${group}\u001f${EMPTY_PERSON}` : `${channelID}\u001f${sender}`,
+      personLabel: shared
+        ? "全群共享"
+        : item.sender_name || sender || "未命名成员",
+      personID: shared ? undefined : sender,
+      personLabelSource: shared ? undefined : item.label_source,
+      channelID,
+    });
   }
-  const entries = [...byKey.values()];
-  for (const entry of entries) {
-    entry.sessions.sort(
-      (a, b) => (b.last_activity || b.created) - (a.last_activity || a.created),
-    );
+  return atoms;
+}
+
+// activity scopes one branch to its newest conversation, so a parent never looks
+// older than the child the reader is about to open.
+function activity(sessions: Conversation[]) {
+  return sessions.reduce(
+    (newest, item) => Math.max(newest, item.last_activity || item.created),
+    0,
+  );
+}
+
+function sortSessions(sessions: Conversation[]) {
+  return [...sessions].sort(
+    (a, b) => (b.last_activity || b.created) - (a.last_activity || a.created),
+  );
+}
+
+function turnsOf(sessions: Conversation[]) {
+  return sessions.reduce((total, item) => total + (item.turn_count || 0), 0);
+}
+
+// buildGroupTree reads the list as 群 → 人 → 会话.
+function buildGroupTree(atoms: Atom[]): TreeNode[] {
+  const groups = new Map<string, Atom[]>();
+  for (const atom of atoms) {
+    const list = groups.get(atom.groupKey);
+    if (list) list.push(atom);
+    else groups.set(atom.groupKey, [atom]);
   }
-  web.sort((a, b) => b.lastActivity - a.lastActivity);
-  const byActivity = (a: ContactEntry, b: ContactEntry) =>
-    b.lastActivity - a.lastActivity;
-  return {
-    // 群聊 holds both the shared group and each member inside a group; 私聊 only
-    // holds direct chats.
-    group: entries
-      .filter((value) => value.kind === "group" || value.kind === "group-member")
-      .sort(byActivity),
-    single: entries.filter((value) => value.kind === "private").sort(byActivity),
-    web,
-  };
+  const nodes: TreeNode[] = [];
+  for (const [key, members] of groups) {
+    const first = members[0];
+    const all = sortSessions(members.map((atom) => atom.conversation));
+    const rename =
+      first.groupKind === "group" && first.groupID
+        ? {
+            channelID: first.channelID,
+            kind: "group" as const,
+            target: first.groupID,
+            label: first.groupLabel,
+            source: first.groupLabelSource,
+          }
+        : undefined;
+    // A local conversation has no author to group by, so it lists its sessions
+    // directly instead of showing a single "我" row.
+    if (first.groupKind === "web") {
+      nodes.push({
+        key,
+        label: first.groupLabel,
+        sublabel: `${all.length} 会话`,
+        icon: "chat",
+        lastActivity: activity(all),
+        sessions: all,
+      });
+      continue;
+    }
+    // A shared group keeps one context for the whole group, so its conversations
+    // have no single author. Listing them straight under the group avoids an
+    // artificial "全群共享" member row; a group that mixes shared and per-member
+    // conversations keeps the row, because there the split is real information.
+    const onlyShared = members.every((atom) => atom.shared);
+    if (onlyShared) {
+      nodes.push({
+        key,
+        label: first.groupLabel,
+        sublabel: `全群共享 · ${all.length} 会话`,
+        icon: "users",
+        lastActivity: activity(all),
+        sessions: all,
+        rename,
+      });
+      continue;
+    }
+    const people = new Map<string, Atom[]>();
+    for (const atom of members) {
+      const list = people.get(atom.personKey);
+      if (list) list.push(atom);
+      else people.set(atom.personKey, [atom]);
+    }
+    const children: TreeNode[] = [...people.entries()].map(
+      ([personKey, authored]) => {
+        const head = authored[0];
+        const sessions = sortSessions(
+          authored.map((atom) => atom.conversation),
+        );
+        return {
+          key: `${key}\u001f${personKey}`,
+          label: head.personLabel,
+          sublabel: `${turnsOf(sessions)} 问`,
+          icon: "user" as const,
+          lastActivity: activity(sessions),
+          sessions,
+          rename:
+            !head.shared && head.personID
+              ? {
+                  channelID: head.channelID,
+                  kind: "sender" as const,
+                  target: head.personID,
+                  label: head.personLabel,
+                  source: head.personLabelSource,
+                }
+              : undefined,
+        };
+      },
+    );
+    children.sort((a, b) => b.lastActivity - a.lastActivity);
+    nodes.push({
+      key,
+      label: first.groupLabel,
+      sublabel: `${children.length} 人 · ${all.length} 会话`,
+      icon: first.groupKind === "private" ? "user" : "users",
+      lastActivity: activity(all),
+      children,
+      rename,
+    });
+  }
+  nodes.sort((a, b) => b.lastActivity - a.lastActivity);
+  return nodes;
+}
+
+// buildPersonTree reads the same list as 人 → 群 → 会话.
+function buildPersonTree(atoms: Atom[]): TreeNode[] {
+  const people = new Map<string, Atom[]>();
+  for (const atom of atoms) {
+    const list = people.get(atom.personKey);
+    if (list) list.push(atom);
+    else people.set(atom.personKey, [atom]);
+  }
+  const nodes: TreeNode[] = [];
+  for (const [key, inPlaces] of people) {
+    const first = inPlaces[0];
+    const all = sortSessions(inPlaces.map((atom) => atom.conversation));
+    const places = new Map<string, Atom[]>();
+    for (const atom of inPlaces) {
+      const list = places.get(atom.groupKey);
+      if (list) list.push(atom);
+      else places.set(atom.groupKey, [atom]);
+    }
+    const children: TreeNode[] = [...places.entries()].map(
+      ([groupKey, inGroup]) => {
+        const head = inGroup[0];
+        const sessions = sortSessions(
+          inGroup.map((atom) => atom.conversation),
+        );
+        return {
+          key: `${key}\u001f${groupKey}`,
+          label: head.groupLabel,
+          sublabel: `${sessions.length} 会话`,
+          icon:
+            head.groupKind === "group"
+              ? ("users" as const)
+              : head.groupKind === "private"
+                ? ("user" as const)
+                : ("chat" as const),
+          lastActivity: activity(sessions),
+          sessions,
+          rename:
+            head.groupKind === "group" && head.groupID
+              ? {
+                  channelID: head.channelID,
+                  kind: "group" as const,
+                  target: head.groupID,
+                  label: head.groupLabel,
+                  source: head.groupLabelSource,
+                }
+              : undefined,
+        };
+      },
+    );
+    children.sort((a, b) => b.lastActivity - a.lastActivity);
+    nodes.push({
+      key,
+      label: first.personLabel,
+      sublabel:
+        first.personKey === "self"
+          ? `${all.length} 会话`
+          : `${children.length} 处 · ${all.length} 会话`,
+      icon: first.personKey === "self" ? "chat" : "user",
+      lastActivity: activity(all),
+      children,
+      rename:
+        first.personID && !first.shared
+          ? {
+              channelID: first.channelID,
+              kind: "sender" as const,
+              target: first.personID,
+              label: first.personLabel,
+              source: first.personLabelSource,
+            }
+          : undefined,
+    });
+  }
+  nodes.sort((a, b) => b.lastActivity - a.lastActivity);
+  return nodes;
+}
+
+export function conversationTree(
+  conversations: Conversation[],
+  aggregation: Aggregation,
+): TreeNode[] {
+  const atoms = conversationAtoms(conversations);
+  return aggregation === "group"
+    ? buildGroupTree(atoms)
+    : buildPersonTree(atoms);
+}
+
+// pathTo walks the tree and returns the keys leading to one conversation, so the
+// reader always sees the branch that holds what they selected.
+export function pathTo(nodes: TreeNode[], conversationID: string): string[] {
+  for (const node of nodes) {
+    if (node.sessions?.some((item) => item.id === conversationID))
+      return [node.key];
+    if (node.children) {
+      const deeper = pathTo(node.children, conversationID);
+      if (deeper.length > 0) return [node.key, ...deeper];
+    }
+  }
+  return [];
 }
 
 export type Run = {
@@ -456,9 +671,6 @@ export function ChatWorkspace({
     hasMore: boolean;
   }>({ messages: [], runs: [], sources: [], hasMore: false });
   const [loadingOlder, setLoadingOlder] = useState(false);
-  // A kind filter keeps the list short when an Agent serves both groups and
-  // private chats; the default shows everything.
-  const [filter, setFilter] = useState<"all" | "group" | "single">("all");
   const [labelEditing, setLabelEditing] = useState("");
   const [labelValue, setLabelValue] = useState("");
   const [labelSaving, setLabelSaving] = useState(false);
@@ -548,41 +760,41 @@ export function ChatWorkspace({
       setLoadingOlder(false);
     }
   }
-  const contacts = useMemo(
-    () => conversationContacts(conversations),
-    [conversations],
+  // Two readings of the same conversations. "group" answers "what is happening
+  // in each group", "person" answers "what has this person asked"; the reader
+  // picks whichever question they have instead of switching between kind filters.
+  const [aggregation, setAggregation] = useState<Aggregation>("group");
+  const nodes = useMemo(
+    () => conversationTree(conversations, aggregation),
+    [conversations, aggregation],
   );
-  // The contact that owns the selected session stays expanded, so the list never
-  // hides the row the reader is looking at.
-  const selectedContact = useMemo(() => {
-    for (const entry of [
-      ...contacts.group,
-      ...contacts.single,
-      ...contacts.web,
-    ]) {
-      if (entry.sessions.some((item) => item.id === selected)) return entry.key;
-    }
-    return "";
-  }, [contacts, selected]);
-  const [openContact, setOpenContact] = useState("");
-  const selectedEntry = useMemo(() => {
-    const all = [...contacts.group, ...contacts.single, ...contacts.web];
-    return all.find((entry) => entry.sessions.some((item) => item.id === selected)) ?? null;
-  }, [contacts, selected]);
-  const selectedOrdinal = selectedEntry
-    ? selectedEntry.sessions.length -
-      selectedEntry.sessions.findIndex((item) => item.id === selected)
-    : 0;
+  // The branch holding the selected conversation always stays open, so selecting
+  // a row can never make it disappear from the list.
+  const path = useMemo(() => pathTo(nodes, selected), [nodes, selected]);
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
   useEffect(() => {
-    if (selectedContact) setOpenContact(selectedContact);
-  }, [selectedContact]);
-  function chooseContact(entry: ContactEntry) {
-    setOpenContact((current) => (current === entry.key ? "" : entry.key));
-    if (!entry.sessions.some((item) => item.id === selected) && entry.sessions[0])
-      selectConversation(entry.sessions[0].id);
+    setExpandedKeys((current) => {
+      const next = new Set(current);
+      for (const key of path) next.add(key);
+      return next;
+    });
+  }, [path]);
+  function toggleNode(key: string) {
+    setExpandedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
-  function sessionRow(item: Conversation, index: number, total: number) {
+  function focusSelected() {
+    setExpandedKeys(new Set(path));
+  }
+  function sessionRow(item: Conversation, siblings: Conversation[]) {
     const when = item.last_activity || item.created;
+    // Sessions are newest first, so the newest of N is the Nth.
+    const ordinal =
+      siblings.length - siblings.findIndex((each) => each.id === item.id);
     return (
       <button
         className={selected === item.id ? "conversation selected" : "conversation"}
@@ -596,7 +808,9 @@ export function ChatWorkspace({
       >
         <span className="conversation-title">{item.title}</span>
         <small className="conversation-meta">
-          {total > 1 && <span className="session-ordinal">第 {total - index} 次</span>}
+          {siblings.length > 1 && (
+            <span className="session-ordinal">第 {ordinal} 次</span>
+          )}
           <span>{item.turn_count} 问</span>
           <time dateTime={new Date(when).toISOString()}>
             {relativeTime(when)}
@@ -605,124 +819,136 @@ export function ChatWorkspace({
       </button>
     );
   }
-  function contactRow(entry: ContactEntry) {
-    const open = openContact === entry.key;
+  function renameForm(node: TreeNode) {
+    const rename = node.rename;
+    if (!rename) return null;
     return (
-      <section className="contact-row" key={entry.key}>
-        <header className={`contact-head ${open ? "is-open" : ""}`}>
-          <button
-            type="button"
-            className="contact-toggle"
-            aria-expanded={open}
-            onClick={() => chooseContact(entry)}
-          >
-            <Icon
-              name={entry.kind === "group" ? "users" : "user"}
-              size={16}
-              className="chat-glyph"
-            />
-            <span className="contact-copy">
-              <span className="contact-label" title={entry.label}>
-                {entry.label}
-              </span>
-              <span className="contact-sublabel" title={entry.sublabel}>
-                {entry.sublabel}
-                {entry.sessions.length > 1
-                  ? ` · ${entry.sessions.length} 个会话`
-                  : ""}
-              </span>
-            </span>
-            <time
-              className="contact-time"
-              dateTime={new Date(entry.lastActivity).toISOString()}
-            >
-              {relativeTime(entry.lastActivity)}
-            </time>
-          </button>
-          {entry.labelSource === "member" && (
-            <em className="scope-badge member" title="该名称由成员自行标记">
-              成员设置
-            </em>
-          )}
-          {entry.channelID && entry.target && (
-            <button
-              type="button"
-              className="conversation-group-rename"
-              aria-label={`标记 ${entry.label} 的名称`}
-              title={`标记 ${entry.label} 的名称`}
-              onClick={() => {
-                setLabelError("");
-                setLabelEditing(entry.key);
-                setLabelValue(entry.label.startsWith("未命名") ? "" : entry.label);
-              }}
-            >
-              <Icon name="edit" size={14} />
-            </button>
-          )}
-        </header>
-        {labelEditing === entry.key && entry.channelID && entry.target && (
-          <form
-            className="conversation-group-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (labelSaving) return;
-              setLabelSaving(true);
-              setLabelError("");
-              void request("/channel-contacts", "PUT", {
-                channel_id: entry.channelID,
-                kind: entry.kind === "group" ? "group" : "sender",
-                target: entry.target,
-                name: labelValue.trim(),
-              })
-                .then(() => {
-                  setLabelEditing("");
-                  onLabelsChanged();
-                })
-                .catch((error) =>
-                  setLabelError(
-                    error instanceof Error ? error.message : "标记失败。",
-                  ),
-                )
-                .finally(() => setLabelSaving(false));
-            }}
-          >
-            <input
-              autoFocus
-              aria-label="群或成员名称"
-              placeholder="例如：产品讨论群 / 张三"
-              maxLength={64}
-              value={labelValue}
-              onChange={(event) => setLabelValue(event.target.value)}
-            />
-            <button type="submit" disabled={labelSaving}>
-              保存
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setLabelEditing("");
-                setLabelError("");
-              }}
-            >
-              取消
-            </button>
-            {labelError && <p className="error">{labelError}</p>}
-            <small>
-              企微只提供 ID，不提供群名或用户名。成员可用 /user、/group
-              自行标记；这里保存的名称由管理员维护，会覆盖成员设置。
-            </small>
-          </form>
-        )}
-        {open && (
-          <div className="contact-sessions">
-            {entry.sessions.map((item, index) =>
-              sessionRow(item, index, entry.sessions.length),
-            )}
-          </div>
-        )}
-      </section>
+      <form
+        className="conversation-group-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (labelSaving) return;
+          setLabelSaving(true);
+          setLabelError("");
+          void request("/channel-contacts", "PUT", {
+            channel_id: rename.channelID,
+            kind: rename.kind,
+            target: rename.target,
+            name: labelValue.trim(),
+          })
+            .then(() => {
+              setLabelEditing("");
+              onLabelsChanged();
+            })
+            .catch((error) =>
+              setLabelError(error instanceof Error ? error.message : "标记失败。"),
+            )
+            .finally(() => setLabelSaving(false));
+        }}
+      >
+        <input
+          autoFocus
+          aria-label="群或成员名称"
+          placeholder="例如：产品讨论群 / 张三"
+          maxLength={64}
+          value={labelValue}
+          onChange={(event) => setLabelValue(event.target.value)}
+        />
+        <button type="submit" disabled={labelSaving}>
+          保存
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setLabelEditing("");
+            setLabelError("");
+          }}
+        >
+          取消
+        </button>
+        {labelError && <p className="error">{labelError}</p>}
+        <small>
+          企微只提供 ID，不提供群名或用户名。成员可用 /user、/group
+          自行标记；这里保存的名称由管理员维护，会覆盖成员设置。
+        </small>
+      </form>
     );
   }
+  function renderNodes(list: TreeNode[], depth: number): ReactNode {
+    return list.map((node) => {
+      const open = expandedKeys.has(node.key);
+      const hasDeeper = Boolean(node.children?.length || node.sessions?.length);
+      const rename = node.rename;
+      return (
+        <div className={`tree-node depth-${depth}`} key={node.key}>
+          <div className={`tree-row ${open ? "is-open" : ""}`}>
+            <button
+              type="button"
+              className="tree-toggle"
+              aria-expanded={hasDeeper ? open : undefined}
+              aria-label={
+                hasDeeper ? `${open ? "收起" : "展开"} ${node.label}` : node.label
+              }
+              onClick={() => (hasDeeper ? toggleNode(node.key) : undefined)}
+            >
+              <span className="tree-caret" aria-hidden="true">
+                {hasDeeper && (
+                  <Icon name={open ? "caret-down" : "caret-right"} size={14} />
+                )}
+              </span>
+              <Icon name={node.icon} size={16} className="chat-glyph" />
+              <span className="tree-copy">
+                <span className="tree-label" title={node.label}>
+                  {node.label}
+                </span>
+                <span className="tree-sublabel">
+                  {/* One span per segment so a badge like 全群共享 can carry its
+                      own translation instead of being read as part of a count. */}
+                  {node.sublabel.split(" · ").map((part, index) => (
+                    <span key={part}>
+                      {index > 0 ? " · " : ""}
+                      {part}
+                    </span>
+                  ))}
+                </span>
+              </span>
+              <time
+                className="tree-time"
+                dateTime={new Date(node.lastActivity).toISOString()}
+              >
+                {relativeTime(node.lastActivity)}
+              </time>
+            </button>
+            {rename && (
+              <button
+                type="button"
+                className="conversation-group-rename"
+                aria-label={`标记 ${node.label} 的名称`}
+                title={`标记 ${node.label} 的名称`}
+                onClick={() => {
+                  setLabelError("");
+                  setLabelEditing(node.key);
+                  setLabelValue(
+                    node.label.startsWith("未命名") ? "" : node.label,
+                  );
+                }}
+              >
+                <Icon name="edit" size={14} />
+              </button>
+            )}
+          </div>
+          {labelEditing === node.key && renameForm(node)}
+          {open && node.children ? renderNodes(node.children, depth + 1) : null}
+          {open && node.sessions ? (
+            <div className={`tree-sessions depth-${depth + 1}`}>
+              {node.sessions.map((item) => sessionRow(item, node.sessions!))}
+            </div>
+          ) : null}
+        </div>
+      );
+    });
+  }
+
   const conversation =
     snapshot?.conversation ?? conversations.find((item) => item.id === selected);
   const channelConversation = Boolean(conversation?.channel_id);
@@ -861,11 +1087,6 @@ export function ChatWorkspace({
               >
                 <Icon name="channels" size={14} />
                 <span className="channel-view-path">{channelPath(conversation)}</span>
-                {selectedEntry && selectedEntry.sessions.length > 1 && (
-                  <span className="channel-view-readonly">
-                    第 {selectedOrdinal} / {selectedEntry.sessions.length} 次会话
-                  </span>
-                )}
                 <span className="channel-view-readonly">只读</span>
               </span>
             )}
@@ -889,52 +1110,36 @@ export function ChatWorkspace({
       >
         <div className="chat-history-heading">
           <span>对话记录</span>
-          <span>{conversations.length}</span>
+          <span className="chat-history-count">{conversations.length}</span>
+          <button
+            type="button"
+            className="chat-history-focus"
+            onClick={focusSelected}
+            title="收起其他分支，只保留当前会话"
+          >
+            <Icon name="caret-right" size={14} />
+          </button>
         </div>
-        <div className="conversation-filters" role="group" aria-label="筛选会话">
+        <div className="aggregation-switch" role="group" aria-label="聚合方式">
           {(
             [
-              ["all", "全部"],
-              ["group", "群聊"],
-              ["single", "私聊"],
+              ["group", "按群聚合"],
+              ["person", "按人聚合"],
             ] as const
           ).map(([key, label]) => (
             <button
               key={key}
               type="button"
-              aria-pressed={filter === key}
-              className={filter === key ? "selected" : ""}
-              onClick={() => setFilter(key)}
+              aria-pressed={aggregation === key}
+              className={aggregation === key ? "selected" : ""}
+              onClick={() => setAggregation(key)}
             >
               {label}
             </button>
           ))}
         </div>
         <nav aria-label="对话记录" className="conversation-list">
-          {filter !== "single" && contacts.group.length > 0 && (
-            <section className="contact-section">
-              <p className="contact-section-head">群聊</p>
-              {contacts.group.map(contactRow)}
-            </section>
-          )}
-          {filter !== "group" && contacts.single.length > 0 && (
-            <section className="contact-section">
-              <p className="contact-section-head">私聊</p>
-              {contacts.single.map(contactRow)}
-            </section>
-          )}
-          {filter !== "single" && contacts.web.length > 0 && (
-            <section className="contact-section">
-              <p className="contact-section-head">本机对话</p>
-              {/* A Web conversation is the administrator's own session, so it is
-                  listed directly instead of hiding behind an expandable contact. */}
-              {contacts.web.map((entry) =>
-                entry.sessions[0]
-                  ? sessionRow(entry.sessions[0], 0, 1)
-                  : null,
-              )}
-            </section>
-          )}
+          {renderNodes(nodes, 0)}
           {!conversations.length && (
             <p className="nav-empty">开始对话后，记录会保存在这里。</p>
           )}

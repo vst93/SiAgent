@@ -573,6 +573,12 @@ export const exact: Record<string, string> = {
   "该名称由成员通过 /user 或 /group 命令设置；管理员保存会覆盖它": "A member set this name with /user or /group. Saving here overrides it.",
   "群聊": "Group chat",
   "私聊": "Private chat",
+  "按群聚合": "Group first",
+  "按人聚合": "Person first",
+  "聚合方式": "Aggregation",
+  "全群共享": "Shared by the group",
+  "我": "Me",
+  "收起其他分支，只保留当前会话": "Collapse other branches and keep the current conversation",
   "共享": "Shared",
   "按成员": "Per member",
   "会话": "sessions",
@@ -863,6 +869,10 @@ export const exact: Record<string, string> = {
 };
 
 export const terms: [string, string][] = [
+  // Longer suffixes first: "3 分钟前" must not be read as the duration "3 分钟".
+  ["分钟前", "min ago"],
+  ["小时前", "h ago"],
+  ["天前", "d ago"],
   ["兼容此协议的代理或本地服务", "compatible proxy or local service"],
   ["自备兼容网关", "bring-your-own compatible gateway"],
   ["预留输出空间", "reserved output"],
