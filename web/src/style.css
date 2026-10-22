@@ -47,7 +47,7 @@
   --control-h-sm: 28px;
   --row-h: 36px;
   --sidebar-w: 236px;
-  --history-w: 264px;
+  --history-w: 300px;
   --toolbar-h: 52px;
   --focus-ring: 0 0 0 3px rgba(15, 111, 97, 0.14);
   --shadow-1: 0 1px 2px rgba(16, 24, 20, 0.04);
@@ -429,86 +429,105 @@ textarea {
   font-weight: 600;
   white-space: nowrap;
 }
-/* The conversation sidebar is a four-level tree: channel, chat kind, contact,
-   optional member, then sessions. Each level is indented and labelled so a
-   group, a member and a session are never confused. */
-.tree-channel {
-  padding: 2px 0 6px;
+/* The conversation sidebar lists contacts, not sessions: one row per group or
+   member, with the selected contact expanding to its sessions. Two visible levels
+   keep the list scannable; the channel is implied by the Agent. */
+.conversation-filters {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px 8px;
 }
-.tree-channel + .tree-channel {
-  border-top: 1px solid var(--line);
-  margin-top: 4px;
-  padding-top: 6px;
+.conversation-filters button {
+  flex: 1 1 auto;
+  padding: 4px 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
 }
-.tree-head {
+.conversation-filters button.selected {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+}
+.contact-section + .contact-section {
+  margin-top: 10px;
+}
+.contact-section-head {
+  margin: 0;
+  padding: 4px 12px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.contact-row {
+  border-radius: var(--radius-sm);
+}
+.contact-row + .contact-row {
+  margin-top: 1px;
+}
+.contact-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
-  margin: 0;
-  padding: 3px 9px;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  color: var(--muted);
+  padding: 0 6px 0 8px;
 }
-.tree-head .tree-label {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.tree-head > small {
-  flex: 0 0 auto;
-  margin-left: auto;
-  color: var(--faint);
-  font-size: 10px;
-  font-weight: 500;
-}
-.level-channel {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-.level-channel:hover {
+.contact-head.is-open {
   background: var(--surface);
   border-radius: var(--radius-sm);
 }
-.level-kind {
-  padding-left: 18px;
-  font-size: 11px;
-  font-weight: 600;
-}
-.tree-contact {
-  padding-left: 8px;
-}
-.level-contact {
-  padding-left: 22px;
-}
-.tree-toggle {
+.contact-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
+  gap: 9px;
   flex: 1 1 auto;
-  padding: 0;
+  min-width: 0;
+  padding: 7px 0;
   border: 0;
   background: transparent;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
   text-align: left;
 }
-.level-member {
-  padding-left: 36px;
-  font-size: 11.5px;
-  font-weight: 500;
+.contact-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
-.tree-session {
-  padding-left: 34px;
+.contact-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
 }
-.tree-channel > .tree-session,
-.level-channel + .tree-session {
-  padding-left: 9px;
+.contact-sublabel {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--faint);
+  font-size: 10.5px;
+}
+.contact-time {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-size: 10px;
+}
+.contact-sessions {
+  margin: 2px 0 6px 14px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+.contact-sessions .conversation {
+  min-height: 30px;
+  font-size: 12px;
+}
+.session-ordinal {
+  color: var(--muted);
+  font-weight: 600;
 }
 .scope-badge {
   flex: 0 0 auto;
@@ -551,9 +570,6 @@ textarea {
 .channel-view-readonly {
   flex: 0 0 auto;
   color: var(--faint);
-}
-.conversation-group {
-  padding: 2px 0 6px;
 }
 .conversation-group + .conversation-group {
   border-top: 1px solid var(--line);
@@ -621,14 +637,6 @@ textarea {
   margin: 0;
   font-size: 10px;
   line-height: 1.6;
-}
-/* A new session within the same group is separated by a long rule, so two
-   conversations with one person never look like one continuous thread. */
-.conversation-divider {
-  height: 0;
-  margin: 5px 9px;
-  border: 0;
-  border-top: 1px solid var(--line);
 }
 .load-older {
   display: flex;
@@ -7297,7 +7305,7 @@ select option:disabled {
 @media (max-width: 1180px) {
   :root {
     --sidebar-w: 220px;
-    --history-w: 240px;
+    --history-w: 272px;
   }
 }
 @media (max-width: 980px) {

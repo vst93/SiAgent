@@ -478,9 +478,24 @@ function App() {
       if (!subscribed || value.conversation.id !== selected) return;
       setSnapshot(value);
       setConnectionLost(false);
+      // The snapshot feeds the detail pane. The sidebar keeps its own identity
+      // fields (channel, scope, resolved names) from the list endpoint and only
+      // takes the mutable activity, so a partial snapshot can never drop a row.
       setConversations((items) =>
         items.map((item) =>
-          item.id === value.conversation.id ? value.conversation : item,
+          item.id === value.conversation.id
+            ? {
+                ...item,
+                title: value.conversation.title || item.title,
+                last_activity:
+                  value.conversation.last_activity || item.last_activity,
+                turn_count: value.conversation.turn_count ?? item.turn_count,
+                last_sender:
+                  value.conversation.last_sender || item.last_sender,
+                last_sender_name:
+                  value.conversation.last_sender_name || item.last_sender_name,
+              }
+            : item,
         ),
       );
     });

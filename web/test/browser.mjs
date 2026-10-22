@@ -1830,14 +1830,15 @@ try {
   assert.equal(await page.getByLabel("发送给助手的消息").count(), 0);
   assert.equal(await page.getByRole("button", { name: "发送", exact: false }).count(), 0);
   assert.equal(await page.locator(".message.user .message-meta strong").textContent(), "remote-member");
-  // The sidebar groups by contact, so the session row itself no longer repeats
-  // the chat kind; the contact header carries it.
+  // The sidebar lists contacts, so the section header carries the chat kind and
+  // the contact row carries the member; the session row only appears once the
+  // contact is expanded.
   assert.equal(
-    await page.locator(".tree-kind .tree-label").first().textContent(),
+    await page.locator(".contact-section-head").first().textContent(),
     "私聊",
   );
   assert.equal(
-    await page.locator(".level-contact .tree-label").first().textContent(),
+    await page.locator(".contact-label").first().textContent(),
     "remote-member",
   );
   assert.match(await page.locator(".message.user time").textContent(), /\d{2}\/\d{2} \d{2}:\d{2}/);
