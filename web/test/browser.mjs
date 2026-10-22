@@ -1908,6 +1908,33 @@ try {
   await page
     .getByText("连接成功，模型已返回文本响应。", { exact: true })
     .waitFor();
+  // With several connections the text column must fill its row. A fixed
+  // intrinsic width used to leave a gap after the name on wide rows, which read
+  // as misaligned rows once more than one connection existed.
+  const connectionAlignment = async () =>
+    page.evaluate(() => {
+      const rows = [...document.querySelectorAll(".model-connection")];
+      return rows.map((row) => {
+        const box = row.getBoundingClientRect();
+        const copy = row
+          .querySelector(".model-connection-copy")
+          .getBoundingClientRect();
+        return {
+          width: Math.round(box.width),
+          gap: Math.round(box.right - copy.right),
+        };
+      });
+    });
+  const connections = await connectionAlignment();
+  assert(
+    connections.length >= 2,
+    `expected several model connections, got ${connections.length}`,
+  );
+  for (const row of connections)
+    assert(
+      row.gap <= 16,
+      `model connection text leaves a ${row.gap}px gap in a ${row.width}px row`,
+    );
   await page
     .locator(".configuration-content")
     .evaluate((element) => (element.scrollTop = 0));
@@ -1925,6 +1952,11 @@ try {
             document.querySelector(".configuration-content").clientWidth,
       ),
     );
+    for (const row of await connectionAlignment())
+      assert(
+        row.gap <= 16,
+        `model connection text leaves a ${row.gap}px gap at ${width}px`,
+      );
   }
   await page
     .locator(".configuration-content")

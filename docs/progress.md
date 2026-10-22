@@ -2,6 +2,14 @@
 
 按 `plan.md` 逐步实施。以下为代码实际状态，不替代真实外部环境的验收。
 
+## 会话列表、分页与渠道联系人标记
+
+- [x] 会话列表按最近活动排序：`listConversations` 用最新消息时间（`messages.created` 最大值）排序，并返回 `last_activity` 与 `turn_count`；管理后台每 5 秒静默轮询，渠道消息不再需要手动刷新。
+- [x] 分组展示：前端按“渠道 + 群/成员”收拢，组内按最近活动倒序，会话之间用长横线分隔；未标记时显示原始 ID。
+- [x] 详情分页：`GET /api/conversations/{id}?before=&limit=` 返回最近一页并带 `has_more`/`oldest_id`，SSE 也只推送最近一页；前端向上滚动加载更早消息并保持阅读位置。
+- [x] 渠道联系人标记：schema 29 增加 `channel_contacts`；`GET/PUT/DELETE /api/channel-contacts` 管理名称，列表、会话详情与渠道诊断都解析为可读名称。企微协议只提供 ID，名称由管理员维护。
+- [x] 修复模型连接列表错位：`.model-connection-copy` 缺少 `flex: 1`，多连接时文字列保持固有宽度，宽行右侧留白；浏览器回归加入对齐断言。
+
 ## 渠道入站图片
 
 - [x] 渠道图片接收：新增协议字段 `Incoming.images` 与适配器能力 `images`。企微智能机器人的 worker 用官方 SDK 下载并用消息自带的 AES 密钥解密图片，只把暂存文件名写进私有协议，图片不进入 256 KiB 的协议帧。

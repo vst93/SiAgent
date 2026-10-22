@@ -28,5 +28,8 @@ func (s *Store) migrateChannelMedia() error {
 	if _, err := tx.Exec("PRAGMA user_version=28;"); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateChannelContacts()
 }

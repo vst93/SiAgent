@@ -413,10 +413,109 @@ textarea {
 .conversation:hover:not(:disabled) {
   background: var(--surface);
 }
-.conversation > span:last-child {
+.conversation > span {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.conversation-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.conversation-group {
+  padding: 2px 0 6px;
+}
+.conversation-group + .conversation-group {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+.conversation-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.conversation-group-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.conversation-group-head > small {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 500;
+}
+.conversation-group-rename {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--faint);
+}
+.conversation-group-rename:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+.conversation-group-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 9px 8px;
+}
+.conversation-group-form input {
+  flex: 1 1 120px;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.conversation-group-form button {
+  padding: 4px 9px;
+  font-size: 11px;
+}
+.conversation-group-form small,
+.conversation-group-form .error {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.6;
+}
+/* A new session within the same group is separated by a long rule, so two
+   conversations with one person never look like one continuous thread. */
+.conversation-divider {
+  height: 0;
+  margin: 5px 9px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.load-older {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 4px;
+}
+.load-older button {
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--muted);
 }
 .conversation.selected {
   background: var(--teal-soft);
@@ -2234,6 +2333,9 @@ summary {
   color: var(--teal-strong);
 }
 .model-connection-copy {
+  /* Fill the row: without this the text column keeps its intrinsic width and a
+     wide row leaves a gap after the name, which reads as misaligned rows. */
+  flex: 1 1 auto;
   min-width: 0;
   display: grid;
   gap: 3px;

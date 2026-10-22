@@ -46,7 +46,24 @@ type Inbox = {
   preview: string;
   conversation_id: string;
   created: number;
+  chat_kind?: string;
+  group_id?: string;
+  sender_id?: string;
+  group_name?: string;
+  sender_name?: string;
 };
+
+// inboundWho names the sender of one inbound record. The vendor sends only IDs,
+// so the administrator label is used when present.
+function inboundWho(item: Inbox) {
+  if (item.chat_kind === "group")
+    return `群聊 · ${item.group_name || item.group_id || "未命名群"} / ${
+      item.sender_name || item.sender_id || "成员"
+    }`;
+  if (item.chat_kind === "single")
+    return `私聊 · ${item.sender_name || item.sender_id || "成员"}`;
+  return "渠道";
+}
 type Delivery = {
   id: string;
   inbox_id: string;
@@ -616,6 +633,7 @@ export function ChannelsWorkspace({
                     <li key={item.id}>
                       <header>
                         <span>{labels[item.state] ?? item.state}</span>
+                        <small>{inboundWho(item)}</small>
                         <time>{new Date(item.created).toLocaleString()}</time>
                       </header>
                       <p title={item.preview}>{item.preview}</p>

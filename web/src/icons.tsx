@@ -28,6 +28,9 @@ import { ThumbsDownIcon } from "@phosphor-icons/react/dist/csr/ThumbsDown";
 import { ThumbsUpIcon } from "@phosphor-icons/react/dist/csr/ThumbsUp";
 import { TrashIcon } from "@phosphor-icons/react/dist/csr/Trash";
 import { UploadSimpleIcon } from "@phosphor-icons/react/dist/csr/UploadSimple";
+import { UserIcon } from "@phosphor-icons/react/dist/csr/User";
+import { UsersIcon } from "@phosphor-icons/react/dist/csr/Users";
+import { PencilSimpleIcon } from "@phosphor-icons/react/dist/csr/PencilSimple";
 import { WarningCircleIcon } from "@phosphor-icons/react/dist/csr/WarningCircle";
 import { XIcon } from "@phosphor-icons/react/dist/csr/X";
 import { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight";
@@ -47,6 +50,9 @@ const icons = {
   check: CheckIcon,
   copy: CopyIcon,
   channels: ArrowsLeftRightIcon,
+  user: UserIcon,
+  users: UsersIcon,
+  edit: PencilSimpleIcon,
   knowledge: BooksIcon,
   key: KeyIcon,
   package: PackageIcon,

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"siagent/internal/knowledge"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,10 +18,22 @@ type Conversation struct {
 	ChannelKind   string `json:"channel_kind,omitempty"`
 	ChannelSender string `json:"channel_sender,omitempty"`
 	ChannelGroup  string `json:"channel_group,omitempty"`
-	AgentID       string `json:"agent_id"`
-	ID            string `json:"id"`
-	Title         string `json:"title"`
-	Created       int64  `json:"created"`
+	// ChannelName is the configured channel display name.
+	ChannelName string `json:"channel_name,omitempty"`
+	// GroupName and SenderName are administrator-set labels for the opaque vendor
+	// IDs, because the WeCom long-connection protocol returns no names at all.
+	GroupName  string `json:"group_name,omitempty"`
+	SenderName string `json:"sender_name,omitempty"`
+	AgentID    string `json:"agent_id"`
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Created    int64  `json:"created"`
+	// LastActivity is the newest message or run time, so the list can order by
+	// the latest exchange instead of by creation.
+	LastActivity int64 `json:"last_activity"`
+	// TurnCount counts user messages, which is what a reader thinks of as the
+	// number of questions in the conversation.
+	TurnCount int `json:"turn_count"`
 }
 type Message struct {
 	Attachments []Attachment `json:"attachments,omitempty"`
@@ -51,28 +64,118 @@ type Snapshot struct {
 	Conversation Conversation `json:"conversation"`
 	Messages     []Message    `json:"messages"`
 	Runs         []Run        `json:"runs"`
+	// HasMore reports that older messages exist before OldestID, so the detail
+	// view can load the previous page on demand.
+	HasMore  bool  `json:"has_more,omitempty"`
+	OldestID int64 `json:"oldest_id,omitempty"`
+}
+
+// detailMessageLimit bounds one page of the conversation detail view. A channel
+// conversation can hold thousands of messages, so the newest page is loaded
+// first and earlier pages arrive on demand.
+const detailMessageLimit = 40
+
+// conversationColumns is the shared projection for one conversation row. The
+// last activity comes from the newest message, which is written when a run is
+// admitted, so a queued question counts as activity before any answer exists.
+const conversationColumns = `
+ SELECT c.id,c.title,c.created,c.agent_id,c.channel_id,c.channel_kind,c.channel_sender,c.channel_group,
+   coalesce(ch.name,'') AS channel_name,
+   coalesce((SELECT max(m.created) FROM messages m WHERE m.conversation_id=c.id), c.created) AS last_activity,
+   (SELECT count(*) FROM messages m WHERE m.conversation_id=c.id AND m.role='user') AS turn_count
+ FROM conversations c
+ LEFT JOIN channels ch ON ch.id=c.channel_id`
+
+// channelNames resolves the administrator labels for a set of conversations in
+// one query, keyed by "<channel id>\x1f<kind>\x1f<target>".
+func (s *Server) channelNames(values []Conversation) (map[string]string, error) {
+	names := map[string]string{}
+	ids := map[string]bool{}
+	for _, value := range values {
+		if value.ChannelID != "" {
+			ids[value.ChannelID] = true
+		}
+	}
+	if len(ids) == 0 {
+		return names, nil
+	}
+	rows, err := s.store.db.Query("SELECT channel_id,kind,target,name FROM channel_contacts")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var channelID, kind, target, name string
+		if err := rows.Scan(&channelID, &kind, &target, &name); err != nil {
+			return nil, err
+		}
+		if ids[channelID] {
+			names[channelID+"\x1f"+kind+"\x1f"+target] = name
+		}
+	}
+	return names, rows.Err()
+}
+
+// applyChannelName fills the display labels of one conversation.
+func applyChannelName(names map[string]string, v *Conversation) {
+	if v.ChannelID == "" {
+		return
+	}
+	if v.ChannelGroup != "" {
+		v.GroupName = names[v.ChannelID+"\x1fgroup\x1f"+v.ChannelGroup]
+	}
+	if v.ChannelSender != "" {
+		v.SenderName = names[v.ChannelID+"\x1fsender\x1f"+v.ChannelSender]
+	}
+}
+
+// applyChannelNames fills the display labels of every conversation.
+func applyChannelNames(values []Conversation, names map[string]string) {
+	for i := range values {
+		applyChannelName(names, &values[i])
+	}
+}
+
+func scanConversation(scan func(...any) error) (Conversation, error) {
+	var v Conversation
+	err := scan(&v.ID, &v.Title, &v.Created, &v.AgentID, &v.ChannelID, &v.ChannelKind, &v.ChannelSender, &v.ChannelGroup, &v.ChannelName, &v.LastActivity, &v.TurnCount)
+	return v, err
 }
 
 func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.db.Query("SELECT id,title,created,agent_id,channel_id,channel_kind,channel_sender,channel_group FROM conversations WHERE NOT EXISTS(SELECT 1 FROM conversation_cleanup WHERE conversation_id=conversations.id) ORDER BY created DESC,rowid DESC")
+	// Order by the newest exchange so an active channel conversation rises to the
+	// top instead of sinking with its original creation time.
+	rows, err := s.store.db.Query(conversationColumns + `
+ WHERE NOT EXISTS(SELECT 1 FROM conversation_cleanup d WHERE d.conversation_id=c.id)
+ ORDER BY last_activity DESC, c.rowid DESC`)
 	if err != nil {
 		internal(w)
 		return
 	}
-	defer rows.Close()
 	values := []Conversation{}
 	for rows.Next() {
-		var v Conversation
-		if err := rows.Scan(&v.ID, &v.Title, &v.Created, &v.AgentID, &v.ChannelID, &v.ChannelKind, &v.ChannelSender, &v.ChannelGroup); err != nil {
+		value, err := scanConversation(rows.Scan)
+		if err != nil {
+			rows.Close()
 			internal(w)
 			return
 		}
-		values = append(values, v)
+		values = append(values, value)
 	}
-	if rows.Err() != nil {
+	err = rows.Err()
+	// Close before the next query: the store keeps a single connection, so an open
+	// result set would deadlock on any follow-up statement.
+	rows.Close()
+	if err != nil {
 		internal(w)
 		return
 	}
+	names, err := s.channelNames(values)
+	if err != nil {
+		internal(w)
+		return
+	}
+	applyChannelNames(values, names)
 	respond(w, 200, values)
 }
 func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
@@ -113,16 +216,52 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, 201, v)
 }
+
+// snapshot reads the whole conversation. Internal callers and tests use it when
+// they need every message; the HTTP detail view pages instead.
 func (s *Server) snapshot(conversationID string) (Snapshot, error) {
+	return s.snapshotPage(conversationID, 0, -1)
+}
+
+// snapshotPage loads one page of a conversation. before=0 returns the newest
+// page; a positive value returns the page immediately preceding that message ID.
+// limit<0 reads every message. Runs, sources and tool calls follow the same
+// message window, so the detail view never renders a message without its run.
+func (s *Server) snapshotPage(conversationID string, before int64, limit int) (Snapshot, error) {
 	result := Snapshot{Messages: []Message{}, Runs: []Run{}, Sources: []RunSource{}}
-	err := s.store.db.QueryRow("SELECT id,title,created,agent_id,channel_id,channel_kind,channel_sender,channel_group FROM conversations WHERE id=? AND NOT EXISTS(SELECT 1 FROM conversation_cleanup WHERE conversation_id=conversations.id)", conversationID).Scan(&result.Conversation.ID, &result.Conversation.Title, &result.Conversation.Created, &result.Conversation.AgentID, &result.Conversation.ChannelID, &result.Conversation.ChannelKind, &result.Conversation.ChannelSender, &result.Conversation.ChannelGroup)
+	value, err := scanConversation(s.store.db.QueryRow(conversationColumns+` WHERE c.id=? AND NOT EXISTS(SELECT 1 FROM conversation_cleanup d WHERE d.conversation_id=c.id)`, conversationID).Scan)
 	if err != nil {
 		return result, err
 	}
-	rows, err := s.store.db.Query("SELECT id,run_id,role,content,created,attachments FROM messages WHERE conversation_id=? ORDER BY id", conversationID)
+	result.Conversation = value
+	names, err := s.channelNames([]Conversation{value})
 	if err != nil {
 		return result, err
 	}
+	applyChannelName(names, &result.Conversation)
+	paged := limit >= 0
+	if paged && (limit == 0 || limit > 200) {
+		limit = detailMessageLimit
+	}
+	// The paged form reads newest first and then reverses, so a bounded window
+	// never walks the whole history.
+	query := "SELECT id,run_id,role,content,created,attachments FROM messages WHERE conversation_id=?"
+	args := []any{conversationID}
+	if before > 0 {
+		query += " AND id<?"
+		args = append(args, before)
+	}
+	if paged {
+		query += " ORDER BY id DESC LIMIT ?"
+		args = append(args, limit+1)
+	} else {
+		query += " ORDER BY id"
+	}
+	rows, err := s.store.db.Query(query, args...)
+	if err != nil {
+		return result, err
+	}
+	window := []Message{}
 	for rows.Next() {
 		var message Message
 		var attachments string
@@ -136,46 +275,76 @@ func (s *Server) snapshot(conversationID string) (Snapshot, error) {
 				return result, err
 			}
 		}
-		result.Messages = append(result.Messages, message)
+		window = append(window, message)
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
 		return result, err
+	}
+	if paged {
+		if len(window) > limit {
+			result.HasMore = true
+			window = window[:limit]
+		}
+		// The paged query returns newest first; the reader expects oldest first.
+		for i := len(window) - 1; i >= 0; i-- {
+			result.Messages = append(result.Messages, window[i])
+		}
+	} else {
+		result.Messages = append(result.Messages, window...)
+	}
+	if len(result.Messages) > 0 {
+		result.OldestID = result.Messages[0].ID
+	}
+	runIDs := []string{}
+	seenRun := map[string]bool{}
+	for _, message := range result.Messages {
+		if message.RunID != "" && !seenRun[message.RunID] {
+			seenRun[message.RunID] = true
+			runIDs = append(runIDs, message.RunID)
+		}
 	}
 	configs := map[string]runConfig{}
-	rows, err = s.store.db.Query("SELECT r.id,r.status,r.error,r.created,r.config,r.thinking,r.citation_valid,r.evidence_state FROM runs r WHERE r.conversation_id=? ORDER BY r.created,r.rowid", conversationID)
-	if err != nil {
-		return result, err
-	}
-	for rows.Next() {
-		var run Run
-		var config, thinking string
-		if err := rows.Scan(&run.ID, &run.Status, &run.Error, &run.Created, &config, &thinking, &run.CitationValid, &run.EvidenceState); err != nil {
-			rows.Close()
+	if len(runIDs) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(runIDs)), ",")
+		args := make([]any, 0, len(runIDs))
+		for _, runID := range runIDs {
+			args = append(args, runID)
+		}
+		rows, err = s.store.db.Query("SELECT r.id,r.status,r.error,r.created,r.config,r.thinking,r.citation_valid,r.evidence_state FROM runs r WHERE r.id IN ("+placeholders+") ORDER BY r.created,r.rowid", args...)
+		if err != nil {
 			return result, err
 		}
-		var configSnapshot runConfig
-		if err := json.Unmarshal([]byte(config), &configSnapshot); err != nil {
-			rows.Close()
+		for rows.Next() {
+			var run Run
+			var config, thinking string
+			if err := rows.Scan(&run.ID, &run.Status, &run.Error, &run.Created, &config, &thinking, &run.CitationValid, &run.EvidenceState); err != nil {
+				rows.Close()
+				return result, err
+			}
+			var configSnapshot runConfig
+			if err := json.Unmarshal([]byte(config), &configSnapshot); err != nil {
+				rows.Close()
+				return result, err
+			}
+			configs[run.ID] = configSnapshot
+			output := configSnapshot.Agent.effectivePolicy().Output
+			run.Output = &output
+			if output.Thinking {
+				run.Thinking = thinking
+			}
+			result.Runs = append(result.Runs, run)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
 			return result, err
 		}
-		configs[run.ID] = configSnapshot
-		output := configSnapshot.Agent.effectivePolicy().Output
-		run.Output = &output
-		if output.Thinking {
-			run.Thinking = thinking
-		}
-		result.Runs = append(result.Runs, run)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return result, err
 	}
 	// Channel history names the sender of every user message, including shared
 	// groups where one conversation holds several participants.
-	if result.Conversation.ChannelID != "" {
+	if result.Conversation.ChannelID != "" && len(result.Messages) > 0 {
 		senders := map[string]string{}
 		rows, err = s.store.db.Query("SELECT run_id,member FROM channel_inbox WHERE conversation_id=? AND run_id<>''", conversationID)
 		if err != nil {
@@ -202,51 +371,62 @@ func (s *Server) snapshot(conversationID string) (Snapshot, error) {
 			}
 		}
 	}
-	rows, err = s.store.db.Query("SELECT t.run_id,t.call_id,t.name,t.status FROM tool_calls t JOIN runs r ON r.id=t.run_id WHERE r.conversation_id=? ORDER BY t.rowid", conversationID)
-	if err != nil {
-		return result, err
-	}
-	runIndex := map[string]int{}
-	for i, run := range result.Runs {
-		runIndex[run.ID] = i
-	}
-	for rows.Next() {
-		var runID string
-		var tool ToolCall
-		if err := rows.Scan(&runID, &tool.ID, &tool.Name, &tool.Status); err != nil {
-			rows.Close()
+	if len(runIDs) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(runIDs)), ",")
+		args := make([]any, 0, len(runIDs))
+		for _, runID := range runIDs {
+			args = append(args, runID)
+		}
+		rows, err = s.store.db.Query("SELECT t.run_id,t.call_id,t.name,t.status FROM tool_calls t WHERE t.run_id IN ("+placeholders+") ORDER BY t.rowid", args...)
+		if err != nil {
 			return result, err
 		}
-		i := runIndex[runID]
-		tool.DisplayName = toolDisplayName(configs[runID], tool.Name)
-		if result.Runs[i].Output.Tools != "hidden" {
-			result.Runs[i].Tools = append(result.Runs[i].Tools, tool)
+		runIndex := map[string]int{}
+		for i, run := range result.Runs {
+			runIndex[run.ID] = i
 		}
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return result, err
-	}
-	rows, err = s.store.db.Query("SELECT s.run_id,s.reference FROM run_sources s JOIN runs r ON r.id=s.run_id WHERE r.conversation_id=? ORDER BY s.rowid", conversationID)
-	if err != nil {
-		return result, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var source RunSource
-		var raw string
-		if err := rows.Scan(&source.RunID, &raw); err != nil {
+		for rows.Next() {
+			var runID string
+			var tool ToolCall
+			if err := rows.Scan(&runID, &tool.ID, &tool.Name, &tool.Status); err != nil {
+				rows.Close()
+				return result, err
+			}
+			i, ok := runIndex[runID]
+			if !ok {
+				continue
+			}
+			tool.DisplayName = toolDisplayName(configs[runID], tool.Name)
+			if result.Runs[i].Output.Tools != "hidden" {
+				result.Runs[i].Tools = append(result.Runs[i].Tools, tool)
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
 			return result, err
 		}
-		if err := json.Unmarshal([]byte(raw), &source.Hit); err != nil {
+		rows, err = s.store.db.Query("SELECT s.run_id,s.reference FROM run_sources s WHERE s.run_id IN ("+placeholders+") ORDER BY s.rowid", args...)
+		if err != nil {
 			return result, err
 		}
-		if i, ok := runIndex[source.RunID]; ok && result.Runs[i].Output.Sources {
-			result.Sources = append(result.Sources, source)
+		defer rows.Close()
+		for rows.Next() {
+			var source RunSource
+			var raw string
+			if err := rows.Scan(&source.RunID, &raw); err != nil {
+				return result, err
+			}
+			if err := json.Unmarshal([]byte(raw), &source.Hit); err != nil {
+				return result, err
+			}
+			if i, ok := runIndex[source.RunID]; ok && result.Runs[i].Output.Sources {
+				result.Sources = append(result.Sources, source)
+			}
 		}
+		return result, rows.Err()
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
 // runEvidence lists the claim-to-source map for one run.
@@ -273,8 +453,28 @@ func (s *Server) runEvidence(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getConversation(w http.ResponseWriter, r *http.Request) {
+	// before/limit page the detail view: the newest page first, then earlier
+	// pages as the reader scrolls up.
+	var before int64
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			fail(w, 400, "分页游标无效。")
+			return
+		}
+		before = parsed
+	}
+	limit := detailMessageLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 200 {
+			fail(w, 400, "每页消息数须为 1–200。")
+			return
+		}
+		limit = parsed
+	}
 	s.mu.Lock()
-	snapshot, err := s.snapshot(r.PathValue("id"))
+	snapshot, err := s.snapshotPage(r.PathValue("id"), before, limit)
 	s.mu.Unlock()
 	if err == sql.ErrNoRows {
 		fail(w, 404, "对话不存在，请从列表选择已有对话。")
@@ -604,7 +804,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	snapshot, err := s.snapshot(r.PathValue("id"))
+	snapshot, err := s.snapshotPage(r.PathValue("id"), 0, detailMessageLimit)
 	s.mu.Unlock()
 	if err == sql.ErrNoRows {
 		fail(w, 404, "对话不存在。")
@@ -650,7 +850,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.mu.Lock()
-			snapshot, err = s.snapshot(r.PathValue("id"))
+			snapshot, err = s.snapshotPage(r.PathValue("id"), 0, detailMessageLimit)
 			s.mu.Unlock()
 			if err != nil {
 				return

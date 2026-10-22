@@ -400,6 +400,17 @@ function App() {
       setLoading(false);
     }
   }
+  // refreshConversations keeps the sidebar current without a page reload. It is
+  // intentionally silent: a transient failure must not replace the list with an
+  // error while the user is reading.
+  async function refreshConversations() {
+    try {
+      const list = await api<Conversation[]>("/conversations");
+      setConversations(list);
+    } catch {
+      // The next tick retries; the existing list stays usable.
+    }
+  }
   useEffect(() => {
     const expired = () => {
       void refreshAuth().catch(() => {});
@@ -442,6 +453,16 @@ function App() {
       clearInterval(timer);
     };
   }, []);
+  // The sidebar polls, because channel messages arrive from outside this tab.
+  // Five seconds is short enough to notice a new member question and long enough
+  // to stay cheap; the open conversation also refreshes on its own SSE stream.
+  useEffect(() => {
+    if (!auth?.authenticated) return;
+    const timer = window.setInterval(() => {
+      void refreshConversations();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [auth?.authenticated]);
   useEffect(() => {
     setSnapshot(null);
     setConnectionLost(false);
@@ -981,6 +1002,7 @@ function App() {
               uploading={uploading}
               onUpload={uploadFiles}
               onRemoveAttachment={removeAttachment}
+              onLabelsChanged={() => void refreshConversations()}
             />
           ) : loading ? (
             <div className="empty-view" role="status">

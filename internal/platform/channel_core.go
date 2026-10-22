@@ -82,13 +82,23 @@ func (s *Server) channelDiagnostics(w http.ResponseWriter, r *http.Request) {
 			internal(w)
 			return
 		}
-		inbox = append(inbox, map[string]any{"id": id, "msg_id": msg, "member": member, "agent_id": agent, "state": state, "error": reason, "run_id": run, "conversation_id": conversation, "created": created, "preview": preview})
+		who := sessionParticipants(member)
+		inbox = append(inbox, map[string]any{"id": id, "msg_id": msg, "member": member, "agent_id": agent, "state": state, "error": reason, "run_id": run, "conversation_id": conversation, "created": created, "preview": preview, "chat_kind": who.kind, "group_id": who.group, "sender_id": who.sender})
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
 		internal(w)
 		return
+	}
+	// Labels load after the result set closes: the store has one connection.
+	labels := s.channelLabelMap(r.PathValue("channel"))
+	for _, record := range inbox {
+		kind, _ := record["chat_kind"].(string)
+		if kind == "group" {
+			record["group_name"] = labels["group\x1f"+record["group_id"].(string)]
+		}
+		record["sender_name"] = labels["sender\x1f"+record["sender_id"].(string)]
 	}
 	rows, err = s.store.db.Query("SELECT id,inbox_id,member,kind,part,total,state,attempts,code,error,created FROM channel_outbox WHERE channel_id=? ORDER BY created DESC,rowid DESC LIMIT 100", r.PathValue("channel"))
 	if err != nil {

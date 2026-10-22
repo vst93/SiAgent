@@ -2,7 +2,7 @@ import type { AgentPolicy } from "./agent-policy";
 import { ToolCallDetails } from "./capabilities";
 import { Icon } from "./icons";
 import { MessageMarkdown } from "./message-markdown";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Agent, Model } from "./agents";
 import type { KnowledgeHit } from "./knowledge";
 import { ConversationMaintenance, RunDiagnostics } from "./runtime-controls";
@@ -16,7 +16,29 @@ export type Conversation = {
   channel_kind?: string;
   channel_sender?: string;
   channel_group?: string;
+  channel_name?: string;
+  group_name?: string;
+  sender_name?: string;
+  last_activity: number;
+  turn_count: number;
 };
+
+// conversationGroupKey identifies who a conversation belongs to. The WeCom
+// protocol returns opaque IDs only, so a group is the channel plus the group ID
+// (or the member ID for a private chat).
+export function conversationGroupKey(item: Conversation) {
+  if (!item.channel_id) return "web";
+  if (item.channel_kind === "group")
+    return `${item.channel_id}\u001fgroup\u001f${item.channel_group ?? ""}`;
+  return `${item.channel_id}\u001fmember\u001f${item.channel_sender ?? ""}`;
+}
+
+// contactTarget is the vendor ID a label is stored against.
+export function contactTarget(item: Conversation) {
+  return item.channel_kind === "group"
+    ? item.channel_group ?? ""
+    : item.channel_sender ?? "";
+}
 function channelKind(conversation?: Conversation) {
   if (conversation?.channel_kind === "group") return "群聊";
   if (conversation?.channel_kind === "single") return "私聊";
@@ -57,10 +79,64 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 function channelBadge(conversation: Conversation) {
-  if (conversation.channel_kind === "single" && conversation.channel_sender)
-    return `私聊 · ${conversation.channel_sender}`;
-  if (conversation.channel_kind === "group") return "群聊";
+  if (conversation.channel_kind === "group")
+    return `群聊 · ${conversation.group_name || conversation.channel_group || "未命名群"}`;
+  if (conversation.channel_kind === "single")
+    return `私聊 · ${conversation.sender_name || conversation.channel_sender || "未命名成员"}`;
   return "渠道";
+}
+
+// conversationGroups collects conversations by who they belong to: one entry per
+// group or member, each holding its sessions newest first. Web conversations
+// form their own group because they belong to the administrator.
+export type ConversationGroup = {
+  key: string;
+  label: string;
+  detail: string;
+  kind: "web" | "group" | "member";
+  channelID?: string;
+  target?: string;
+  sessions: Conversation[];
+  lastActivity: number;
+};
+
+export function conversationGroups(
+  conversations: Conversation[],
+): ConversationGroup[] {
+  const groups = new Map<string, ConversationGroup>();
+  for (const item of conversations) {
+    const key = conversationGroupKey(item);
+    let group = groups.get(key);
+    if (!group) {
+      const isWeb = !item.channel_id;
+      const target = isWeb ? undefined : contactTarget(item);
+      const named = item.channel_kind === "group" ? item.group_name : item.sender_name;
+      group = {
+        key,
+        kind: isWeb ? "web" : item.channel_kind === "group" ? "group" : "member",
+        channelID: item.channel_id,
+        target,
+        label: isWeb
+          ? "本机对话"
+          : named ||
+            (item.channel_kind === "group"
+              ? item.channel_group || "未命名群"
+              : item.channel_sender || "未命名成员"),
+        detail: isWeb ? "管理员在 Web 中发起" : item.channel_name || "渠道",
+        sessions: [],
+        lastActivity: 0,
+      };
+      groups.set(key, group);
+    }
+    group.sessions.push(item);
+    group.lastActivity = Math.max(group.lastActivity, item.last_activity || item.created);
+  }
+  for (const group of groups.values()) {
+    group.sessions.sort(
+      (a, b) => (b.last_activity || b.created) - (a.last_activity || a.created),
+    );
+  }
+  return [...groups.values()].sort((a, b) => b.lastActivity - a.lastActivity);
 }
 export type Run = {
   output?: AgentPolicy["output"];
@@ -80,19 +156,23 @@ export type Attachment = {
   kind: "image" | "file";
   size: number;
 };
+export type Message = {
+  id: number;
+  run_id: string;
+  role: string;
+  content: string;
+  created: number;
+  sender?: string;
+  attachments?: Attachment[];
+};
+
 export type Snapshot = {
   sources: (KnowledgeHit & { run_id: string })[];
   conversation: Conversation;
-  messages: {
-    id: number;
-    run_id: string;
-    role: string;
-    content: string;
-    created: number;
-    sender?: string;
-    attachments?: Attachment[];
-  }[];
+  messages: Message[];
   runs: Run[];
+  has_more?: boolean;
+  oldest_id?: number;
 };
 function RunEvidence({ request, runID }: { request: Api; runID: string }) {
   const [rows, setRows] = useState<
@@ -185,6 +265,7 @@ export function ChatWorkspace({
   uploading,
   onUpload,
   onRemoveAttachment,
+  onLabelsChanged,
 }: {
   agent: Agent | null;
   model: Model | null;
@@ -212,6 +293,7 @@ export function ChatWorkspace({
   uploading: boolean;
   onUpload: (files: FileList) => Promise<void>;
   onRemoveAttachment: (id: string) => void;
+  onLabelsChanged: () => void;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyCollapsed, setHistoryCollapsed] = useState(() => {
@@ -251,6 +333,20 @@ export function ChatWorkspace({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const nearBottom = useRef(true);
+  // Earlier pages are merged into the live snapshot. The SSE stream only carries
+  // the newest page, so a reader who scrolls up accumulates history here instead
+  // of forcing the server to resend everything on every tick.
+  const [older, setOlder] = useState<{
+    messages: Message[];
+    runs: Run[];
+    sources: Snapshot["sources"];
+    hasMore: boolean;
+  }>({ messages: [], runs: [], sources: [], hasMore: false });
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [labelEditing, setLabelEditing] = useState("");
+  const [labelValue, setLabelValue] = useState("");
+  const [labelSaving, setLabelSaving] = useState(false);
+  const [labelError, setLabelError] = useState("");
   const [copied, setCopied] = useState("");
   const [copyFailed, setCopyFailed] = useState("");
   const copyReset = useRef<number | undefined>(undefined);
@@ -286,6 +382,60 @@ export function ChatWorkspace({
     }
     return lines.join("\n");
   }
+  // A new conversation starts with an empty history buffer.
+  useEffect(() => {
+    setOlder({ messages: [], runs: [], sources: [], hasMore: false });
+    setLabelEditing("");
+    setLabelError("");
+  }, [selected]);
+  const merged = useMemo(() => {
+    const messages = new Map<number, Message>();
+    for (const message of older.messages) messages.set(message.id, message);
+    for (const message of snapshot?.messages ?? []) messages.set(message.id, message);
+    const runs = new Map<string, Run>();
+    for (const run of older.runs) runs.set(run.id, run);
+    for (const run of snapshot?.runs ?? []) runs.set(run.id, run);
+    const sources = [...older.sources, ...(snapshot?.sources ?? [])];
+    return {
+      messages: [...messages.values()].sort((a, b) => a.id - b.id),
+      runs: [...runs.values()],
+      sources,
+    };
+  }, [older, snapshot]);
+  // hasMore is true while the server has messages older than everything loaded.
+  const hasMore = older.hasMore || Boolean(snapshot?.has_more);
+  async function loadOlder() {
+    if (!snapshot || loadingOlder) return;
+    const oldest = merged.messages[0]?.id ?? snapshot.oldest_id;
+    if (!oldest) return;
+    setLoadingOlder(true);
+    try {
+      const page = await request<Snapshot>(
+        `/conversations/${encodeURIComponent(snapshot.conversation.id)}?before=${oldest}&limit=40`,
+      );
+      const element = scrollRef.current;
+      const previousHeight = element?.scrollHeight ?? 0;
+      setOlder((current) => ({
+        messages: [...page.messages, ...current.messages],
+        runs: [...page.runs, ...current.runs],
+        sources: [...page.sources, ...current.sources],
+        hasMore: Boolean(page.has_more),
+      }));
+      // Keep the reading position: the prepended page must not jump the view.
+      requestAnimationFrame(() => {
+        if (!element) return;
+        element.scrollTop += element.scrollHeight - previousHeight;
+      });
+    } catch (error) {
+      setCopyFailed(error instanceof Error ? error.message : "更早的消息加载失败。");
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
+  const groups = useMemo(
+    () => conversationGroups(conversations),
+    [conversations],
+  );
   const conversation =
     snapshot?.conversation ?? conversations.find((item) => item.id === selected);
   const channelConversation = Boolean(conversation?.channel_id);
@@ -449,30 +599,125 @@ export function ChatWorkspace({
           <span>{conversations.length}</span>
         </div>
         <nav aria-label="对话记录" className="conversation-list">
-          {conversations.map((item) => (
-            <button
-              className={
-                selected === item.id ? "conversation selected" : "conversation"
-              }
-              aria-current={selected === item.id ? "page" : undefined}
-              key={item.id}
-              title={item.title}
-              onClick={() => {
-                selectConversation(item.id);
-                setHistoryOpen(false);
-              }}
-            >
-              <Icon name="chat" size={16} className="chat-glyph" />
-              <span>{item.title}</span>
-              {item.channel_id && (
-                <small
-                  className={`channel-tag ${item.channel_kind === "group" ? "group" : ""}`}
-                  title={channelLabel(item)}
+          {groups.map((group) => (
+            <section className="conversation-group" key={group.key}>
+              <header className="conversation-group-head">
+                <Icon
+                  name={group.kind === "group" ? "users" : group.kind === "member" ? "user" : "chat"}
+                  size={14}
+                  className="chat-glyph"
+                />
+                <span className="conversation-group-label" title={group.label}>
+                  {group.label}
+                </span>
+                <small>{group.sessions.length} 个会话</small>
+                {group.channelID && group.target && (
+                  <button
+                    type="button"
+                    className="conversation-group-rename"
+                    title={group.label}
+                    aria-label={`标记 ${group.label} 的名称`}
+                    onClick={() => {
+                      setLabelError("");
+                      setLabelEditing(group.key);
+                      setLabelValue(
+                        group.kind === "web" || group.label.startsWith("未命名")
+                          ? ""
+                          : group.label,
+                      );
+                    }}
+                  >
+                    <Icon name="edit" size={14} />
+                  </button>
+                )}
+              </header>
+              {labelEditing === group.key && group.channelID && group.target && (
+                <form
+                  className="conversation-group-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!group.channelID || !group.target || labelSaving) return;
+                    setLabelSaving(true);
+                    setLabelError("");
+                    void request("/channel-contacts", "PUT", {
+                      channel_id: group.channelID,
+                      kind: group.kind === "group" ? "group" : "sender",
+                      target: group.target,
+                      name: labelValue.trim(),
+                    })
+                      .then(() => {
+                        setLabelEditing("");
+                        onLabelsChanged();
+                      })
+                      .catch((error) =>
+                        setLabelError(
+                          error instanceof Error ? error.message : "标记失败。",
+                        ),
+                      )
+                      .finally(() => setLabelSaving(false));
+                  }}
                 >
-                  {channelBadge(item)}
-                </small>
+                  <input
+                    autoFocus
+                    aria-label="群或成员名称"
+                    placeholder="例如：产品讨论群 / 张三"
+                    maxLength={64}
+                    value={labelValue}
+                    onChange={(event) => setLabelValue(event.target.value)}
+                  />
+                  <button type="submit" disabled={labelSaving}>
+                    保存
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLabelEditing("");
+                      setLabelError("");
+                    }}
+                  >
+                    取消
+                  </button>
+                  {labelError && <p className="error">{labelError}</p>}
+                  <small>
+                    企微长连接只提供 ID，不提供群名或用户名；这里设置的名称会用于该群或成员的所有会话。
+                  </small>
+                </form>
               )}
-            </button>
+              {group.sessions.map((item, index) => (
+                <div key={item.id}>
+                  {index > 0 && (
+                    <hr className="conversation-divider" aria-hidden="true" />
+                  )}
+                  <button
+                    className={
+                      selected === item.id
+                        ? "conversation selected"
+                        : "conversation"
+                    }
+                    aria-current={selected === item.id ? "page" : undefined}
+                    title={item.title}
+                    onClick={() => {
+                      selectConversation(item.id);
+                      setHistoryOpen(false);
+                    }}
+                  >
+                    <Icon name="chat" size={16} className="chat-glyph" />
+                    <span>{item.title}</span>
+                    <small className="conversation-meta">
+                      {item.turn_count} 问
+                      {item.channel_id && (
+                        <span
+                          className={`channel-tag ${item.channel_kind === "group" ? "group" : ""}`}
+                          title={channelLabel(item)}
+                        >
+                          {channelBadge(item)}
+                        </span>
+                      )}
+                    </small>
+                  </button>
+                </div>
+              ))}
+            </section>
           ))}
           {!conversations.length && (
             <p className="nav-empty">开始对话后，记录会保存在这里。</p>
@@ -546,9 +791,10 @@ export function ChatWorkspace({
                   element.clientHeight;
                 nearBottom.current = distance < 100;
                 setShowJump(distance > 240);
+                if (element.scrollTop < 80 && hasMore) void loadOlder();
               }}
             >
-              {!snapshot?.messages.length ? (
+              {!merged.messages.length ? (
                 <div className="empty-view chat-empty">
                   <span className="assistant-symbol" aria-hidden="true">
                     S·
@@ -587,9 +833,20 @@ export function ChatWorkspace({
                 </div>
               ) : (
                 <div className="messages">
-                  {snapshot.messages.map((message) => {
+                  {hasMore && (
+                    <div className="load-older">
+                      <button
+                        type="button"
+                        disabled={loadingOlder}
+                        onClick={() => void loadOlder()}
+                      >
+                        {loadingOlder ? "正在加载更早的消息…" : "加载更早的消息"}
+                      </button>
+                    </div>
+                  )}
+                  {merged.messages.map((message) => {
                     const messageTime = new Date(message.created);
-                    const run = snapshot.runs.find(
+                    const run = merged.runs.find(
                       (run) => run.id === message.run_id,
                     );
                     return (
@@ -740,7 +997,7 @@ export function ChatWorkspace({
                             />
                           </div>
                           {message.role === "assistant" &&
-                            (snapshot.sources ?? []).some(
+                            merged.sources.some(
                               (source) => source.run_id === message.run_id,
                             ) && (
                               <nav
@@ -748,7 +1005,7 @@ export function ChatWorkspace({
                                 aria-label="本轮检索来源"
                               >
                                 <strong>本轮检索来源</strong>
-                                {(snapshot.sources ?? [])
+                                {merged.sources
                                   .filter(
                                     (source) =>
                                       source.run_id === message.run_id,
