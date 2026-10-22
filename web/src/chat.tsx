@@ -133,7 +133,10 @@ async function copyText(text: string): Promise<boolean> {
 // item can never fall out of the list.
 export type ContactEntry = {
   key: string;
-  kind: "group" | "member" | "web";
+  // "group" is a shared group, "group-member" is one member inside a group, and
+  // "private" is a direct chat. Keeping the last two apart is what places a
+  // per-member group conversation under 群聊 instead of 私聊.
+  kind: "group" | "group-member" | "private" | "web";
   label: string;
   sublabel: string;
   channelID?: string;
@@ -154,7 +157,7 @@ export type ContactList = {
 
 function contactOf(item: Conversation): {
   key: string;
-  kind: "group" | "member";
+  kind: "group" | "group-member" | "private";
   label: string;
   sublabel: string;
   scope?: "group" | "member";
@@ -162,7 +165,7 @@ function contactOf(item: Conversation): {
   if (item.channel_kind !== "group") {
     return {
       key: `${item.channel_id}\u001fsingle\u001f${item.channel_sender ?? ""}`,
-      kind: "member",
+      kind: "private",
       label: item.sender_name || item.channel_sender || "未命名成员",
       sublabel: "私聊",
     };
@@ -179,7 +182,7 @@ function contactOf(item: Conversation): {
   }
   return {
     key: `${item.channel_id}\u001fmember\u001f${item.channel_group ?? ""}\u001f${item.channel_sender ?? ""}`,
-    kind: "member",
+    kind: "group-member",
     label: item.sender_name || item.channel_sender || "未命名成员",
     sublabel: groupName,
     scope: "member",
@@ -238,8 +241,12 @@ export function conversationContacts(conversations: Conversation[]): ContactList
   const byActivity = (a: ContactEntry, b: ContactEntry) =>
     b.lastActivity - a.lastActivity;
   return {
-    group: entries.filter((value) => value.kind === "group").sort(byActivity),
-    single: entries.filter((value) => value.kind === "member").sort(byActivity),
+    // 群聊 holds both the shared group and each member inside a group; 私聊 only
+    // holds direct chats.
+    group: entries
+      .filter((value) => value.kind === "group" || value.kind === "group-member")
+      .sort(byActivity),
+    single: entries.filter((value) => value.kind === "private").sort(byActivity),
     web,
   };
 }
