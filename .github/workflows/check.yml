@@ -5,7 +5,11 @@ permissions:
 jobs:
   local-and-container:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # The job builds the container image and then runs the container acceptance,
+    # which together took 22-25 minutes on a runner. At 25 the job was cancelled
+    # right after the acceptance had already passed, so the ceiling now leaves
+    # room for that variance instead of turning a pass into a red build.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
