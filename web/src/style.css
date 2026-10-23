@@ -517,14 +517,6 @@ textarea {
 .tree-row:hover {
   background: var(--surface);
 }
-/* The branch that holds the open conversation is marked all the way up, so the
-   reader can see where they are even when the panel is scrolled. */
-.tree-row.is-active {
-  box-shadow: inset 2px 0 0 var(--teal);
-}
-.tree-row.is-active .tree-label {
-  color: var(--teal-strong);
-}
 .tree-toggle {
   display: flex;
   align-items: center;
@@ -636,7 +628,9 @@ textarea {
   background: var(--teal-soft);
   color: var(--teal-strong);
   font-weight: 500;
-  box-shadow: inset 2px 0 0 var(--teal);
+  /* No accent bar here: the session rows already sit against a rail, so a second
+     vertical line on the selected row reads as noise rather than emphasis. */
+  box-shadow: none;
 }
 .tree-sessions .conversation .conversation-title {
   color: inherit;

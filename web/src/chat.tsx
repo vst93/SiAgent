@@ -892,14 +892,9 @@ const [search, setSearch] = useState("");
       const open = searching || expandedKeys.has(node.key);
       const hasDeeper = Boolean(node.children?.length || node.sessions?.length);
       const rename = node.rename;
-      const active = path.includes(node.key);
       return (
         <div className={`tree-node depth-${depth}`} key={node.key}>
-          <div
-            className={`tree-row ${open ? "is-open" : ""} ${
-              active ? "is-active" : ""
-            }`}
-          >
+          <div className={`tree-row ${open ? "is-open" : ""}`}>
             <button
               type="button"
               className="tree-toggle"
