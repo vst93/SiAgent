@@ -47,12 +47,33 @@ func skillZIP(t *testing.T, directory string) []byte {
 	}
 	return output.Bytes()
 }
+func skillFilesZIP(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	root := t.TempDir()
+	for name, data := range files {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return skillZIP(t, root)
+}
 func (f *fixture) skillUpload(t *testing.T, name string, data []byte, trusted bool) *httptest.ResponseRecorder {
+	t.Helper()
+	return f.skillUploadWithOverwrite(t, name, data, trusted, false)
+}
+func (f *fixture) skillUploadWithOverwrite(t *testing.T, name string, data []byte, trusted, overwrite bool) *httptest.ResponseRecorder {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	if trusted {
 		writer.WriteField("trusted", "true")
+	}
+	if overwrite {
+		writer.WriteField("overwrite", "true")
 	}
 	file, err := writer.CreateFormFile("file", name)
 	if err != nil {
@@ -115,7 +136,8 @@ func TestSkillUploadPackageAndFolderAreManagedWithoutAutoGrant(t *testing.T) {
 	var folder bytes.Buffer
 	multipartWriter := multipart.NewWriter(&folder)
 	multipartWriter.WriteField("trusted", "true")
-	for name, data := range map[string][]byte{"SKILL.md": content, "references/guide.md": []byte("folder reference")} {
+	folderContent := []byte("---\nname: folder-skill\ndescription: Folder uploaded instructions.\n---\nFolder body.\n")
+	for name, data := range map[string][]byte{"SKILL.md": folderContent, "references/guide.md": []byte("folder reference")} {
 		part, _ := multipartWriter.CreateFormFile("files", name)
 		part.Write(data)
 	}
@@ -131,7 +153,19 @@ func TestSkillUploadPackageAndFolderAreManagedWithoutAutoGrant(t *testing.T) {
 	if err != nil || len(entries) != 0 {
 		t.Fatal("upload staging left behind", err)
 	}
-	requireStatus(t, f.skillUpload(t, "SKILL.md", content, true), 201)
+	// Same declared name requires an explicit overwrite.
+	requireStatus(t, f.skillUpload(t, "SKILL.md", content, true), 400)
+	response = f.skillUploadWithOverwrite(t, "SKILL.md", content, true, true)
+	requireStatus(t, response, 200)
+	var replaced Skill
+	json.Unmarshal(response.Body.Bytes(), &replaced)
+	if replaced.ID != installed.ID {
+		t.Fatal("overwrite did not keep the installed skill id", replaced)
+	}
+	bindings, err = f.store.bindings("default")
+	if err != nil || len(bindings.Skills) != 1 || bindings.Skills[0] != installed.ID {
+		t.Fatal("overwrite dropped Agent bindings", bindings, err)
+	}
 	requireStatus(t, f.skillUpload(t, "SKILL.md", content, false), 400)
 	requireStatus(t, f.request(t, "POST", "/api/skills/import", map[string]any{"directory": f.directory, "trusted": true}, true, nil), 400)
 }
@@ -261,4 +295,87 @@ func TestSkillFileCanBeEditedAndMetadataUpdated(t *testing.T) {
 		t.Fatal("file content not updated", err)
 	}
 	requireStatus(t, f.request(t, "PUT", "/api/skills/"+skill.ID+"/files/missing.md", map[string]string{"content": "x"}, true, nil), 404)
+}
+
+func TestSkillExportSingleAndBundleRoundTrip(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	first := "---\nname: export-one\ndescription: First exported skill.\n---\nOne.\n"
+	second := "---\nname: export-two\ndescription: Second exported skill.\n---\nTwo.\n"
+	response := f.skillUpload(t, "one.zip", skillFilesZIP(t, map[string]string{"SKILL.md": first, "references/note.md": "note"}), true)
+	requireStatus(t, response, 201)
+	var firstSkill Skill
+	if err := json.Unmarshal(response.Body.Bytes(), &firstSkill); err != nil {
+		t.Fatal(err)
+	}
+	response = f.skillUpload(t, "two.zip", skillFilesZIP(t, map[string]string{"SKILL.md": second}), true)
+	requireStatus(t, response, 201)
+	var secondSkill Skill
+	if err := json.Unmarshal(response.Body.Bytes(), &secondSkill); err != nil {
+		t.Fatal(err)
+	}
+	archiveNames := func(response *httptest.ResponseRecorder) map[string]string {
+		t.Helper()
+		reader, err := zip.NewReader(bytes.NewReader(response.Body.Bytes()), int64(response.Body.Len()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := map[string]string{}
+		for _, entry := range reader.File {
+			file, err := entry.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := io.ReadAll(file)
+			file.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			names[entry.Name] = string(data)
+		}
+		return names
+	}
+	response = f.request(t, "GET", "/api/skills/"+firstSkill.ID+"/export", nil, true, nil)
+	requireStatus(t, response, 200)
+	if response.Header().Get("Content-Type") != "application/zip" || !strings.Contains(response.Header().Get("Content-Disposition"), "export-one.zip") {
+		t.Fatal("single export headers are incorrect", response.Header())
+	}
+	single := archiveNames(response)
+	if single["SKILL.md"] != first || single["references/note.md"] != "note" {
+		t.Fatalf("single export is incomplete: %+v", single)
+	}
+	response = f.request(t, "GET", "/api/skills/export", nil, true, nil)
+	requireStatus(t, response, 200)
+	bundle := archiveNames(response)
+	if bundle["export-one/SKILL.md"] != first || bundle["export-one/references/note.md"] != "note" || bundle["export-two/SKILL.md"] != second {
+		t.Fatalf("bundle export is incomplete: %+v", bundle)
+	}
+	// Exporting the whole library produces a package that can be restored with
+	// overwrite while keeping every installed skill ID and Agent binding.
+	response = f.skillUploadWithOverwrite(t, "library.zip", f.request(t, "GET", "/api/skills/export", nil, true, nil).Body.Bytes(), true, true)
+	requireStatus(t, response, 200)
+	var restored struct {
+		Skills   []Skill `json:"skills"`
+		Replaced int     `json:"replaced"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &restored); err != nil {
+		t.Fatal(err)
+	}
+	if len(restored.Skills) != 2 || restored.Replaced != 2 {
+		t.Fatalf("bundle restore did not overwrite both skills: %+v", restored)
+	}
+	ids := map[string]string{}
+	for _, skill := range restored.Skills {
+		ids[skill.Name] = skill.ID
+	}
+	if ids["export-one"] != firstSkill.ID || ids["export-two"] != secondSkill.ID {
+		t.Fatal("bundle restore changed skill IDs", ids)
+	}
+	response = f.request(t, "GET", "/api/skills", nil, true, nil)
+	requireStatus(t, response, 200)
+	var installed []Skill
+	json.Unmarshal(response.Body.Bytes(), &installed)
+	if len(installed) != 2 {
+		t.Fatal("bundle restore duplicated skills", installed)
+	}
 }

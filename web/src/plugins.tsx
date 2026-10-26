@@ -10,6 +10,7 @@ import { CapabilitySettings, type Skill } from "./capabilities";
 import { MessageMarkdown } from "./message-markdown";
 import { LinkedAgents } from "./linked-agents";
 import { KnowledgeDialog as SettingsDialog } from "./knowledge-dialog";
+import { appURL } from "./urls";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 const errorText = (error: unknown) =>
@@ -20,6 +21,38 @@ const size = (bytes: number) =>
     : bytes >= 1048576
       ? `${(bytes / 1048576).toFixed(1)} MiB`
       : `${(bytes / 1024).toFixed(1)} KiB`;
+
+// Downloads are authenticated by the session cookie; the response is streamed
+// as a ZIP, so it cannot go through the JSON request helper.
+async function downloadArchive(path: string, fallback: string) {
+  const response = await fetch(appURL(`/api${path}`));
+  if (!response.ok) {
+    if (response.status === 401)
+      window.dispatchEvent(new Event("siagent:session-expired"));
+    let message = "导出未完成，请稍后重试。";
+    try {
+      const data = (await response.json()) as { error?: string };
+      if (data.error) message = data.error;
+    } catch {
+      // Keep the generic message for non-JSON failures.
+    }
+    throw new Error(message);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+  const plain = /filename="([^"]+)"/i.exec(disposition)?.[1];
+  const filename = encoded
+    ? decodeURIComponent(encoded)
+    : (plain ?? fallback);
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 export function PluginsWorkspace({ request }: { request: Api }) {
   const [tab, setTab] = useState<"skills" | "mcp">("skills");
@@ -95,6 +128,7 @@ export function PluginsWorkspace({ request }: { request: Api }) {
 }
 
 type UploadFile = { file: File; path: string };
+type UploadResult = Skill | { skills: Skill[]; replaced: number };
 function SkillUpload({
   request,
   onClose,
@@ -102,11 +136,12 @@ function SkillUpload({
 }: {
   request: Api;
   onClose: () => void;
-  onUploaded: (skill: Skill) => void;
+  onUploaded: (skills: Skill[]) => void;
 }) {
   const [mode, setMode] = useState<"package" | "folder">("package");
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [trusted, setTrusted] = useState(false);
+  const [overwrite, setOverwrite] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const bytes = files.reduce((sum, item) => sum + item.file.size, 0);
@@ -130,32 +165,49 @@ function SkillUpload({
     event.preventDefault();
     setError("");
     if (!files.length) return;
+    // A folder may hold one skill or a bundle of top-level skill folders.
+    const singleSkill = files.some((item) => item.path === "SKILL.md");
+    const overLimit = singleSkill
+      ? files.length > 200 || bytes > 8 * 1048576
+      : files.length > 2000 || bytes > 80 * 1048576;
     if (
       mode === "folder" &&
-      (files.length > 200 ||
-        bytes > 8 * 1048576 ||
-        files.some((item) => item.file.size > 2 * 1048576))
+      (overLimit || files.some((item) => item.file.size > 2 * 1048576))
     ) {
       setError(
-        "文件夹最多 200 个文件，单文件 2 MiB、总计 8 MiB，请整理后重新选择。",
+        singleSkill
+          ? "单个技能最多 200 个文件，单文件 2 MiB、总计 8 MiB，请整理后重新选择。"
+          : "技能包集合最多 2000 个文件，单文件 2 MiB、总计 80 MiB，请整理后重新选择。",
       );
       return;
     }
-    if (mode === "folder" && !files.some((item) => item.path === "SKILL.md")) {
-      setError("请选择根部包含 SKILL.md 的技能文件夹。");
-      return;
+    if (mode === "folder" && !singleSkill) {
+      const topLevel = new Set(
+        files.map((item) => item.path.split("/")[0]).filter(Boolean),
+      );
+      const bundled = [...topLevel].every((folder) =>
+        files.some((item) => item.path === `${folder}/SKILL.md`),
+      );
+      if (!topLevel.size || !bundled) {
+        setError(
+          "请选择根部包含 SKILL.md 的技能文件夹，或包含多个技能文件夹的上级文件夹。",
+        );
+        return;
+      }
     }
     if (mode === "package" && bytes > 10 * 1048576) {
-      setError("技能包最多 10 MiB，解包后最多 8 MiB。");
+      setError("技能包最多 10 MiB，解包后总计最多 80 MiB。");
       return;
     }
     setPending(true);
     try {
       const body = new FormData();
       body.append("trusted", String(trusted));
+      body.append("overwrite", String(overwrite));
       for (const item of files)
         body.append(mode === "folder" ? "files" : "file", item.file, item.path);
-      onUploaded(await request<Skill>("/skills", "POST", body));
+      const result = await request<UploadResult>("/skills", "POST", body);
+      onUploaded("skills" in result ? result.skills : [result]);
     } catch (error) {
       setError(errorText(error));
     } finally {
@@ -218,7 +270,7 @@ function SkillUpload({
           )}
           <p className="muted">
             根部须有 SKILL.md；ZIP
-            也可包含单一顶层文件夹。上传后由系统管理目录，可保留
+            也可包含单一顶层文件夹或多个技能文件夹。上传后由系统管理目录，可保留
             references、scripts 等子目录。
           </p>
           <details className="skill-upload-guide">
@@ -232,10 +284,19 @@ function SkillUpload({
               }
             </pre>
             <p>
-              最多 200 个文件、400 个目录项，单文件 2 MiB、总计 8 MiB；SKILL.md
-              最多 64,000 字节。不接受符号链接或特殊文件。
+              单个技能最多 200 个文件、400 个目录项，单文件 2 MiB、总计 8 MiB；
+              多个技能打包时总计最多 80 MiB。SKILL.md 最多 64,000
+              字节。不接受符号链接或特殊文件。
             </p>
           </details>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={overwrite}
+              onChange={(event) => setOverwrite(event.target.checked)}
+            />
+            覆盖同名技能（保留原有 Agent 挂载关系）
+          </label>
           <label className="checkbox-label">
             <input
               type="checkbox"
@@ -354,11 +415,13 @@ function SkillDetail({
   request,
   skill,
   onArchive,
+  onExport,
   onUpdated,
 }: {
   request: Api;
   skill: Skill;
   onArchive: () => void;
+  onExport: () => void;
   onUpdated: (skill: Skill) => void;
 }) {
   const [path, setPath] = useState("SKILL.md");
@@ -428,6 +491,7 @@ function SkillDetail({
           </p>
         </div>
         <div className="skill-head-actions">
+          <button onClick={onExport}>导出 ZIP</button>
           <button className="danger-ghost" onClick={onArchive}>
             删除技能
           </button>
@@ -579,6 +643,8 @@ function SkillCatalog({ request }: { request: Api }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
   const [upload, setUpload] = useState(false);
   const [archiving, setArchiving] = useState<Skill | null>(null);
   const [pending, setPending] = useState(false);
@@ -633,6 +699,23 @@ function SkillCatalog({ request }: { request: Api }) {
       return sort === "recent" ? 0 : a.name.localeCompare(b.name, "zh-CN");
     });
   const current = visible.find((skill) => skill.id === selected) ?? visible[0];
+  async function exportArchive(
+    path: string,
+    fallback: string,
+    message: string,
+  ) {
+    setExporting(true);
+    setExportError("");
+    setFeedback("");
+    try {
+      await downloadArchive(path, fallback);
+      setFeedback(message);
+    } catch (error) {
+      setExportError(errorText(error));
+    } finally {
+      setExporting(false);
+    }
+  }
   return (
     <div className="skill-catalog">
       <header className="plugin-section-heading">
@@ -645,17 +728,38 @@ function SkillCatalog({ request }: { request: Api }) {
             中挂载。
           </p>
         </div>
-        <button
-          className="primary"
-          disabled={loading}
-          onClick={() => setUpload(true)}
-        >
-          <Icon name="plus" size={16} /> 上传 Skill
-        </button>
+        <div className="plugin-heading-actions">
+          <button
+            type="button"
+            disabled={loading || !skills.length || exporting}
+            onClick={() =>
+              void exportArchive(
+                "/skills/export",
+                "siagent-skills.zip",
+                "已导出全部技能。",
+              )
+            }
+          >
+            <Icon name="arrow-down" size={16} />
+            {exporting ? "正在导出…" : "导出全部"}
+          </button>
+          <button
+            className="primary"
+            disabled={loading || exporting}
+            onClick={() => setUpload(true)}
+          >
+            <Icon name="plus" size={16} /> 上传 Skill
+          </button>
+        </div>
       </header>
       {feedback && (
         <p className="success plugin-feedback" role="status">
           {feedback}
+        </p>
+      )}
+      {exportError && (
+        <p className="error plugin-feedback" role="alert">
+          {exportError}
         </p>
       )}
       {error && (
@@ -732,6 +836,13 @@ function SkillCatalog({ request }: { request: Api }) {
                 setArchiving(current);
                 setArchiveError("");
               }}
+              onExport={() =>
+                void exportArchive(
+                  `/skills/${current.id}/export`,
+                  `${current.name}.zip`,
+                  `“${current.name}”已导出。`,
+                )
+              }
               onUpdated={(updated) =>
                 setSkills((values) =>
                   values.map((value) =>
@@ -761,12 +872,36 @@ function SkillCatalog({ request }: { request: Api }) {
         <SkillUpload
           request={request}
           onClose={() => setUpload(false)}
-          onUploaded={(skill) => {
-            setSkills((values) => [skill, ...values]);
-            setSelected(skill.id);
+          onUploaded={(uploaded) => {
+            const existing = new Set(skills.map((skill) => skill.name));
+            const replaced = uploaded.filter((skill) =>
+              existing.has(skill.name),
+            ).length;
+            setSkills((values) => {
+              const next = [...values];
+              for (const skill of uploaded) {
+                const index = next.findIndex((item) => item.id === skill.id);
+                if (index >= 0) next[index] = skill;
+                else next.unshift(skill);
+              }
+              return next;
+            });
+            setSelected(uploaded[uploaded.length - 1]?.id ?? "");
             setQuery("");
             setUpload(false);
-            setFeedback(`“${skill.name}”已上传，可到 Agent 配置中挂载。`);
+            if (uploaded.length === 1 && replaced === 0) {
+              setFeedback(
+                `“${uploaded[0].name}”已上传，可到 Agent 配置中挂载。`,
+              );
+            } else if (uploaded.length === 1) {
+              setFeedback(
+                `“${uploaded[0].name}”已覆盖同名技能，原有 Agent 挂载关系保留。`,
+              );
+            } else {
+              setFeedback(
+                `已导入 ${uploaded.length} 个技能${replaced ? `，覆盖 ${replaced} 个同名技能` : ""}，可到 Agent 配置中挂载。`,
+              );
+            }
           }}
         />
       )}

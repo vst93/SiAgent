@@ -112,6 +112,12 @@ func Open(directory string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("cannot clean abandoned skill uploads")
 	}
+	// Import staging holds a fully validated copy until it replaces the target.
+	if abandoned, err := filepath.Glob(filepath.Join(absolute, ".skill-import-*")); err == nil {
+		for _, directory := range abandoned {
+			os.RemoveAll(directory)
+		}
+	}
 	return store, nil
 }
 func (s *Store) Close() error { return s.db.Close() }

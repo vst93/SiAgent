@@ -3921,10 +3921,22 @@ summary {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.plugin-section-heading > button {
+.plugin-section-heading > button,
+.plugin-heading-actions > button {
   flex-shrink: 0;
   font-size: 12px;
   padding: 7px 12px;
+}
+.plugin-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.plugin-heading-actions > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .plugin-feedback {
   font-size: 12px;
@@ -4490,9 +4502,14 @@ summary {
   .plugin-section-heading p {
     font-size: 11px;
   }
-  .plugin-section-heading > button {
+  .plugin-section-heading > button,
+  .plugin-heading-actions > button {
     font-size: 11px;
     padding: 7px 10px;
+  }
+  .plugin-heading-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
   .skill-catalog-list > input {
     font-size: 16px;

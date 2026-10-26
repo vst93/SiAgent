@@ -736,6 +736,30 @@ try {
   await page
     .getByRole("heading", { name: "disposable-skill", exact: true })
     .waitFor();
+  // Re-uploading the same name needs the explicit overwrite option.
+  await page.getByRole("button", { name: "上传 Skill", exact: false }).click();
+  await page.getByLabel("选择技能包", { exact: true }).setInputFiles({
+    name: "SKILL.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from(
+      "---\nname: disposable-skill\ndescription: Overwritten fixture.\n---\nReference only.\n",
+    ),
+  });
+  await page.getByLabel("我已确认该技能来自可信来源").check();
+  await page.getByRole("button", { name: "上传并保存", exact: true }).click();
+  await page.getByText("已存在同名技能", { exact: false }).waitFor();
+  await page
+    .getByLabel("覆盖同名技能（保留原有 Agent 挂载关系）")
+    .check();
+  await page.getByRole("button", { name: "上传并保存", exact: true }).click();
+  await page
+    .getByText("“disposable-skill”已覆盖同名技能，原有 Agent 挂载关系保留。", {
+      exact: true,
+    })
+    .waitFor();
+  await page
+    .getByRole("heading", { name: "disposable-skill", exact: true })
+    .waitFor();
   await page.getByRole("button", { name: "删除技能", exact: true }).click();
   assert.equal(
     await page.evaluate(() => document.activeElement.textContent),
@@ -767,6 +791,16 @@ try {
     .locator(".skill-file-preview pre")
     .filter({ hasText: "No dependencies" })
     .waitFor();
+  const singleDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出 ZIP", exact: true }).click();
+  assert.equal((await singleDownload).suggestedFilename(), "browser-skill.zip");
+  const libraryDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出全部", exact: true }).click();
+  assert.match(
+    (await libraryDownload).suggestedFilename(),
+    /^siagent-skills-\d{8}-\d{6}\.zip$/,
+  );
+  await page.getByText("已导出全部技能。", { exact: true }).waitFor();
   await page.screenshot({
     path: join(artifacts, "skills-desktop.png"),
     fullPage: true,

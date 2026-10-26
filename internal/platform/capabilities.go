@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"archive/zip"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -79,11 +80,10 @@ type RunCredentials struct {
 	Env map[string]string `json:"env,omitempty"`
 }
 
-func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.db.Query("SELECT config FROM skills WHERE archived=0 ORDER BY rowid")
+func (s *Store) skillValues() ([]Skill, error) {
+	rows, err := s.db.Query("SELECT config FROM skills WHERE archived=0 ORDER BY rowid")
 	if err != nil {
-		internal(w)
-		return
+		return nil, err
 	}
 	defer rows.Close()
 	skills := []Skill{}
@@ -91,35 +91,172 @@ func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {
 		var raw string
 		var skill Skill
 		if rows.Scan(&raw) != nil || json.Unmarshal([]byte(raw), &skill) != nil {
-			internal(w)
-			return
+			return nil, fmt.Errorf("技能数据无法读取。")
 		}
 		skills = append(skills, skill)
 	}
-	if rows.Err() != nil {
+	return skills, rows.Err()
+}
+
+func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {
+	skills, err := s.store.skillValues()
+	if err != nil {
 		internal(w)
 		return
 	}
 	respond(w, 200, skills)
 }
+
+// exportSkills streams a ZIP download. A single skill keeps SKILL.md at the
+// archive root; the whole library puts every skill in its own top-level folder
+// so the same archive can be uploaded again as a bundle.
+func (s *Server) exportSkills(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	skills := []Skill{}
+	if id != "" {
+		var raw string
+		var skill Skill
+		if s.store.db.QueryRow("SELECT config FROM skills WHERE id=? AND archived=0", id).Scan(&raw) != nil || json.Unmarshal([]byte(raw), &skill) != nil {
+			fail(w, 404, "技能不存在。")
+			return
+		}
+		skills = append(skills, skill)
+	} else {
+		var err error
+		skills, err = s.store.skillValues()
+		if err != nil {
+			internal(w)
+			return
+		}
+		if len(skills) == 0 {
+			fail(w, 404, "技能库为空，暂无可导出的技能。")
+			return
+		}
+	}
+	bundle := id == ""
+	name := skills[0].Name + ".zip"
+	if bundle {
+		name = "siagent-skills-" + time.Now().Format("20060102-150405") + ".zip"
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
+	w.Header().Set("Cache-Control", "no-store")
+	archive := zip.NewWriter(w)
+	defer archive.Close()
+	modified := time.Now()
+	used := map[string]int{}
+	for _, skill := range skills {
+		prefix := ""
+		if bundle {
+			folder := skill.Name
+			used[folder]++
+			if used[folder] > 1 {
+				folder = fmt.Sprintf("%s-%d", folder, used[folder])
+			}
+			prefix = folder + "/"
+		}
+		root, err := os.OpenRoot(filepath.Join(s.store.directory, "skills", skill.ID))
+		if err != nil {
+			return
+		}
+		for _, file := range skill.Files {
+			source, err := root.Open(file.Path)
+			if err != nil {
+				root.Close()
+				return
+			}
+			header := &zip.FileHeader{Name: prefix + file.Path, Method: zip.Deflate, Modified: modified}
+			header.SetMode(0600)
+			target, err := archive.CreateHeader(header)
+			if err == nil {
+				_, err = io.Copy(target, source)
+			}
+			source.Close()
+			if err != nil {
+				root.Close()
+				return
+			}
+		}
+		root.Close()
+	}
+}
 func (s *Store) importSkill(directory string) (Skill, error) {
-	skill := Skill{ID: id(), Files: []SkillFile{}}
+	skill, _, err := s.importSkillWithOverwrite(directory, false)
+	return skill, err
+}
+
+// installedSkillIDs indexes installed skills by declared name. The oldest
+// record wins so an overwrite keeps existing Agent bindings stable.
+func (s *Store) installedSkillIDs() (map[string]string, error) {
+	rows, err := s.db.Query("SELECT id,config FROM skills WHERE archived=0 ORDER BY rowid")
+	if err != nil {
+		return nil, fmt.Errorf("无法读取已安装技能。")
+	}
+	defer rows.Close()
+	ids := map[string]string{}
+	for rows.Next() {
+		var id, raw string
+		var skill Skill
+		if rows.Scan(&id, &raw) != nil || json.Unmarshal([]byte(raw), &skill) != nil {
+			return nil, fmt.Errorf("已安装技能的数据无法读取。")
+		}
+		if _, exists := ids[skill.Name]; !exists {
+			ids[skill.Name] = id
+		}
+	}
+	return ids, rows.Err()
+}
+
+// importSkillWithOverwrite installs one skill directory. When overwrite is set
+// and the declared name is already installed, the existing skill ID is reused
+// so Agent bindings survive the replacement.
+func (s *Store) importSkillWithOverwrite(directory string, overwrite bool) (Skill, bool, error) {
+	skill := Skill{Files: []SkillFile{}}
 	source, err := os.OpenRoot(directory)
 	if err != nil {
-		return skill, fmt.Errorf("无法打开本地技能目录，请检查路径和读取权限。")
+		return skill, false, fmt.Errorf("无法打开本地技能目录，请检查路径和读取权限。")
 	}
 	defer source.Close()
-	// OpenRoot confines every read, including a directory changed during import.
-	destination := filepath.Join(s.directory, "skills", skill.ID)
-	if err := os.MkdirAll(destination, 0700); err != nil {
-		return skill, fmt.Errorf("无法创建技能目录。")
+	// Read and validate SKILL.md before copying so the target name is known.
+	metadataFile, err := source.Open("SKILL.md")
+	if err != nil {
+		return skill, false, fmt.Errorf("技能根目录必须包含 UTF-8 SKILL.md，且不超过 64,000 字节。")
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			os.RemoveAll(destination)
-		}
-	}()
+	content, readErr := io.ReadAll(io.LimitReader(metadataFile, 64001))
+	metadataFile.Close()
+	if readErr != nil || len(content) > 64000 || !utf8.Valid(content) {
+		return skill, false, fmt.Errorf("技能根目录必须包含 UTF-8 SKILL.md，且不超过 64,000 字节。")
+	}
+	name, description, compatibility, body, err := validateSkillContent(string(content))
+	if err != nil {
+		return skill, false, err
+	}
+	skill.Name, skill.Description, skill.Compatibility, skill.Content = name, description, compatibility, body
+	installed, err := s.installedSkillIDs()
+	if err != nil {
+		return skill, false, err
+	}
+	existing, replaced := installed[name]
+	if replaced && !overwrite {
+		return skill, false, fmt.Errorf("已存在同名技能“%s”。如需替换，请勾选“覆盖同名技能”后重新上传。", name)
+	}
+	if replaced {
+		skill.ID = existing
+	} else {
+		skill.ID = id()
+	}
+	skillsRoot := filepath.Join(s.directory, "skills")
+	if err := os.MkdirAll(skillsRoot, 0700); err != nil {
+		return skill, false, fmt.Errorf("无法创建技能目录。")
+	}
+	// Copy into disposable staging first so a failed import never damages an
+	// installed skill, including the one being overwritten.
+	staging, err := os.MkdirTemp(s.directory, ".skill-import-")
+	if err != nil {
+		return skill, false, fmt.Errorf("无法准备技能导入，请检查存储空间。")
+	}
+	defer os.RemoveAll(staging)
+	// OpenRoot confines every read, including a directory changed during import.
 	var total int64
 	entries := 0
 	err = fs.WalkDir(source.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
@@ -136,7 +273,7 @@ func (s *Store) importSkill(directory string) (Skill, error) {
 		if path == "." {
 			return nil
 		}
-		target := filepath.Join(destination, filepath.FromSlash(path))
+		target := filepath.Join(staging, filepath.FromSlash(path))
 		if entry.IsDir() {
 			return os.Mkdir(target, 0700)
 		}
@@ -164,35 +301,40 @@ func (s *Store) importSkill(directory string) (Skill, error) {
 		return nil
 	})
 	if err != nil {
-		return skill, fmt.Errorf("技能导入失败：不允许符号链接或特殊文件，最多 200 个文件、400 个目录项，单文件 2 MiB，总计 8 MiB；请检查读取权限。")
+		return skill, false, fmt.Errorf("技能导入失败：不允许符号链接或特殊文件，最多 200 个文件、400 个目录项，单文件 2 MiB，总计 8 MiB；请检查读取权限。")
 	}
-	content, err := os.ReadFile(filepath.Join(destination, "SKILL.md"))
-	if err != nil || len(content) > 64000 || !utf8.Valid(content) {
-		return skill, fmt.Errorf("技能根目录必须包含 UTF-8 SKILL.md，且不超过 64,000 字节。")
+	destination := filepath.Join(skillsRoot, skill.ID)
+	backup := ""
+	if replaced {
+		backup = destination + ".old-" + filepath.Base(staging)
+		if err := os.Rename(destination, backup); err != nil && !os.IsNotExist(err) {
+			return skill, false, fmt.Errorf("无法替换同名技能，请检查存储状态。")
+		}
 	}
-	normalized := strings.ReplaceAll(string(content), "\r\n", "\n")
-	if !strings.HasPrefix(normalized, "---\n") {
-		return skill, fmt.Errorf("SKILL.md 必须包含 YAML frontmatter，填写 name 和 description。")
+	if err := os.Rename(staging, destination); err != nil {
+		if backup != "" {
+			os.Rename(backup, destination)
+		}
+		return skill, false, fmt.Errorf("无法保存技能文件，请检查存储状态。")
 	}
-	front, body, found := strings.Cut(normalized[4:], "\n---\n")
-	var metadata struct {
-		Name          string `yaml:"name"`
-		Description   string `yaml:"description"`
-		Compatibility string `yaml:"compatibility"`
-	}
-	if !found || yaml.Unmarshal([]byte(front), &metadata) != nil || !regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`).MatchString(metadata.Name) || len(metadata.Name) > 64 || strings.TrimSpace(metadata.Description) == "" || len(metadata.Description) > 1024 || len(metadata.Compatibility) > 2000 {
-		return skill, fmt.Errorf("技能元数据无效：name 只允许小写字母、数字和单连字符，最长 64 字符；description 必填且不超过 1024 字节。")
-	}
-	skill.Name = metadata.Name
-	skill.Description = metadata.Description
-	skill.Compatibility = metadata.Compatibility
-	skill.Content = body
+	committed := false
+	defer func() {
+		if !committed {
+			os.RemoveAll(destination)
+			if backup != "" {
+				os.Rename(backup, destination)
+			}
+		}
+	}()
 	raw, _ := json.Marshal(skill)
-	if _, err := s.db.Exec("INSERT INTO skills(id,config) VALUES(?,?)", skill.ID, string(raw)); err != nil {
-		return skill, fmt.Errorf("无法保存技能，请检查磁盘空间。")
+	if _, err := s.db.Exec("INSERT INTO skills(id,config) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET config=excluded.config", skill.ID, string(raw)); err != nil {
+		return skill, false, fmt.Errorf("无法保存技能，请检查磁盘空间。")
 	}
 	committed = true
-	return skill, nil
+	if backup != "" {
+		os.RemoveAll(backup)
+	}
+	return skill, replaced, nil
 }
 func validateSkillContent(content string) (name, description, compatibility, body string, err error) {
 	normalized := strings.ReplaceAll(content, "\r\n", "\n")

@@ -70,8 +70,8 @@ func (tree *skillUploadTree) add(name string, directory bool, reader io.Reader) 
 			current += part
 			if !tree.dirs[current] {
 				tree.entries++
-				if tree.entries > 400 {
-					return fmt.Errorf("技能最多包含 400 个目录项。")
+				if tree.entries > 4000 {
+					return fmt.Errorf("单次上传最多包含 4000 个目录项。")
 				}
 				if err := os.Mkdir(filepath.Join(tree.root, filepath.FromSlash(current)), 0700); err != nil {
 					return fmt.Errorf("技能包的文件与目录冲突，或存储不可用。")
@@ -83,19 +83,19 @@ func (tree *skillUploadTree) add(name string, directory bool, reader io.Reader) 
 	if directory {
 		return nil
 	}
-	if tree.files >= 200 {
-		return fmt.Errorf("技能最多包含 200 个文件。")
+	if tree.files >= 2000 {
+		return fmt.Errorf("上传最多包含 2000 个文件。")
 	}
 	data, err := io.ReadAll(io.LimitReader(reader, (2<<20)+1))
 	if err != nil {
 		return fmt.Errorf("技能文件读取失败，请检查文件是否完整。")
 	}
-	if len(data) > 2<<20 || tree.total+len(data) > 8<<20 {
-		return fmt.Errorf("技能单文件最多 2 MiB，解包后总计最多 8 MiB。")
+	if len(data) > 2<<20 || tree.total+len(data) > 80<<20 {
+		return fmt.Errorf("技能单文件最多 2 MiB，单次上传解包后总计最多 80 MiB。")
 	}
 	tree.entries++
-	if tree.entries > 400 {
-		return fmt.Errorf("技能最多包含 400 个目录项。")
+	if tree.entries > 4000 {
+		return fmt.Errorf("单次上传最多包含 4000 个目录项。")
 	}
 	file, err := os.OpenFile(filepath.Join(tree.root, filepath.FromSlash(name)), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
@@ -131,6 +131,7 @@ func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
 	defer os.RemoveAll(staging)
 	tree := skillUploadTree{root: staging, entries: 1, dirs: map[string]bool{}, seen: map[string]bool{}}
 	trusted, trustSeen := false, false
+	overwrite, overwriteSeen := false, false
 	mode := ""
 	for {
 		if r.Context().Err() != nil {
@@ -153,6 +154,17 @@ func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			trusted = true
+			continue
+		}
+		if part.FormName() == "overwrite" && !overwriteSeen {
+			value, err := io.ReadAll(io.LimitReader(part, 9))
+			part.Close()
+			overwriteSeen = true
+			if err != nil || (string(value) != "true" && string(value) != "false") {
+				fail(w, 400, "覆盖选项无效。")
+				return
+			}
+			overwrite = string(value) == "true"
 			continue
 		}
 		field := part.FormName()
@@ -189,8 +201,8 @@ func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			archive, zipErr := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-			if zipErr != nil || len(archive.File) > 400 {
-				fail(w, 400, "ZIP 无效或超过 400 个目录项，请检查技能包。")
+			if zipErr != nil || len(archive.File) > 4000 {
+				fail(w, 400, "ZIP 无效或超过 4000 个目录项，请检查技能包。")
 				return
 			}
 			for _, entry := range archive.File {
@@ -234,18 +246,71 @@ func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	source := staging
-	if _, err := os.Stat(filepath.Join(source, "SKILL.md")); err != nil {
-		entries, readErr := os.ReadDir(staging)
-		if readErr != nil || len(entries) != 1 || !entries[0].IsDir() {
-			fail(w, 400, "技能包根部或唯一的顶层文件夹内须包含 SKILL.md。")
-			return
-		}
-		source = filepath.Join(staging, entries[0].Name())
-	}
-	skill, err := s.store.importSkill(source)
+	units, err := skillImportUnits(source)
 	if err != nil {
 		fail(w, 400, err.Error())
 		return
 	}
-	respond(w, 201, skill)
+	if len(units) > 100 {
+		fail(w, 400, "一次最多导入 100 个技能。")
+		return
+	}
+	if len(units) == 1 {
+		skill, replaced, err := s.store.importSkillWithOverwrite(units[0], overwrite)
+		if err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+		if replaced {
+			respond(w, 200, skill)
+		} else {
+			respond(w, 201, skill)
+		}
+		return
+	}
+	imported := make([]Skill, 0, len(units))
+	replaced := 0
+	for _, unit := range units {
+		if r.Context().Err() != nil {
+			return
+		}
+		skill, overwritten, err := s.store.importSkillWithOverwrite(unit, overwrite)
+		if err != nil {
+			fail(w, 400, fmt.Sprintf("批量导入在“%s”处中止：%s 已导入 %d 个技能。", filepath.Base(unit), err.Error(), len(imported)))
+			return
+		}
+		imported = append(imported, skill)
+		if overwritten {
+			replaced++
+		}
+	}
+	status := 201
+	if replaced > 0 {
+		status = 200
+	}
+	respond(w, status, map[string]any{"skills": imported, "replaced": replaced})
+}
+
+// skillImportUnits accepts one skill at the staging root, one skill inside a
+// single top-level folder, or a bundle whose top-level folders each hold a skill.
+func skillImportUnits(staging string) ([]string, error) {
+	if info, err := os.Stat(filepath.Join(staging, "SKILL.md")); err == nil && info.Mode().IsRegular() {
+		return []string{staging}, nil
+	}
+	entries, err := os.ReadDir(staging)
+	if err != nil || len(entries) == 0 {
+		return nil, fmt.Errorf("技能包根部或顶层文件夹内须包含 SKILL.md。")
+	}
+	units := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			return nil, fmt.Errorf("技能包根部或每个顶层文件夹内须包含 SKILL.md。")
+		}
+		info, err := os.Stat(filepath.Join(staging, entry.Name(), "SKILL.md"))
+		if err != nil || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("技能包根部或每个顶层文件夹内须包含 SKILL.md。")
+		}
+		units = append(units, filepath.Join(staging, entry.Name()))
+	}
+	return units, nil
 }
