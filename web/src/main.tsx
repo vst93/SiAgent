@@ -50,6 +50,21 @@ window.setInterval(() => {
 }, 60 * 1000);
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 const commandKey = isMac ? "⌘K" : "Ctrl K";
+const chatAgentKey = "siagent.chat-agent";
+function storedChatAgent() {
+  try {
+    return localStorage.getItem(chatAgentKey) ?? "";
+  } catch {
+    return "";
+  }
+}
+function rememberChatAgent(id: string) {
+  try {
+    localStorage.setItem(chatAgentKey, id);
+  } catch {
+    // The selection still applies for this session.
+  }
+}
 
 type Auth = {
   initialized: boolean;
@@ -387,14 +402,24 @@ function App() {
       setModels(models);
       setAgents(agents);
       if (!models.length && !sourceID) navigation.navigate("settings/models");
-      setAgentID(list[0]?.agent_id ?? "default");
+      // Honor the last Agent the user explicitly opened instead of jumping to
+      // whichever Agent happened to receive the latest conversation.
+      const preferred = storedChatAgent();
+      const selectedAgent =
+        agents.find((value) => value.id === preferred) ??
+        agents.find((value) => value.id === "default") ??
+        agents.find((value) => !value.archived) ??
+        agents[0];
+      const nextAgentID = selectedAgent?.id ?? list[0]?.agent_id ?? "default";
+      setAgentID(nextAgentID);
       listSignature.current = conversationSignature(list);
       setConversations(list);
-      setSelected((current) =>
-        list.some((item) => item.id === current)
+      setSelected((current) => {
+        const owned = list.filter((item) => item.agent_id === nextAgentID);
+        return owned.some((item) => item.id === current)
           ? current
-          : (list[0]?.id ?? ""),
-      );
+          : (owned[0]?.id ?? "");
+      });
     } catch (error) {
       setError(errorText(error));
     } finally {
@@ -636,6 +661,7 @@ function App() {
     setAgents(agents);
   }
   function selectAgent(id: string) {
+    rememberChatAgent(id);
     setAgentID(id);
     setSelected(conversations.find((item) => item.agent_id === id)?.id ?? "");
     setInput("");
@@ -648,6 +674,7 @@ function App() {
     const item = list.find((value) => value.id === id);
     if (!item) throw new Error("会话不存在，请刷新后重试。");
     setConversations(list);
+    rememberChatAgent(item.agent_id);
     setAgentID(item.agent_id);
     setSelected(id);
     setInput("");
@@ -655,6 +682,13 @@ function App() {
   }
   const visibleConversations = conversations.filter(
     (item) => item.agent_id === agentID,
+  );
+  const conversationCounts = conversations.reduce<Record<string, number>>(
+    (counts, item) => {
+      counts[item.agent_id] = (counts[item.agent_id] ?? 0) + 1;
+      return counts;
+    },
+    {},
   );
   async function newConversation() {
     if (pending) return;
@@ -1010,6 +1044,7 @@ function App() {
               agents={agents}
               agentID={agentID}
               conversations={visibleConversations}
+              conversationCounts={conversationCounts}
               selected={selected}
               snapshot={snapshot?.conversation.id === selected ? snapshot : null}
               loading={loading}

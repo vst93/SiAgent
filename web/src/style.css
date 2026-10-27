@@ -463,6 +463,39 @@ textarea {
   font-size: 11px;
   font-weight: 600;
 }
+.chat-agent-switch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px 8px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.chat-agent-switch label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  margin: 0;
+}
+.chat-agent-switch select {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 12px;
+}
+.chat-agent-switch select:focus {
+  outline: none;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 2px var(--teal-soft);
+}
   /* Search box for filtering conversations */
 .history-search {
   display: flex;
@@ -7177,9 +7210,25 @@ select option:disabled {
 .agent-editor {
   padding: 20px 22px;
 }
-.agent-editor > h2 {
+.agent-editor > h2,
+.agent-editor-heading h2 {
   font-size: 17px;
+  margin: 0;
+}
+.agent-editor-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   margin: 0 0 14px;
+}
+.agent-editor-heading button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  padding: 5px 9px;
 }
 .model-catalog-panel,
 .skill-catalog-list {
@@ -7516,6 +7565,7 @@ select option:disabled {
   overflow: hidden;
 }
 .agent-editor > h2,
+.agent-editor-heading h2,
 .model-detail-heading h2,
 .channel-detail > header h2,
 .skill-title h2 {

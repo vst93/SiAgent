@@ -219,7 +219,7 @@ export function CapabilitySettings({
           {!catalog && (
             <>
               {" "}
-              添加和连接测试请前往<a href="#/settings/tools">插件接入</a>。
+              添加和连接测试请前往<a href="#/settings/tools">技能与工具</a>。
             </>
           )}
         </p>
@@ -245,7 +245,7 @@ export function CapabilitySettings({
             <fieldset disabled={!loaded || pending || (!catalog && readOnly)}>
               <legend>Skills 挂载</legend>
               {skills.length === 0 && (
-                <p className="muted">尚未上传技能，请先到插件接入上传。</p>
+                <p className="muted">尚未上传技能，请先到技能与工具上传。</p>
               )}
               {skills.map((skill) => (
                 <div className="capability-card" key={skill.id}>

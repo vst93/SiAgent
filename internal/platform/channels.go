@@ -162,9 +162,6 @@ func (s *Server) persistChannel(ctx context.Context, channelID string, input cha
 		if old.Provider != input.Provider {
 			return bad(409, "渠道类型保存后固定，其他渠道请新增。")
 		}
-		if old.Enabled && old.AgentID != input.AgentID {
-			return bad(409, "请先停用渠道，再修改助手绑定。")
-		}
 		version = old.Version + 1
 		verified = old.Verified
 	} else {

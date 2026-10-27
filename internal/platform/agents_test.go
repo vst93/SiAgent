@@ -191,3 +191,57 @@ func TestAgentFallbackModelsAreOrderedAndSnapshotted(t *testing.T) {
 		t.Fatalf("runtime fallback credentials missing")
 	}
 }
+
+func TestAgentCopyClonesConfigurationAndAuthorizations(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	f.model(t, "default-model", "default-secret")
+	model := createTestModel(t, f, "copy-model", "copy-secret")
+	a := saveTestAgent(t, f, Agent{Name: "Support", Instructions: "Answer carefully.", Enabled: true, ModelID: model.ID})
+	skill, err := f.store.importSkill(skillDirectory(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, f.request(t, "PUT", "/api/agents/"+a.ID+"/capabilities", map[string]any{"skills": []string{skill.ID}, "mcps": []MCPBinding{}, "confirm": true}, true, nil), 200)
+	base, err := f.server.knowledge.SaveBase(context.Background(), "", "Support docs", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, f.request(t, "PUT", "/api/agents/"+a.ID+"/knowledge", map[string]any{"knowledge_ids": []string{base.ID}, "confirm": true}, true, nil), 200)
+	requireStatus(t, f.request(t, "PUT", "/api/agents/"+a.ID, map[string]any{"name": "Support", "instructions": "Answer carefully.", "enabled": true, "model_id": model.ID, "env": map[string]string{"API_TOKEN": "copy-secret"}}, true, nil), 200)
+	response := f.request(t, "POST", "/api/agents/"+a.ID+"/copy", nil, true, nil)
+	requireStatus(t, response, 201)
+	if strings.Contains(response.Body.String(), "copy-secret") {
+		t.Fatal("copy response leaked environment values")
+	}
+	var copied Agent
+	if err := json.Unmarshal(response.Body.Bytes(), &copied); err != nil {
+		t.Fatal(err)
+	}
+	if copied.ID == a.ID || copied.Name != "Support 副本" || copied.Enabled || copied.Archived || copied.Instructions != a.Instructions || copied.ModelID != model.ID {
+		t.Fatalf("copy did not clone configuration: %+v", copied)
+	}
+	if len(copied.EnvKeys) != 1 || copied.EnvKeys[0] != "API_TOKEN" {
+		t.Fatalf("copy did not clone environment keys: %+v", copied.EnvKeys)
+	}
+	bindings, err := f.store.bindings(copied.ID)
+	if err != nil || len(bindings.Skills) != 1 || bindings.Skills[0] != skill.ID {
+		t.Fatalf("copy did not clone capabilities: %+v %v", bindings, err)
+	}
+	knowledge, err := f.server.knowledge.Bindings(context.Background(), copied.ID)
+	if err != nil || len(knowledge) != 1 || knowledge[0] != base.ID {
+		t.Fatalf("copy did not clone knowledge bindings: %+v %v", knowledge, err)
+	}
+	source, err := f.store.agentEnvironment(a.ID)
+	if err != nil || source["API_TOKEN"] != "copy-secret" {
+		t.Fatal("copy changed the source environment", err)
+	}
+	// Copying again gets a distinct name instead of a duplicate label.
+	response = f.request(t, "POST", "/api/agents/"+a.ID+"/copy", nil, true, nil)
+	requireStatus(t, response, 201)
+	var second Agent
+	json.Unmarshal(response.Body.Bytes(), &second)
+	if second.Name != "Support 副本 2" {
+		t.Fatalf("second copy reused a name: %s", second.Name)
+	}
+}

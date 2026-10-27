@@ -143,8 +143,27 @@ export function AgentWorkspace({
       setPending(false);
     }
   }
+  async function copyAgent() {
+    if (!editor.id) return;
+    await action(async () => {
+      const copied = await request<Agent>(
+        `/agents/${editor.id}/copy`,
+        "POST",
+      );
+      chooseAgent(copied);
+      setFeedback(
+        `已复制为“${copied.name}”，新助手默认停用；核对配置后再启用。`,
+      );
+    });
+  }
   async function saveAgent(event: FormEvent) {
     event.preventDefault();
+    if (advancedNeedsConfirm) {
+      setError(
+        "开启本地工作区工具前，请勾选“我了解风险，仅对可信 Agent 开启”。",
+      );
+      return;
+    }
     await action(async () => {
       const agent = await request<Agent>(
         editor.id ? `/agents/${editor.id}` : "/agents",
@@ -235,9 +254,20 @@ export function AgentWorkspace({
         </p>
       </section>
       <section className="agent-editor">
-        <h2 title={editor.id ? editor.name : undefined}>
-          {editor.id ? editor.name : "新建助手"}
-        </h2>
+        <div className="agent-editor-heading">
+          <h2 title={editor.id ? editor.name : undefined}>
+            {editor.id ? editor.name : "新建助手"}
+          </h2>
+          {editor.id && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => void copyAgent()}
+            >
+              <Icon name="copy" size={14} /> 复制助手
+            </button>
+          )}
+        </div>
         <nav className="editor-tabs" aria-label="Agent 配置">
           <button
             aria-pressed={tab === "basic"}
@@ -739,6 +769,7 @@ export function AgentWorkspace({
                             <label className="checkbox-label">
                               <input
                                 type="checkbox"
+                                required
                                 checked={advancedConfirmed}
                                 onChange={(event) =>
                                   setAdvancedConfirmed(event.target.checked)

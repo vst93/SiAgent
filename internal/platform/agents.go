@@ -354,6 +354,89 @@ func (s *Server) saveAgent(w http.ResponseWriter, r *http.Request) {
 	respond(w, status, a)
 }
 
+// copyAgent clones an Agent's configuration and authorizations. The copy is
+// disabled so enabling it remains a deliberate action, and channel bindings are
+// not duplicated because a channel belongs to exactly one Agent.
+func (s *Server) copyAgent(w http.ResponseWriter, r *http.Request) {
+	sourceID := r.PathValue("agent")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	source, err := s.agentByID(sourceID)
+	if err == sql.ErrNoRows {
+		fail(w, 404, "助手不存在。")
+		return
+	}
+	if err != nil {
+		internal(w)
+		return
+	}
+	model, err := s.store.modelByID(source.ModelID)
+	if err == sql.ErrNoRows || model.Archived {
+		fail(w, 409, "源助手使用的模型已归档，请先更新源助手后再复制。")
+		return
+	}
+	if err != nil {
+		internal(w)
+		return
+	}
+	var policy, fallbacks, environment string
+	if err := s.store.db.QueryRow("SELECT policy,fallback_model_ids,environment FROM agents WHERE id=?", sourceID).Scan(&policy, &fallbacks, &environment); err != nil {
+		internal(w)
+		return
+	}
+	name := source.Name
+	for n := 1; ; n++ {
+		suffix := " 副本"
+		if n > 1 {
+			suffix = fmt.Sprintf(" 副本 %d", n)
+		}
+		base := []rune(source.Name)
+		if limit := 100 - len([]rune(suffix)); len(base) > limit {
+			base = base[:limit]
+		}
+		name = string(base) + suffix
+		var taken int
+		if err := s.store.db.QueryRow("SELECT count(*) FROM agents WHERE name=?", name).Scan(&taken); err != nil {
+			internal(w)
+			return
+		}
+		if taken == 0 {
+			break
+		}
+	}
+	agentID := id()
+	tx, err := s.store.db.Begin()
+	if err != nil {
+		internal(w)
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("INSERT INTO agents(id,name,instructions,enabled,model_id,policy,fallback_model_ids,environment,revision) VALUES(?,?,?,?,?,?,?,?,0)", agentID, name, source.Instructions, false, source.ModelID, policy, fallbacks, environment); err != nil {
+		internal(w)
+		return
+	}
+	if _, err := tx.Exec("INSERT INTO agent_capabilities(agent_id,config) SELECT ?,config FROM agent_capabilities WHERE agent_id=?", agentID, sourceID); err != nil {
+		internal(w)
+		return
+	}
+	if _, err := tx.Exec("INSERT INTO knowledge_bindings(agent_id,knowledge_id) SELECT ?,knowledge_id FROM knowledge_bindings WHERE agent_id=?", agentID, sourceID); err != nil {
+		internal(w)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		internal(w)
+		return
+	}
+	s.audit("agent.copy", agentID, sourceID)
+	copy, err := s.agentByID(agentID)
+	if err != nil {
+		internal(w)
+		return
+	}
+	copy.AdvancedToolsAvailable = !s.advancedToolsDisabled
+	respond(w, 201, copy)
+}
+
 // confirmPassword re-verifies the administrator password and opens a bounded
 // window for reading sensitive values. The session cookie alone is not enough:
 // an unattended browser must not expose stored secrets.

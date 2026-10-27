@@ -569,6 +569,7 @@ export function ChatWorkspace({
   agents,
   agentID,
   conversations,
+  conversationCounts,
   selected,
   snapshot,
   loading,
@@ -597,6 +598,7 @@ export function ChatWorkspace({
   agents: Agent[];
   agentID: string;
   conversations: Conversation[];
+  conversationCounts: Record<string, number>;
   selected: string;
   snapshot: Snapshot | null;
   loading: boolean;
@@ -1015,6 +1017,7 @@ const [search, setSearch] = useState("");
                 : !value.enabled
                   ? "（已停用）"
                   : ""}
+              {` · ${conversationCounts[value.id] ?? 0} 个对话`}
             </option>
           ))}
         </select>
@@ -1132,6 +1135,36 @@ const [search, setSearch] = useState("");
           >
             <Icon name="caret-right" size={14} />
           </button>
+        </div>
+        <div className="chat-agent-switch">
+          <label htmlFor="history-agent">
+            <Icon name="agent" size={16} />
+            <span>Agent</span>
+          </label>
+          <select
+            id="history-agent"
+            aria-label="切换对话 Agent"
+            value={agentID}
+            onChange={(event) => {
+              selectAgent(event.target.value);
+              setHistoryOpen(false);
+            }}
+          >
+            {!agents.length && (
+              <option value="default">尚未创建 Agent</option>
+            )}
+            {agents.map((value) => (
+              <option value={value.id} key={value.id}>
+                {value.name}
+                {value.archived
+                  ? "（已归档）"
+                  : !value.enabled
+                    ? "（已停用）"
+                    : ""}
+                {` · ${conversationCounts[value.id] ?? 0} 个对话`}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="history-search">
           <input

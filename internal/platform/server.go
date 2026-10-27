@@ -255,6 +255,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/agents/{agent}/environment", s.authorize(http.HandlerFunc(s.revealAgentEnvironment)))
 	mux.Handle("POST /api/auth/confirm", s.authorize(http.HandlerFunc(s.confirmPassword)))
 	mux.Handle("PUT /api/agents/{agent}", s.authorize(http.HandlerFunc(s.saveAgent)))
+	mux.Handle("POST /api/agents/{agent}/copy", s.authorize(http.HandlerFunc(s.copyAgent)))
 	mux.Handle("DELETE /api/agents/{agent}", s.authorize(http.HandlerFunc(s.archiveAgent)))
 	mux.Handle("GET /api/agents/{agent}/capabilities", s.authorize(http.HandlerFunc(s.getCapabilities)))
 	mux.Handle("PUT /api/agents/{agent}/capabilities", s.authorize(http.HandlerFunc(s.saveCapabilities)))

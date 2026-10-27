@@ -482,7 +482,7 @@ try {
   await page.getByRole("button", { name: "测试模型连接", exact: true }).click();
   await page.getByText("连接成功，模型已返回文本响应。").waitFor();
   assert.equal(await page.getByLabel("API 密钥").inputValue(), "");
-  await config("扩展");
+  await config("扩展插件");
   await page.getByRole("heading", { name: "已安装", exact: true }).waitFor();
   await page.getByRole("heading", { name: "随系统分发", exact: true }).waitFor();
   await page.getByRole("heading", { name: "最近事件", exact: true }).waitFor();
@@ -695,7 +695,7 @@ try {
     ),
     60,
   );
-  await config("插件接入");
+  await config("技能与工具");
   assert.equal(await page.getByLabel("Skill 在服务器上的绝对目录").count(), 0);
   assert.equal(
     await page
@@ -1638,7 +1638,7 @@ try {
     .getByRole("button", { name: "取消", exact: true })
     .click()
     .catch(() => {});
-  await config("插件接入");
+  await config("技能与工具");
   // Skill rows follow the card rhythm, and the related-Agent block is a titled
   // panel with pill rows instead of plain inline text.
   const skillRow = page.locator(".skill-list-item").first();
@@ -2308,6 +2308,37 @@ try {
   await page.getByLabel("时区", { exact: true }).fill("America/New_York");
   await page.getByRole("button", { name: "保存助手", exact: true }).click();
   await page.getByText("助手已保存，新任务使用新配置", { exact: false }).waitFor();
+  // Copying keeps the full configuration but starts disabled. The risk
+  // confirmation must also block a form submitted with Enter.
+  await page.getByRole("button", { name: "新建助手", exact: true }).click();
+  await page.getByLabel("助手名称", { exact: true }).fill("复制源助手");
+  await page.getByRole("button", { name: "创建助手", exact: true }).click();
+  await page.getByText("助手已保存，新任务使用新配置", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "复制助手", exact: true }).click();
+  await page.getByText("已复制为“复制源助手 副本”", { exact: false }).waitFor();
+  const copiedAgents = await page.evaluate(() =>
+    fetch("/api/agents").then((response) => response.json()),
+  );
+  const copied = copiedAgents.find((agent) => agent.name === "复制源助手 副本");
+  assert(copied, "copy action must create a new Agent");
+  assert.equal(copied.enabled, false, "copy must start disabled");
+  assert.equal(copied.model_id, copiedAgents.find((agent) => agent.name === "复制源助手").model_id);
+  await page
+    .getByLabel("允许此 Agent 使用本地工作区工具", { exact: false })
+    .check();
+  await page.getByLabel("时区", { exact: true }).press("Enter");
+  assert(
+    await page
+      .getByLabel("我了解风险，仅对可信 Agent 开启")
+      .evaluate((input) => input.validity.valueMissing),
+    "an unconfirmed risk checkbox must block form submission",
+  );
+  await page.getByLabel("我了解风险，仅对可信 Agent 开启").check();
+  await page.getByRole("button", { name: "保存助手", exact: true }).click();
+  await page.getByText("助手已保存，新任务使用新配置", { exact: false }).waitFor();
+  await page.locator(".agent-archive summary").click();
+  await page.getByRole("button", { name: "确认归档助手", exact: true }).click();
+  await page.getByText("助手已归档，历史仍可查看。", { exact: true }).waitFor();
   await page.locator(".agent-card").filter({ hasText: "财务助手" }).getByRole("button", { name: "进入对话", exact: true }).click();
   await page.getByLabel("发送给助手的消息").fill("finance isolated question");
   await page.getByRole("button", { name: "发送", exact: false }).click();
@@ -2344,13 +2375,37 @@ try {
     .locator(".message.assistant .message-text")
     .filter({ hasText: "收到：finance isolated question" })
     .waitFor();
-  assert.equal(
-    await page
-      .getByRole("combobox", { name: "选择助手", exact: true })
-      .locator("option:checked")
-      .textContent(),
-    "财务助手",
+  assert(
+    (
+      await page
+        .getByRole("combobox", { name: "选择助手", exact: true })
+        .locator("option:checked")
+        .textContent()
+    ).includes("财务助手"),
   );
+  // The conversation sidebar can switch Agents too, and the choice persists.
+  const historyAgent = page.getByLabel("切换对话 Agent", { exact: true });
+  assert(
+    (await historyAgent.locator("option:checked").textContent()).includes(
+      "财务助手",
+    ),
+  );
+  await historyAgent.selectOption("default");
+  await page.waitForTimeout(150);
+  assert(
+    (await page.locator(".conversation-list button").count()) > 0,
+    "switching Agent must show that Agent's conversations",
+  );
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("siagent.chat-agent")),
+    "default",
+  );
+  const financeID = await page.evaluate(() =>
+    fetch("/api/agents")
+      .then((response) => response.json())
+      .then((values) => values.find((agent) => agent.name === "财务助手").id),
+  );
+  await historyAgent.selectOption(financeID);
   await config("Agent");
   await page
     .locator(".agent-card")
@@ -2441,8 +2496,8 @@ try {
     "Agent",
     "知识库",
     "模型连接",
-    "插件接入",
-    "扩展",
+    "技能与工具",
+    "扩展插件",
     "渠道接入",
     "集成接口",
     "接口文档",
@@ -2539,7 +2594,7 @@ try {
   // is hidden), the chat history panel leaves enough room to switch, and the
   // knowledge list is no longer clipped by its card.
   await page.setViewportSize({ width: 390, height: 664 });
-  await config("插件接入");
+  await config("技能与工具");
   const mobileSkill = await page.locator(".skill-list-item").first().evaluate((el) => ({
     text: el.innerText.replace(/\n+/g, "|"),
     height: Math.round(el.getBoundingClientRect().height),

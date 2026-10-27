@@ -356,3 +356,23 @@ func TestChannelProgressNoticesOnlyWaitForQueueOrLongRuns(t *testing.T) {
 		t.Fatalf("long-running notice missing or wrong: %d %q", count("802"), value)
 	}
 }
+
+func TestChannelAgentBindingCanChangeWhileEnabled(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	f.model(t, "default-model", "default-secret")
+	other := saveTestAgent(t, f, Agent{Name: "Other", Instructions: "Other role.", Enabled: true, ModelID: 1})
+	c := createChannel(t, f, true)
+	response := f.request(t, "PUT", "/api/wecom/channels/"+c.ID, map[string]any{"corp_id": c.CorpID, "app_id": c.AppID, "agent_id": other.ID, "enabled": true, "confirm": true}, true, nil)
+	requireStatus(t, response, 200)
+	var updated wecomChannel
+	if err := json.Unmarshal(response.Body.Bytes(), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if !updated.Enabled || updated.AgentID != other.ID || updated.Version <= c.Version {
+		t.Fatalf("binding change did not stay enabled or bump the version: %+v", updated)
+	}
+	// Connection parameters still require an explicit stop.
+	response = f.request(t, "PUT", "/api/wecom/channels/"+c.ID, map[string]any{"corp_id": c.CorpID, "app_id": c.AppID, "agent_id": other.ID, "enabled": true, "confirm": true, "secret": "replacement-secret"}, true, nil)
+	requireStatus(t, response, 409)
+}

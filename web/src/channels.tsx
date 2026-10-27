@@ -308,8 +308,9 @@ function ChannelEditor({
             </label>
           )}
           <p className="muted">
-            保存后密钥不回显。修改绑定前请先停用渠道；停用不取消已提交的 Agent
-            任务。
+            保存后密钥不回显。切换绑定 Agent 会立即生效，新消息由新 Agent
+            的独立会话处理；修改连接参数或密钥前仍须停用渠道。停用不取消已提交的
+            Agent 任务。
           </p>
         </fieldset>
         {error && (
