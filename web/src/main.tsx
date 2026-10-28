@@ -28,6 +28,7 @@ import { createRoot } from "react-dom/client";
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./style.css";
+import "./desktop.css";
 import {
   applyTheme,
   nextThemeMode,
@@ -368,6 +369,19 @@ function App() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
+  useEffect(() => {
+    const section =
+      navigation.page === "chat"
+        ? null
+        : configSections.find(
+            (item) => navigation.page === `settings/${item.id}`,
+          );
+    const title =
+      navigation.page === "chat"
+        ? snapshot?.conversation.title || "Agent 对话"
+        : section?.title || "配置";
+    document.title = title === "SiAgent" ? "SiAgent" : `${title} · SiAgent`;
+  }, [navigation.page, snapshot?.conversation.title]);
   useEffect(() => {
     if (!menuOpen) return;
     const handler = (event: KeyboardEvent) => {
@@ -759,6 +773,13 @@ function App() {
     );
   if (sourceID) return <KnowledgeSource request={api} sourceID={sourceID} />;
   const isDefaultPage = navigation.defaultPage === navigation.page;
+  const activeSection =
+    navigation.page === "chat"
+      ? null
+      : configSections.find(
+          (section) => navigation.page === `settings/${section.id}`,
+        );
+  const contextLabel = activeSection?.title ?? "Agent 对话";
   const commandItems: CommandItem[] = [
     {
       id: "chat",
@@ -809,6 +830,48 @@ function App() {
   ];
   return (
     <div className={`app-shell ${railCollapsed ? "rail-collapsed" : ""}`}>
+      <header className="app-titlebar">
+        <div className="titlebar-lead">
+          <a
+            className="titlebar-brand"
+            href={`#/${navigation.defaultPage}`}
+            aria-label="打开默认页面"
+            title="SiAgent"
+          >
+            <Mark />
+            <span className="titlebar-name">SiAgent</span>
+            <span className="titlebar-env">自托管</span>
+          </a>
+          <button
+            type="button"
+            className="rail-collapse"
+            aria-label={railCollapsed ? "展开菜单" : "收起菜单"}
+            aria-expanded={!railCollapsed}
+            title={railCollapsed ? "展开菜单" : "收起菜单"}
+            onClick={() => setRailCollapsed((value) => !value)}
+          >
+            <Icon name="sidebar" size={16} />
+          </button>
+        </div>
+        <div className="titlebar-crumbs" aria-label="当前位置">
+          <span>{navigation.page === "chat" ? "工作区" : "配置"}</span>
+          <span className="titlebar-slash" aria-hidden="true">
+            /
+          </span>
+          <strong title={contextLabel}>{contextLabel}</strong>
+        </div>
+        <button
+          type="button"
+          className="titlebar-command"
+          aria-keyshortcuts="Control+K Meta+K"
+          title="搜索或跳转"
+          onClick={() => setCommandOpen(true)}
+        >
+          <Icon name="search" size={14} />
+          <span>搜索或跳转</span>
+          <kbd>{commandKey}</kbd>
+        </button>
+      </header>
       <header className="mobile-topbar">
         <button
           ref={menuButtonRef}
@@ -819,7 +882,9 @@ function App() {
         >
           <Icon name="menu" size={18} />
         </button>
-        <span className="mobile-title">{pageName(navigation.page)}</span>
+        <span className="mobile-title">
+          {navigation.page === "chat" ? "Agent 对话" : "配置"}
+        </span>
         <button
           type="button"
           className="mobile-command-button"
@@ -836,39 +901,6 @@ function App() {
         />
       </header>
       <aside className="app-rail" aria-label="应用侧栏">
-        <div className="rail-head">
-          <a
-            className="rail-brand"
-            href={`#/${navigation.defaultPage}`}
-            aria-label="打开默认页面"
-            title="SiAgent"
-          >
-            <Mark />
-            <span>SiAgent</span>
-            <span className="rail-version">自托管</span>
-          </a>
-          <button
-            type="button"
-            className="rail-collapse"
-            aria-label={railCollapsed ? "展开菜单" : "收起菜单"}
-            aria-expanded={!railCollapsed}
-            title={railCollapsed ? "展开菜单" : "收起菜单"}
-            onClick={() => setRailCollapsed((value) => !value)}
-          >
-            <Icon name="sidebar" size={16} />
-          </button>
-        </div>
-        <button
-          type="button"
-          className="rail-command"
-          aria-keyshortcuts="Control+K Meta+K"
-          title="搜索或跳转"
-          onClick={() => setCommandOpen(true)}
-        >
-          <Icon name="search" size={16} />
-          <span>搜索或跳转</span>
-          <kbd>{commandKey}</kbd>
-        </button>
         <nav className="rail-nav" aria-label="主导航">
           <p className="rail-group">工作区</p>
           <button
@@ -905,10 +937,6 @@ function App() {
           ))}
         </nav>
         <div className="rail-footer">
-          <div className="rail-status">
-            <span className={ready ? "status-dot" : "status-dot offline"} />
-            <span>{ready ? "服务已就绪" : "服务正在恢复"}</span>
-          </div>
           <div className="rail-actions">
             <button
               className="rail-icon-button"
@@ -1108,6 +1136,49 @@ function App() {
         items={commandItems}
         onClose={() => setCommandOpen(false)}
       />
+      <footer className="app-statusbar" aria-label="应用状态栏">
+        <div className="statusbar-group">
+          <span
+            className={ready ? "status-dot" : "status-dot offline"}
+            title={ready ? "服务已就绪" : "服务正在恢复"}
+          />
+          <span>{ready ? "服务已就绪" : "服务正在恢复"}</span>
+          <span className="statusbar-separator" aria-hidden="true" />
+          <span>本地实例</span>
+        </div>
+        <div className="statusbar-group statusbar-center">
+          <span>{agent?.name ?? "未选择助手"}</span>
+          {model && (
+            <>
+              <span className="statusbar-separator" aria-hidden="true" />
+              <span className="statusbar-mono" title={model.name}>
+                {model.name}
+              </span>
+            </>
+          )}
+          {navigation.page === "chat" && (
+            <>
+              <span className="statusbar-separator" aria-hidden="true" />
+              <span>
+                {visibleConversations.length} <span>个对话</span>
+              </span>
+            </>
+          )}
+        </div>
+        <div className="statusbar-group statusbar-end">
+          <button
+            type="button"
+            className="statusbar-command"
+            title="搜索或跳转"
+            onClick={() => setCommandOpen(true)}
+          >
+            <kbd>{commandKey}</kbd>
+            <span>命令面板</span>
+          </button>
+          <span className="statusbar-separator" aria-hidden="true" />
+          <span>数据保存在此实例</span>
+        </div>
+      </footer>
     </div>
   );
 }

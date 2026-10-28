@@ -1017,7 +1017,6 @@ const [search, setSearch] = useState("");
                 : !value.enabled
                   ? "（已停用）"
                   : ""}
-              {` · ${conversationCounts[value.id] ?? 0} 个对话`}
             </option>
           ))}
         </select>

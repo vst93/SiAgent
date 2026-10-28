@@ -1,0 +1,1172 @@
+/* Desktop workbench layer for SiAgent.
+   Loaded after style.css. It owns the window bar, status bar, compact pane
+   chrome, the reading pane and the sign-in panel. Structural rules only: no
+   decorative chrome and no second accent color. */
+
+/* ==========================================================================
+   Desktop workbench
+   The product is a local desktop console, not a marketing site. This layer
+   gives every screen one window bar, one status bar, compact pane toolbars and
+   a denser control scale. Structural rules only: no decorative chrome.
+   ========================================================================== */
+
+.app-shell {
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  grid-template-rows: var(--titlebar-h) minmax(0, 1fr) var(--statusbar-h);
+  grid-template-areas:
+    "titlebar titlebar"
+    "rail content"
+    "statusbar statusbar";
+}
+
+/* Window bar: identity, location and the one global command entry. */
+.app-titlebar {
+  grid-area: titlebar;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-right: 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-raised);
+  user-select: none;
+}
+.titlebar-lead {
+  flex: 0 0 var(--sidebar-w);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0 6px 0 10px;
+  border-right: 1px solid var(--line);
+}
+.titlebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-strong);
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+.titlebar-brand:hover {
+  color: var(--teal-strong);
+  background: transparent;
+}
+.titlebar-brand .mark {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  font-size: 13px;
+  letter-spacing: -1px;
+}
+.titlebar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.titlebar-env {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+.rail-collapse {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--faint);
+}
+.rail-collapse:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--ink);
+}
+.titlebar-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 12px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+}
+.titlebar-crumbs strong {
+  max-width: min(38vw, 360px);
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.titlebar-slash {
+  color: var(--line-strong);
+}
+.titlebar-command {
+  flex: 0 0 220px;
+  justify-content: flex-start;
+  width: 220px;
+  min-height: 25px;
+  margin-left: auto;
+  padding: 0 7px;
+  gap: 6px;
+  border-color: var(--line);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 500;
+}
+.titlebar-command:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+.titlebar-command kbd {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  line-height: 15px;
+}
+.app-shell.rail-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+.app-shell.rail-collapsed .titlebar-lead {
+  flex-basis: 64px;
+  padding-inline: 8px;
+}
+.app-shell.rail-collapsed .titlebar-name,
+.app-shell.rail-collapsed .titlebar-env {
+  display: none;
+}
+.app-shell.rail-collapsed .titlebar-brand {
+  gap: 0;
+}
+
+/* Status bar: service truth, the active assistant and the only shortcut hint. */
+.app-statusbar {
+  grid-area: statusbar;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 0 10px;
+  overflow: hidden;
+  border-top: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.01em;
+  user-select: none;
+}
+.statusbar-group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.statusbar-group .status-dot {
+  flex: 0 0 auto;
+}
+.statusbar-center {
+  flex: 1 1 auto;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--muted);
+}
+.statusbar-center > span:not(.statusbar-separator) {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.statusbar-end {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+.statusbar-separator {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 9px;
+  background: var(--line-strong);
+  opacity: 0.75;
+}
+.statusbar-mono {
+  font-family: var(--font-mono);
+  color: var(--faint);
+}
+.statusbar-command {
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font: inherit;
+}
+.statusbar-command:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--teal-strong);
+}
+
+/* Navigation rail: a quiet index, not a second content column. */
+.app-rail {
+  grid-area: rail;
+  padding: 8px 8px 6px;
+  background: var(--surface-raised);
+}
+.rail-nav {
+  padding: 0 2px;
+}
+.rail-group {
+  margin: 12px 8px 4px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.rail-nav > .rail-group:first-child {
+  margin-top: 2px;
+}
+.rail-link {
+  min-height: 30px;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 12.5px;
+}
+.rail-link .ui-icon {
+  width: 15px;
+  height: 15px;
+}
+.rail-link.selected {
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+  box-shadow: none;
+}
+.rail-link.selected .ui-icon {
+  color: var(--teal-strong);
+}
+.rail-footer {
+  padding: 8px 2px 0;
+  gap: 4px;
+}
+.rail-actions {
+  gap: 0;
+}
+.rail-icon-button,
+.rail-actions .theme-toggle,
+.rail-actions .language-toggle {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  border-radius: 4px;
+  font-size: 9.5px;
+}
+.rail-actions .language-toggle {
+  margin-left: auto;
+}
+.app-shell.rail-collapsed .app-rail {
+  padding-inline: 8px;
+}
+.app-shell.rail-collapsed .rail-link {
+  width: 32px;
+  min-height: 32px;
+  margin: 2px auto;
+}
+.app-shell.rail-collapsed .rail-actions {
+  gap: 3px;
+}
+.app-shell.rail-collapsed .rail-actions .rail-icon-button,
+.app-shell.rail-collapsed .rail-actions .theme-toggle,
+.app-shell.rail-collapsed .rail-actions .language-toggle {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
+.app-content {
+  grid-area: content;
+}
+
+/* Pane toolbars replace page-sized headings. */
+.configuration-heading {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--toolbar-h);
+  padding: 0 18px;
+}
+.configuration-heading h1 {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.15px;
+}
+.configuration-heading > p:last-child {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 11.5px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: initial;
+}
+.configuration-content {
+  padding: 14px 20px 32px;
+}
+.configuration-content > .agents-workspace,
+.configuration-content > .model-console,
+.configuration-content > .plugins-workspace,
+.configuration-content > .channels-workspace,
+.configuration-content > .knowledge-workspace,
+.configuration-content > .apikeys-workspace,
+.configuration-content > .extensions-workspace {
+  max-width: 1080px;
+}
+.pane-heading {
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+.agents-list,
+.agent-editor,
+.model-catalog-panel,
+.skill-catalog-list,
+.channel-catalog {
+  border-radius: var(--radius-md);
+}
+.agents-list,
+.model-catalog-panel,
+.skill-catalog-list {
+  padding: 10px;
+}
+.agent-editor {
+  padding: 16px 18px;
+}
+.agent-editor-heading {
+  margin-bottom: 10px;
+}
+.agent-editor > h2,
+.agent-editor-heading h2,
+.model-detail-heading h2 {
+  font-size: 15px;
+}
+.model-console {
+  gap: 16px;
+}
+.model-form-section {
+  margin-top: 14px;
+  padding-top: 12px;
+}
+.apikeys-section,
+.extensions-section {
+  margin-top: 12px;
+  padding: 14px;
+}
+.apikeys-section > h2,
+.extensions-section > h2 {
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.plugin-tabs button,
+.kb-tabs button {
+  min-height: 32px;
+  font-size: 12px;
+}
+.editor-tabs button {
+  min-height: 30px;
+  font-size: 11.5px;
+}
+form label {
+  margin: 12px 0;
+  font-size: 12px;
+}
+input,
+textarea,
+select {
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 12.5px;
+  border-radius: var(--radius-sm);
+}
+button {
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+.form-actions {
+  margin-top: 14px;
+}
+.kb-empty:not(.kb-documents-empty) {
+  min-height: 0;
+  max-width: 680px;
+  margin: 0;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+.kb-empty:not(.kb-documents-empty) .kb-empty-icon {
+  width: 24px;
+  height: 24px;
+  margin-bottom: 8px;
+}
+.kb-empty h2,
+.kb-empty h3 {
+  font-size: 14px;
+}
+.kb-empty p {
+  font-size: 12px;
+}
+
+/* Chat: a reading pane with a compact toolbar, log-like transcript and a docked
+   composer. The assistant output keeps the larger type; chrome stays small. */
+.chat-header {
+  min-height: var(--toolbar-h);
+  padding: 0 14px;
+  gap: 10px;
+}
+.chat-heading h1 {
+  font-size: 13px;
+  font-weight: 620;
+}
+.chat-subtitle {
+  margin-top: 2px;
+  font-size: 9.5px;
+}
+.chat-stats {
+  font-size: 9px;
+}
+.chat-header-actions {
+  gap: 3px;
+}
+.chat-agent-select select {
+  max-width: 180px;
+  min-height: 26px;
+  padding: 2px 22px 2px 7px;
+  border-color: var(--line);
+  font-size: 11.5px;
+}
+.chat-header .new-chat,
+.chat-copy-transcript,
+.chat-header .history-toggle {
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+.chat-header .icon-button,
+.desktop-history-toggle,
+.chat-header .conversation-delete {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+}
+.chat-history-panel {
+  padding: 8px 6px 6px;
+}
+.chat-history-heading {
+  padding: 2px 8px 7px;
+  font-size: 9px;
+}
+.chat-history-focus {
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+}
+.chat-agent-switch {
+  gap: 6px;
+  padding: 0 4px 6px;
+  font-size: 9px;
+}
+.chat-agent-switch select {
+  min-height: 28px;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+}
+.history-search {
+  padding: 0 4px 6px;
+}
+.history-search input {
+  min-height: 27px;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+}
+.history-search button {
+  min-height: 27px;
+  border-radius: var(--radius-sm);
+}
+.aggregation-switch {
+  gap: 3px;
+  padding: 0 4px 7px;
+}
+.aggregation-switch button {
+  min-height: 25px;
+  padding: 2px 0;
+  border-radius: var(--radius-sm);
+  font-size: 10.5px;
+}
+.aggregation-switch button.selected {
+  border-color: var(--line-strong);
+  background: var(--paper);
+  color: var(--ink-strong);
+}
+.conversation-list {
+  padding: 0 2px;
+}
+.tree-row {
+  min-height: 28px;
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+}
+.tree-label {
+  font-size: 11.5px;
+}
+.tree-sublabel,
+.tree-time {
+  font-size: 9.5px;
+}
+.tree-sessions .conversation {
+  min-height: 28px;
+  padding: 3px 6px;
+  font-size: 11.5px;
+}
+.conversation.selected {
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+  box-shadow: none;
+}
+.chat-history-actions {
+  padding: 6px 4px 0;
+}
+.chat-sidebar-status {
+  padding: 7px 8px 0;
+  font-size: 9px;
+}
+.chat-sidebar-status .ui-icon {
+  width: 12px;
+  height: 12px;
+}
+.message-scroll {
+  padding: 0 24px;
+}
+.messages {
+  max-width: 840px;
+  padding: 22px 0 16px;
+}
+.message {
+  padding: 0 0 20px;
+}
+.message-meta {
+  margin-bottom: 5px;
+  font-size: 9.5px;
+  letter-spacing: 0.03em;
+}
+.message-meta strong {
+  font-size: 10px;
+  font-weight: 600;
+}
+.message-meta time {
+  font-size: 9.5px;
+}
+.message-text {
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+.message-markdown {
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+.message-markdown pre {
+  padding: 10px 12px;
+  font-size: 11.5px;
+}
+.message.user {
+  align-items: flex-start;
+}
+.message.user .message-body {
+  align-items: flex-start;
+  max-width: min(88%, 700px);
+}
+.user .message-text {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.66;
+}
+.run-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 12px;
+  margin-top: 7px;
+}
+.run-result > details {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.run-result > details > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 0;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 500;
+}
+.run-result > details[open] {
+  flex-basis: 100%;
+}
+.run-result > details[open] > summary {
+  margin-bottom: 4px;
+}
+.run-result > .error,
+.run-result > .context-warning,
+.run-result > .muted {
+  flex-basis: 100%;
+}
+.run-status {
+  font-size: 9px;
+}
+.run-result .run-cancel {
+  min-height: 20px;
+  padding: 0 6px;
+  font-size: 10px;
+}
+.answer-sources {
+  margin-top: 10px;
+  padding-top: 8px;
+  gap: 4px;
+  font-size: 11px;
+}
+.composer-area,
+.chat-main .composer-area {
+  padding: 8px 24px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+.composer {
+  max-width: 840px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: var(--paper);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.composer:focus-within {
+  background: var(--paper);
+}
+.composer textarea {
+  min-height: 38px;
+  max-height: 132px;
+  padding: 0 2px;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.composer-toolbar {
+  margin-top: 4px;
+}
+.composer-toolbar > span {
+  font-size: 9.5px;
+}
+.composer-toolbar button {
+  min-height: 26px;
+  padding: 0 9px;
+  font-size: 11.5px;
+}
+.composer-note {
+  margin-top: 4px;
+  font-size: 9px;
+}
+.jump-to-latest {
+  min-height: 26px;
+  font-size: 10.5px;
+}
+.chat-empty {
+  max-width: 430px;
+}
+.chat-empty .assistant-symbol {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 10px;
+  font-size: 15px;
+  border-radius: 6px;
+}
+.chat-empty h2 {
+  font-size: 16px;
+}
+.chat-suggestions button {
+  min-height: 26px;
+  padding: 0 9px;
+  font-size: 11.5px;
+}
+.empty-view h2 {
+  font-size: 16px;
+}
+.assistant-symbol {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 10px;
+  font-size: 15px;
+  border-radius: 6px;
+}
+
+/* Floating layers stay crisp: solid panels, one shadow, no frosted glass. */
+.command-backdrop {
+  padding-top: 10vh;
+  background: rgba(8, 14, 11, 0.36);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.command-panel {
+  width: min(520px, calc(100vw - 24px));
+  max-height: min(64vh, 460px);
+  border-color: var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  box-shadow: 0 18px 44px rgba(10, 18, 14, 0.18), 0 2px 6px rgba(10, 18, 14, 0.08);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.command-input-row {
+  padding: 9px 11px;
+}
+.command-input-row input {
+  font-size: 13px;
+}
+.command-list {
+  padding: 4px;
+}
+.command-item {
+  min-height: 30px;
+  padding: 0 8px;
+  gap: 8px;
+  border-radius: 4px;
+  font-size: 12.5px;
+}
+.command-item small {
+  font-size: 8.5px;
+}
+.command-item[aria-selected="true"] {
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+  box-shadow: none;
+}
+.row-menu,
+.kb-dialog,
+.confirmation-dialog {
+  background: var(--paper);
+  border-color: var(--line-strong);
+  box-shadow: 0 16px 36px rgba(10, 18, 14, 0.16), 0 2px 6px rgba(10, 18, 14, 0.06);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.row-menu {
+  border-radius: var(--radius-md);
+}
+.kb-dialog,
+.confirmation-dialog {
+  border-radius: var(--radius-md);
+}
+
+@media (max-width: 1180px) {
+  :root {
+    --sidebar-w: 200px;
+    --history-w: 264px;
+  }
+  .titlebar-command {
+    flex-basis: 190px;
+    width: 190px;
+  }
+  .titlebar-crumbs strong {
+    max-width: 200px;
+  }
+}
+@media (max-width: 1120px) {
+  .statusbar-center {
+    display: none;
+  }
+}
+@media (max-width: 980px) {
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+  }
+  .app-titlebar,
+  .app-statusbar {
+    display: none;
+  }
+  .app-rail {
+    display: none;
+  }
+  .app-content {
+    flex: 1;
+    min-height: 0;
+  }
+  .configuration-heading {
+    min-height: 48px;
+    padding: 8px 14px;
+    gap: 8px;
+  }
+  .configuration-heading h1 {
+    font-size: 15px;
+  }
+  .configuration-heading > p:last-child {
+    display: none;
+  }
+  .configuration-content {
+    padding: 12px 14px 24px;
+  }
+  .message-scroll {
+    padding: 0 14px;
+  }
+  .messages {
+    padding: 18px 0 14px;
+  }
+  .message.user .message-body {
+    max-width: 94%;
+  }
+  .composer-area,
+  .chat-main .composer-area {
+    padding: 8px 12px 10px;
+  }
+  .composer textarea,
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+  .composer textarea {
+    font-size: 15px;
+  }
+  .chat-header {
+    padding: 8px 12px;
+  }
+  .chat-heading h1 {
+    font-size: 15px;
+  }
+  .chat-header-actions .chat-agent-select select,
+  .chat-header-actions .new-chat,
+  .chat-header-actions .history-toggle {
+    min-height: 32px;
+  }
+  .statusbar-group {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell {
+    transition: none;
+  }
+}
+
+/* Contrast and compactness pass for the desktop layer. */
+.rail-group {
+  color: var(--muted);
+  font-weight: 500;
+}
+.app-statusbar {
+  color: var(--muted);
+}
+.statusbar-mono,
+.statusbar-end {
+  color: var(--faint);
+}
+.titlebar-crumbs strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.rail-collapse {
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+}
+.assistant-symbol {
+  width: 32px;
+  height: 32px;
+  font-size: 14.5px;
+  letter-spacing: 0;
+}
+.chat-empty .assistant-symbol {
+  width: 32px;
+  height: 32px;
+  font-size: 14.5px;
+}
+@media (max-width: 1120px) {
+  .titlebar-command {
+    flex-basis: 148px;
+    width: 148px;
+  }
+  .titlebar-command > span {
+    display: none;
+  }
+}
+@media (max-width: 980px) {
+  .composer {
+    padding: 6px 8px;
+  }
+  .composer textarea {
+    min-height: 36px;
+  }
+  .composer-toolbar {
+    flex-wrap: nowrap;
+    margin-top: 2px;
+  }
+  .composer-toolbar > span {
+    display: none;
+  }
+  .attach-button {
+    margin: 0;
+  }
+  .composer-buttons {
+    margin-left: auto;
+  }
+  .composer-note {
+    margin-top: 5px;
+  }
+}
+
+/* Sign-in is a compact unlock panel, not a landing page. */
+.auth-page {
+  max-width: none;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+}
+.auth-topbar {
+  flex: 0 0 var(--titlebar-h);
+  min-height: var(--titlebar-h);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-raised);
+}
+.auth-topbar .brand {
+  gap: 7px;
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+}
+.auth-topbar .mark {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  font-size: 13px;
+  letter-spacing: -1px;
+}
+.auth-topbar-actions {
+  gap: 2px;
+}
+.auth-topbar-actions .language-toggle,
+.auth-topbar-actions .theme-toggle {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  border-radius: 4px;
+  font-size: 9.5px;
+}
+.auth-panel {
+  width: min(400px, calc(100vw - 28px));
+  max-width: 400px;
+  margin: auto;
+  padding: 26px 26px 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  box-shadow: var(--shadow-1);
+}
+.auth-panel .eyebrow {
+  display: none;
+}
+.auth-panel h1 {
+  font-size: 19px;
+  letter-spacing: -0.2px;
+}
+.auth-panel > .muted {
+  margin-top: 8px;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.auth-panel form {
+  margin-top: 14px;
+}
+.auth-panel form label {
+  margin: 10px 0;
+}
+.auth-panel button {
+  margin-top: 14px;
+}
+.auth-panel .setup-path {
+  margin: 16px 0;
+  font-size: 10.5px;
+}
+.auth-footer {
+  flex: 0 0 auto;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-raised);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+.auth-language-corner {
+  top: 6px;
+  right: 8px;
+}
+@media (max-width: 980px) {
+  .auth-page {
+    padding: 0;
+  }
+  .auth-topbar {
+    flex-basis: 48px;
+    min-height: 48px;
+    padding: 0 14px;
+  }
+  .auth-panel {
+    margin: auto 14px;
+    width: auto;
+    max-width: none;
+    padding: 22px 20px 18px;
+  }
+  .auth-panel h1 {
+    font-size: 20px;
+  }
+  .auth-footer {
+    padding: 10px;
+  }
+}
+
+/* Keep the reading column and its composer on the same measure. */
+.chat-main .composer {
+  max-width: 840px;
+}
+.chat-suggestions button {
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+}
+
+/* Readability floor for one-line chrome. Desktop dense still has to be legible. */
+.rail-group {
+  font-size: 9.5px;
+}
+.app-statusbar {
+  font-size: 9.5px;
+}
+.titlebar-crumbs {
+  font-size: 10px;
+}
+.titlebar-crumbs strong {
+  font-size: 11.5px;
+}
+.titlebar-command {
+  font-size: 11.5px;
+}
+.chat-heading h1 {
+  font-size: 14px;
+}
+.chat-subtitle {
+  font-size: 10px;
+}
+.chat-stats {
+  font-size: 9.5px;
+}
+.chat-history-heading {
+  font-size: 9.5px;
+}
+.chat-agent-switch {
+  font-size: 9.5px;
+}
+.tree-label {
+  font-size: 12px;
+}
+.tree-sessions .conversation {
+  font-size: 12px;
+}
+.message-meta {
+  font-size: 10px;
+}
+.message-meta strong,
+.message-meta time {
+  font-size: 10px;
+}
+.composer-note {
+  font-size: 9.5px;
+}
+.configuration-heading {
+  justify-content: flex-start;
+}
+.configuration-heading h1 {
+  font-size: 15px;
+}
+.statusbar-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.statusbar-command kbd {
+  padding: 0 3px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  line-height: 14px;
+}
+
+/* Desktop panes snap rather than perform a width animation. */
+.app-shell {
+  transition: none;
+}
+.message-text,
+.message-markdown {
+  font-size: 14px;
+}
+.user .message-text {
+  font-size: 14px;
+}
+.update-progress-track.indeterminate > span {
+  left: 0;
+  transform: translateX(-100%);
+  animation-name: update-progress-slide-x;
+}
+@keyframes update-progress-slide-x {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(286%);
+  }
+}
+
+/* The default command set fits without clipping at common window heights. */
+.command-panel {
+  max-height: min(70vh, 500px);
+}
