@@ -29,6 +29,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./style.css";
 import "./desktop.css";
+import "./motion.css";
 import {
   applyTheme,
   nextThemeMode,

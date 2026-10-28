@@ -1,0 +1,291 @@
+/* Interaction motion for SiAgent.
+   The workspace is a desktop tool, so motion has one job: confirm what the
+   pointer or keyboard just did without making the user wait. High-frequency
+   keyboard surfaces (the command palette, the navigation rail) deliberately
+   stay instant; motion is reserved for presses, occasional overlays and state
+   changes. Durations are 100-200ms, easing is always out or in-out. */
+
+button {
+  transition:
+    background-color var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out),
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+/* Press feedback: rows do not move; compact controls acknowledge the press. */
+button:active:not(:disabled) {
+  transform: none;
+}
+button.primary:active:not(:disabled),
+.new-chat:active:not(:disabled),
+.chat-copy-transcript:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.row-menu-trigger:active:not(:disabled),
+.icon-button:active:not(:disabled),
+.message-action:active:not(:disabled),
+.theme-toggle:active:not(:disabled),
+.rail-icon-button:active:not(:disabled),
+.chat-history-focus:active:not(:disabled),
+.delete-conversation-button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.rail-link:active:not(:disabled),
+.conversation:active:not(:disabled),
+.command-item:active:not(:disabled) {
+  background: var(--surface-sunken);
+}
+
+/* Hover and selection settle instead of snapping. */
+.tree-row,
+.command-item,
+.row-menu-item,
+.aggregation-switch button,
+.plugin-tabs > button,
+.kb-tabs button,
+.editor-tabs button {
+  transition:
+    background-color var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    opacity var(--dur-hover) var(--ease-out);
+}
+.message-actions {
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+.composer {
+  transition:
+    border-color 140ms var(--ease-out),
+    box-shadow 140ms var(--ease-out);
+}
+
+/* Occasional pane changes get a quiet fade. The scroll container keeps its
+   geometry; only opacity is animated. */
+.configuration-content {
+  animation: pane-in 140ms var(--ease-out);
+}
+@keyframes pane-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Context menus grow from the trigger edge. Open only: native menus close
+   instantly, and an exit animation would make the next click feel late. */
+.row-menu {
+  transform-origin: top;
+  animation: row-menu-in 120ms var(--ease-out);
+}
+.row-menu[data-origin="bottom"] {
+  transform-origin: bottom;
+  animation-name: row-menu-in-up;
+}
+@keyframes row-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes row-menu-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Modals are occasional, so they can fade and settle. Exit is faster than
+   enter, and the backdrop fades independently. */
+.confirmation-dialog,
+.kb-dialog {
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 150ms var(--ease-out),
+    transform 150ms var(--ease-out),
+    display 150ms allow-discrete,
+    overlay 150ms allow-discrete;
+}
+.confirmation-dialog:not([open]),
+.kb-dialog:not([open]) {
+  opacity: 0;
+  transform: scale(0.985);
+}
+@starting-style {
+  .confirmation-dialog[open],
+  .kb-dialog[open] {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+.confirmation-dialog::backdrop,
+.kb-dialog::backdrop {
+  background: var(--overlay);
+  opacity: 1;
+  transition:
+    opacity 150ms var(--ease-out),
+    display 150ms allow-discrete,
+    overlay 150ms allow-discrete;
+}
+.confirmation-dialog:not([open])::backdrop,
+.kb-dialog:not([open])::backdrop {
+  opacity: 0;
+}
+@starting-style {
+  .confirmation-dialog[open]::backdrop,
+  .kb-dialog[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+/* Disclosure content appears rather than flashing into place. */
+details[open] > :not(summary) {
+  animation: reveal-in 120ms var(--ease-out);
+}
+@keyframes reveal-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Transient surfaces use a short lift; they are not part of the static page. */
+.workspace-alert {
+  animation: alert-in 140ms var(--ease-out);
+}
+@keyframes alert-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.jump-to-latest {
+  animation: lift-in 120ms var(--ease-out);
+}
+.composer-attachment {
+  animation: lift-in 120ms var(--ease-out);
+}
+@keyframes lift-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* The mobile drawer keeps its existing slide but uses the shared easing. */
+@media (max-width: 980px) {
+  .mobile-menu-backdrop {
+    transition: opacity 140ms var(--ease-out);
+  }
+  .mobile-menu {
+    transition: transform 200ms var(--ease-out);
+  }
+  .chat-history-panel.is-open {
+    animation: reveal-in 140ms var(--ease-out);
+  }
+}
+
+/* Reduced motion keeps instant state changes. The global rule in style.css
+   removes the remaining animations; these rules are an explicit safety net. */
+@media (prefers-reduced-motion: reduce) {
+  .configuration-content,
+  .workspace-alert,
+  .row-menu,
+  .jump-to-latest,
+  .composer-attachment,
+  details[open] > :not(summary),
+  .chat-history-panel.is-open {
+    animation: none;
+  }
+  .confirmation-dialog,
+  .kb-dialog,
+  .confirmation-dialog::backdrop,
+  .kb-dialog::backdrop {
+    transition: none;
+  }
+}
+
+/* Desktop modals dim the work behind them; they do not frost it. The dialog
+   itself is already a solid surface, and a blur here would read as web chrome. */
+.confirmation-dialog::backdrop,
+.kb-dialog::backdrop {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Small chrome controls and list rows share the same tactile response. */
+.language-toggle:active:not(:disabled),
+.rail-collapse:active:not(:disabled),
+.mobile-menu-button:active:not(:disabled),
+.mobile-command-button:active:not(:disabled),
+.mobile-theme-toggle:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.row-menu-item:active:not(:disabled) {
+  background: var(--surface-sunken);
+}
+.status-dot,
+.run-status:before {
+  transition:
+    background-color 200ms var(--ease-out),
+    opacity 200ms var(--ease-out);
+}
+.agent-card,
+.model-connection,
+.channel-catalog > button,
+.skill-catalog-list > nav > button,
+.resource-item,
+.kb-document-row {
+  transition:
+    background-color var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out);
+}
+
+/* Copy is a low-frequency action; a short check pop is enough confirmation. */
+.message-action.is-copied,
+.chat-copy-transcript.is-copied {
+  color: var(--teal-strong);
+}
+.message-action.is-copied {
+  background: var(--success-soft);
+}
+.message-action.is-copied .ui-icon {
+  animation: copied-pop 180ms var(--ease-out);
+}
+@keyframes copied-pop {
+  0% {
+    opacity: 0.5;
+    transform: scale(0.82);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

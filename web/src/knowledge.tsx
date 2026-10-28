@@ -599,11 +599,7 @@ export function KnowledgeWorkspace({ request }: { request: Api }) {
                   label="管理知识库"
                   summary={
                     <>
-                      <Icon
-                        name="caret-right"
-                        size={14}
-                        className="disclosure-icon"
-                      />
+                      <Icon name="caret-down" size={14} />
                       管理知识库
                     </>
                   }

@@ -149,10 +149,23 @@
 
 ## 动效
 
-- 桌面侧栏折叠直接切换，不做宽度动画。
-- hover / focus / 展开 120–180ms；只动颜色、背景、边框和透明度。
-- 不使用 `transition: all`、`scale(0)` 入场、UI `ease-in`、装饰性长动画。
-- 必须提供 `prefers-reduced-motion` 兜底。
+动效层在 `web/src/motion.css`，只负责交互反馈，不负责装饰。原则：**高频操作不动，偶发操作短动，所有动效可中断且不阻塞输入。**
+
+| 场景 | 行为 | 时长 / 曲线 |
+| --- | --- | --- |
+| 命令面板、导航栏折叠 | 直接切换 | 0ms |
+| 按钮 / 图标按钮按压 | `scale(0.94–0.98)` | 120ms ease-out |
+| hover / 列表选中 | 只变背景、边框、文字色 | 120ms ease-out |
+| 行菜单 | 从触发器上/下边缘淡入 + 轻微缩放 | 120ms ease-out |
+| 弹窗 | 遮罩淡入 + 面板 0.985 → 1 | 150ms ease-out |
+| 设置区切换 | 内容淡入，不动布局 | 140ms ease-out |
+| details 展开 | 内容淡入 | 120ms ease-out |
+| 移动抽屉 | 从右滑入 | 200ms ease-out |
+
+- 只动 `transform` / `opacity` 和颜色；不动 `width` / `height` / `top` / `left`。
+- 不使用 `transition: all`、`scale(0)` 入场、UI `ease-in`、弹跳或装饰性长动画。
+- 键盘高频操作（命令面板、导航折叠）保持即时；这是有意为之，不是遗漏。
+- 必须提供 `prefers-reduced-motion` 兜底，减少动态时保留即时状态切换。
 
 ## 无障碍与验收
 

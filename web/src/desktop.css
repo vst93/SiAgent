@@ -1170,3 +1170,16 @@ button {
 .command-panel {
   max-height: min(70vh, 500px);
 }
+
+/* Dialog chrome at desktop density. */
+.kb-dialog > header {
+  padding: 16px 18px 10px;
+}
+.kb-dialog > header h2,
+.confirmation-heading h2 {
+  font-size: 16px;
+  letter-spacing: -0.1px;
+}
+.confirmation-dialog {
+  padding: 18px;
+}

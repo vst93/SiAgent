@@ -55,6 +55,11 @@
   --shadow-1: 0 1px 2px rgba(16, 24, 20, 0.05);
   --shadow-2: 0 14px 32px rgba(16, 24, 20, 0.12), 0 1px 3px rgba(16, 24, 20, 0.06);
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-press: 120ms;
+  --dur-hover: 120ms;
+  --dur-overlay: 150ms;
   font-size: 13px;
   line-height: 1.6;
 }

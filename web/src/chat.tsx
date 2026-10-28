@@ -1039,7 +1039,9 @@ const [search, setSearch] = useState("");
       {!!snapshot?.messages.length && (
         <button
           type="button"
-          className="chat-copy-transcript"
+          className={`chat-copy-transcript${
+            copied === "transcript" ? " is-copied" : ""
+          }`}
           title="复制整段对话为 Markdown"
           onClick={() => void copy("transcript", transcript(), "复制失败，请手动选择文本。")}
         >
@@ -1210,7 +1212,9 @@ const [search, setSearch] = useState("");
           <div className="chat-history-actions">
             <button
               type="button"
-              className="chat-copy-transcript"
+              className={`chat-copy-transcript${
+            copied === "transcript" ? " is-copied" : ""
+          }`}
               disabled={!snapshot?.messages.length}
               onClick={() =>
                 void copy("transcript", transcript(), "复制失败，请手动选择文本。")
@@ -1371,7 +1375,11 @@ const [search, setSearch] = useState("");
                               <span className="message-actions">
                                 <button
                                   type="button"
-                                  className="message-action"
+                                  className={`message-action${
+                                    copied === `message-${message.id}`
+                                      ? " is-copied"
+                                      : ""
+                                  }`}
                                   aria-label={
                                     copied === `message-${message.id}`
                                       ? "已复制这条消息"
@@ -1442,7 +1450,11 @@ const [search, setSearch] = useState("");
                                 思考摘要
                                 <button
                                   type="button"
-                                  className="message-action"
+                                  className={`message-action${
+                                    copied === `thinking-${message.id}`
+                                      ? " is-copied"
+                                      : ""
+                                  }`}
                                   aria-label="复制思考摘要"
                                   title="复制思考摘要"
                                   onClick={(event) => {

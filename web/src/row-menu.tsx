@@ -39,6 +39,7 @@ export function RowMenu({
     top: number;
     left: number;
     maxHeight: number;
+    origin: "top" | "bottom";
   } | null>(null);
 
   function locate() {
@@ -57,7 +58,7 @@ export function RowMenu({
     let left = align === "end" ? rect.right - width : rect.left;
     left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
     const maxHeight = Math.max(160, openUp ? above - 4 : below - 4);
-    setPlacement({ top, left, maxHeight });
+    setPlacement({ top, left, maxHeight, origin: openUp ? "bottom" : "top" });
   }
 
   useLayoutEffect(() => {
@@ -136,6 +137,7 @@ export function RowMenu({
             className="row-menu"
             role="menu"
             aria-label={label}
+            data-origin={placement?.origin ?? "top"}
             ref={menu}
             style={
               placement
