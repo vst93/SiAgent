@@ -11,6 +11,17 @@ import (
 	agentruntime "siagent/internal/runtime"
 )
 
+type runUsagePayload struct {
+	Input      int64   `json:"input"`
+	Output     int64   `json:"output"`
+	CacheRead  int64   `json:"cache_read"`
+	CacheWrite int64   `json:"cache_write"`
+	Total      int64   `json:"total"`
+	Cost       float64 `json:"cost"`
+	Reported   bool    `json:"reported"`
+	Model      string  `json:"model"`
+}
+
 var citationMarker = regexp.MustCompile(`\[(\d{1,3})\]`)
 
 // splitClaims splits an answer into sentence-like claims for the evidence map.
@@ -189,6 +200,7 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 	message := ""
 	data := map[string]any{}
 	staged := false
+	var usage *runUsagePayload
 	switch event.Type {
 	case "thinking_delta":
 		var payload struct {
@@ -230,11 +242,13 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 	case "run_completed":
 		status = "completed"
 		var payload struct {
-			Answer *string `json:"answer"`
+			Answer *string          `json:"answer"`
+			Usage  *runUsagePayload `json:"usage"`
 		}
 		if err := json.Unmarshal(event.Data, &payload); err != nil {
 			return err
 		}
+		usage = payload.Usage
 		if payload.Answer != nil {
 			answerText := *payload.Answer
 			// Safety net for a Runtime that predates inline-reasoning filtering: the
@@ -261,11 +275,13 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 	case "run_failed":
 		status = "failed"
 		var payload struct {
-			ErrorCode string `json:"error_code"`
+			ErrorCode string           `json:"error_code"`
+			Usage     *runUsagePayload `json:"usage"`
 		}
 		if err := json.Unmarshal(event.Data, &payload); err != nil {
 			return err
 		}
+		usage = payload.Usage
 		message = "模型请求未完成，请检查服务地址、模型名称、密钥权限和额度。已产生的内容会保留。"
 		switch payload.ErrorCode {
 		case "auth":
@@ -295,8 +311,20 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 	case "run_interrupted":
 		status = "interrupted"
 		message = "运行已中断，工具操作的结果可能不明；请核对已有内容和外部系统。"
+		var payload struct {
+			Usage *runUsagePayload `json:"usage"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err == nil {
+			usage = payload.Usage
+		}
 	case "run_cancelled":
 		status = "cancelled"
+		var payload struct {
+			Usage *runUsagePayload `json:"usage"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err == nil {
+			usage = payload.Usage
+		}
 	case "run_cancelling":
 		status = "cancelling"
 		if _, err = tx.Exec("UPDATE runs SET cancel_started=CASE WHEN cancel_started=0 THEN ? ELSE cancel_started END WHERE id=?", time.Now().UnixMilli(), runID); err != nil {
@@ -380,6 +408,11 @@ func (s *Server) HandleEvent(event agentruntime.Event) error {
 	// A release acknowledgement must not erase a known terminal error.
 	if terminal(status) && event.Type == "run_released" && message == "" {
 		if err := tx.QueryRow("SELECT error FROM runs WHERE id=?", runID).Scan(&message); err != nil {
+			return err
+		}
+	}
+	if usage != nil {
+		if err := recordRunUsage(tx, runID, usage); err != nil {
 			return err
 		}
 	}

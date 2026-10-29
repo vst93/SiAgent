@@ -496,6 +496,27 @@ async function execute(req: Request, state: Active) {
       });
       publishAnswers();
     };
+    const usage = {
+      input: 0,
+      output: 0,
+      cache_read: 0,
+      cache_write: 0,
+      total: 0,
+      cost: 0,
+      reported: false,
+      model: "",
+    };
+    const addUsage = (value: any, model?: string) => {
+      if (!value) return;
+      usage.reported = true;
+      usage.input += value.input ?? 0;
+      usage.output += value.output ?? 0;
+      usage.cache_read += value.cacheRead ?? 0;
+      usage.cache_write += value.cacheWrite ?? 0;
+      usage.total += value.totalTokens ?? 0;
+      usage.cost += value.cost?.total ?? 0;
+      if (model) usage.model = model;
+    };
     events.start(async (batch) => {
       for (const event of batch) {
         if (event.type === "snapshot") {
@@ -538,7 +559,10 @@ async function execute(req: Request, state: Active) {
           publishThinking();
         } else if (event.type === "message_end") {
           const message = event.entry.model?.[0];
-          if (message?.role === "assistant") replace(message.content);
+          if (message?.role === "assistant") {
+            addUsage(message.usage, message.model);
+            replace(message.content);
+          }
         } else if (
           event.type === "compaction_start" ||
           event.type === "compaction_end"
@@ -610,6 +634,7 @@ async function execute(req: Request, state: Active) {
           .run(status, runID);
         runEvent(runID, req.request_id, `run_${status}`, {
           error_code: control.failure,
+          usage,
         });
         return;
       }
@@ -688,6 +713,7 @@ async function execute(req: Request, state: Active) {
       runEvent(runID, req.request_id, `run_${status}`, {
         entries: entriesTruncated ? [] : currentEntries,
         ...(entriesTruncated ? { entries_truncated: true } : {}),
+        usage,
         answer,
         error_code:
           status === "failed" ? (control.failure ?? errorCode) : undefined,

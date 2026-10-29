@@ -1,0 +1,580 @@
+/* Token usage: a quiet workbench dashboard, not a marketing analytics page. */
+
+.usage-workspace {
+  min-width: 0;
+}
+
+.usage-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.usage-presets {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+}
+
+.usage-presets button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.usage-presets button:last-child {
+  border-right: 0;
+}
+
+.usage-presets button:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.usage-presets button.selected {
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+  box-shadow: none;
+}
+
+.usage-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.usage-range-label,
+.usage-updating {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.usage-updating {
+  color: var(--teal-strong);
+}
+
+.usage-custom-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.usage-custom-range label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.usage-custom-range input {
+  width: 116px;
+  min-height: 28px;
+  margin: 0;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.usage-custom-range button {
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
+.usage-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.usage-error button {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.usage-loading {
+  display: grid;
+  gap: 8px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.usage-loading span {
+  display: block;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.usage-loading span:nth-child(1) {
+  width: 32%;
+}
+
+.usage-loading span:nth-child(2) {
+  width: 62%;
+}
+
+.usage-loading span:nth-child(3) {
+  width: 46%;
+}
+
+.usage-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.usage-metrics > div {
+  min-width: 0;
+  padding: 12px 14px 11px;
+  border-right: 1px solid var(--line);
+}
+
+.usage-metrics > div:last-child {
+  border-right: 0;
+}
+
+.usage-metrics span {
+  display: block;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.usage-metrics strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-strong);
+  font-family: var(--font-mono);
+  font-size: 21px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.usage-metrics small {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 9.5px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-metrics small span {
+  display: inline;
+  white-space: nowrap;
+}
+
+.usage-panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.usage-trend {
+  margin-top: 12px;
+}
+
+.usage-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.usage-panel-head > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.usage-panel-head h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.usage-panel-head > span,
+.usage-panel-head > div:first-child > span {
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.usage-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.usage-legend span:before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+}
+
+.usage-legend-input:before {
+  background: var(--teal-soft);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.usage-legend-cache:before {
+  background: var(--line-strong);
+}
+
+.usage-legend-output:before {
+  background: var(--teal);
+}
+
+.usage-chart {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  grid-template-rows: 200px 18px;
+  gap: 0 8px;
+  padding: 14px 14px 10px;
+}
+
+.usage-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  height: 200px;
+  padding-bottom: 1px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-plot {
+  position: relative;
+  min-width: 0;
+  height: 200px;
+}
+
+.usage-grid {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.usage-grid i {
+  display: block;
+  width: 100%;
+  border-top: 1px solid var(--line);
+}
+
+.usage-bars {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 200px;
+}
+
+.usage-chart-column {
+  display: flex;
+  align-items: flex-end;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+}
+
+.usage-chart-bar {
+  display: flex;
+  flex-direction: column-reverse;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 2px 2px 0 0;
+}
+
+.usage-chart-input {
+  display: block;
+  min-height: 0;
+  background: var(--teal-soft);
+}
+
+.usage-chart-cache {
+  display: block;
+  min-height: 0;
+  background: var(--line-strong);
+}
+
+.usage-chart-output {
+  display: block;
+  min-height: 0;
+  background: var(--teal);
+}
+
+.usage-chart-labels {
+  position: relative;
+  grid-column: 2;
+  min-width: 0;
+  height: 18px;
+  padding-top: 5px;
+}
+
+.usage-chart-labels span {
+  position: absolute;
+  top: 5px;
+  transform: translateX(-50%);
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.usage-chart-labels span.first {
+  transform: none;
+}
+
+.usage-chart-labels span.last {
+  transform: translateX(-100%);
+}
+
+.usage-empty {
+  margin: 0;
+  padding: 18px 14px;
+  color: var(--faint);
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.usage-tables {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 11.5px;
+}
+
+.usage-table th,
+.usage-table td {
+  padding: 7px 12px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-table th {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.usage-table th:nth-child(2),
+.usage-table th:nth-child(3),
+.usage-table td:nth-child(2),
+.usage-table td:nth-child(3) {
+  width: 72px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-table td:nth-child(3) {
+  color: var(--ink-strong);
+}
+
+.usage-table tbody tr {
+  border-top: 1px solid var(--line);
+}
+
+.usage-table tbody tr:hover {
+  background: var(--surface);
+}
+
+.usage-table tbody td:first-child {
+  color: var(--ink);
+}
+
+.usage-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 12px 0 0;
+  color: var(--faint);
+  font-size: 9.5px;
+  line-height: 1.6;
+}
+
+.usage-note .ui-icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+@media (max-width: 900px) {
+  .usage-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .usage-metrics > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .usage-metrics > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .usage-tables {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .usage-toolbar {
+    align-items: stretch;
+  }
+
+  .usage-presets {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .usage-presets::-webkit-scrollbar {
+    display: none;
+  }
+
+  .usage-presets button {
+    flex: 1 0 auto;
+    padding: 0 8px;
+    white-space: nowrap;
+  }
+
+  .usage-range {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .usage-range-label {
+    font-size: 9px;
+  }
+
+  .usage-custom-range {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .usage-custom-range label {
+    flex: 1 1 130px;
+  }
+
+  .usage-custom-range input {
+    flex: 1;
+    width: auto;
+    font-size: 16px;
+  }
+
+  .usage-chart {
+    grid-template-columns: 36px minmax(0, 1fr);
+    grid-template-rows: 150px 18px;
+    padding: 10px 10px 8px;
+  }
+
+  .usage-axis,
+  .usage-plot,
+  .usage-bars {
+    height: 150px;
+  }
+
+  .usage-chart-labels span {
+    font-size: 7.5px;
+  }
+
+  .usage-panel-head {
+    padding: 0 10px;
+  }
+
+  .usage-panel-head > div:first-child {
+    gap: 6px;
+  }
+
+  .usage-table th,
+  .usage-table td {
+    padding: 6px 8px;
+  }
+
+  .usage-table th:nth-child(2),
+  .usage-table th:nth-child(3),
+  .usage-table td:nth-child(2),
+  .usage-table td:nth-child(3) {
+    width: 60px;
+  }
+}

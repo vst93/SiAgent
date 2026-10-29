@@ -28,6 +28,9 @@ export type Conversation = {
   sender_name?: string;
   last_activity: number;
   turn_count: number;
+  usage_input: number;
+  usage_output: number;
+  usage_total: number;
   scope?: "group" | "member";
   last_sender?: string;
   last_sender_name?: string;
@@ -50,6 +53,12 @@ export function contactTarget(item: Conversation) {
     ? item.channel_group ?? ""
     : item.channel_sender ?? "";
 }
+function compactTokens(value: number) {
+  if (value >= 10000) return `${Math.round(value / 1000)}k`;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  return String(value);
+}
+
 // relativeTime keeps the session list scannable: an absolute date on every row
 // would crowd out the title.
 function relativeTime(value: number) {
@@ -812,7 +821,7 @@ const [search, setSearch] = useState("");
         className={selected === item.id ? "conversation selected" : "conversation"}
         aria-current={selected === item.id ? "page" : undefined}
         key={item.id}
-        title={item.title}
+        title={`${item.title} · ${(item.usage_total ?? 0).toLocaleString("zh-CN")} tokens`}
         onClick={() => {
           selectConversation(item.id);
           setHistoryOpen(false);
@@ -1110,10 +1119,11 @@ const [search, setSearch] = useState("");
             {!!snapshot?.messages.length && (
               <span
                 className="chat-stats"
-                title="本会话的提问数与消息总数"
+                title={`本会话累计 ${(conversation?.usage_total ?? 0).toLocaleString("zh-CN")} tokens；未返回用量的调用按 0 记录。`}
               >
                 {snapshot.messages.filter((m) => m.role === "user").length} 轮
-                · {snapshot.messages.length} 条消息
+                · {snapshot.messages.length} 条消息 ·{" "}
+                {compactTokens(conversation?.usage_total ?? 0)} tokens
               </span>
             )}
           </div>

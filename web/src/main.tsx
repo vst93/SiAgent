@@ -30,6 +30,7 @@ import "@fontsource-variable/geist-mono";
 import "./style.css";
 import "./desktop.css";
 import "./motion.css";
+import "./usage.css";
 import {
   applyTheme,
   nextThemeMode,
@@ -454,8 +455,10 @@ function App() {
       .map(
         (item) =>
           `${item.id}:${item.last_activity || 0}:${item.turn_count || 0}:${
-            item.sender_name || ""
-          }:${item.group_name || ""}:${item.label_source || ""}`,
+            item.usage_total || 0
+          }:${item.sender_name || ""}:${item.group_name || ""}:${
+            item.label_source || ""
+          }`,
       )
       .join("|");
   }
@@ -859,7 +862,9 @@ function App() {
           <span className="titlebar-slash" aria-hidden="true">
             /
           </span>
-          <strong title={contextLabel}>{contextLabel}</strong>
+          <strong title={activeSection?.description ?? contextLabel}>
+            {contextLabel}
+          </strong>
         </div>
         <button
           type="button"
@@ -884,7 +889,15 @@ function App() {
           <Icon name="menu" size={18} />
         </button>
         <span className="mobile-title">
-          {navigation.page === "chat" ? "Agent 对话" : "配置"}
+          {navigation.page === "chat" ? (
+            "Agent 对话"
+          ) : (
+            <>
+              <span>配置</span>
+              <span aria-hidden="true"> · </span>
+              <span>{activeSection?.title}</span>
+            </>
+          )}
         </span>
         <button
           type="button"

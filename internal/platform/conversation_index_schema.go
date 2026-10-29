@@ -28,5 +28,8 @@ func (s *Store) migrateConversationIndexes() error {
 	if _, err := tx.Exec(conversationIndexSchema); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.migrateUsage()
 }

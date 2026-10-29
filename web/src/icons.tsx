@@ -34,6 +34,7 @@ import { PencilSimpleIcon } from "@phosphor-icons/react/dist/csr/PencilSimple";
 import { WarningCircleIcon } from "@phosphor-icons/react/dist/csr/WarningCircle";
 import { XIcon } from "@phosphor-icons/react/dist/csr/X";
 import { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight";
+import { ChartLineIcon } from "@phosphor-icons/react/dist/csr/ChartLine";
 import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
 import { CheckIcon } from "@phosphor-icons/react/dist/csr/Check";
 import { CircleHalfIcon } from "@phosphor-icons/react/dist/csr/CircleHalf";
@@ -59,6 +60,7 @@ const icons = {
   key: KeyIcon,
   package: PackageIcon,
   chat: ChatCircleIcon,
+  chart: ChartLineIcon,
   history: ClockCounterClockwiseIcon,
   more: DotsThreeIcon,
   file: FileTextIcon,

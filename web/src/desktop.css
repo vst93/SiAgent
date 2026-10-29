@@ -311,33 +311,6 @@
   grid-area: content;
 }
 
-/* Pane toolbars replace page-sized headings. */
-.configuration-heading {
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
-  min-height: var(--toolbar-h);
-  padding: 0 18px;
-}
-.configuration-heading h1 {
-  flex: 0 0 auto;
-  font-size: 14px;
-  font-weight: 650;
-  letter-spacing: -0.15px;
-}
-.configuration-heading > p:last-child {
-  display: block;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--faint);
-  font-size: 11.5px;
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  -webkit-line-clamp: unset;
-  -webkit-box-orient: initial;
-}
 .configuration-content {
   padding: 14px 20px 32px;
 }
@@ -833,17 +806,6 @@ button {
     flex: 1;
     min-height: 0;
   }
-  .configuration-heading {
-    min-height: 48px;
-    padding: 8px 14px;
-    gap: 8px;
-  }
-  .configuration-heading h1 {
-    font-size: 15px;
-  }
-  .configuration-heading > p:last-child {
-    display: none;
-  }
   .configuration-content {
     padding: 12px 14px 24px;
   }
@@ -1121,12 +1083,6 @@ button {
 .composer-note {
   font-size: 9.5px;
 }
-.configuration-heading {
-  justify-content: flex-start;
-}
-.configuration-heading h1 {
-  font-size: 15px;
-}
 .statusbar-command {
   display: inline-flex;
   align-items: center;
@@ -1182,4 +1138,54 @@ button {
 }
 .confirmation-dialog {
   padding: 18px;
+}
+
+/* One content column for every settings page. The page title lives in the
+   window bar; the content starts directly with its own pane, without a second
+   title row or a description strip. */
+.configuration-content {
+  padding: 16px 20px 32px;
+}
+.configuration-content > .agents-workspace,
+.configuration-content > .model-console,
+.configuration-content > .plugins-workspace,
+.configuration-content > .channels-workspace,
+.configuration-content > .knowledge-workspace,
+.configuration-content > .apikeys-workspace,
+.configuration-content > .extensions-workspace,
+.configuration-content > .usage-workspace,
+.configuration-content > .settings-page,
+.configuration-content > .api-docs {
+  width: 100%;
+  max-width: 1120px;
+  margin-inline: auto;
+}
+.api-docs {
+  max-width: none;
+}
+.settings-page {
+  max-width: none;
+}
+@media (max-width: 980px) {
+  .configuration-content {
+    padding: 12px 14px 24px;
+  }
+}
+
+/* The chat toolbar follows the reading column instead of hugging the window. */
+@media (min-width: 981px) {
+  .chat-header {
+    padding-inline: max(20px, calc((100% - 840px) / 2));
+  }
+}
+
+/* The API reference shares the page width, but prose keeps a readable measure. */
+.api-docs > p,
+.api-docs > ul,
+.api-docs > ol,
+.api-docs > h1,
+.api-docs > h2,
+.api-docs > h3,
+.api-docs > h4 {
+  max-width: 78ch;
 }

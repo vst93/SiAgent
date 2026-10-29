@@ -123,7 +123,7 @@ func (s *Server) MaintenanceTick(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, table := range []string{"run_sources", "run_events", "tool_calls"} {
+	for _, table := range []string{"run_sources", "run_events", "tool_calls", "run_usage"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE run_id IN (SELECT id FROM runs WHERE conversation_id=?)", conversation); err != nil {
 			return err
 		}

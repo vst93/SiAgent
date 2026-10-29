@@ -181,6 +181,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/knowledge/gaps/{id}/status", s.authorize(http.HandlerFunc(s.setGapStatus)))
 	mux.Handle("DELETE /api/knowledge/gaps/{id}", s.authorize(http.HandlerFunc(s.deleteGap)))
 	mux.Handle("GET /api/diagnostics", s.authorize(http.HandlerFunc(s.diagnostics)))
+	mux.Handle("GET /api/usage", s.authorize(http.HandlerFunc(s.usageSummary)))
 	mux.Handle("GET /api/skills", s.authorize(http.HandlerFunc(s.listSkills)))
 	mux.Handle("GET /api/skills/export", s.authorize(http.HandlerFunc(s.exportSkills)))
 	mux.Handle("POST /api/skills", s.authorize(http.HandlerFunc(s.importSkill)))

@@ -54,6 +54,10 @@ const model = createServer(async (req, res) => {
     res.write(
       `data: ${JSON.stringify({ id: "browser", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`,
     );
+  const sendUsage = () =>
+    res.write(
+      `data: ${JSON.stringify({ id: "browser", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [], usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20, prompt_tokens_details: { cached_tokens: 2 } } })}\n\n`,
+    );
   const question = messageText(body.messages.at(-1).content);
   modelInputs.push(question);
   if (question === "browser knowledge") {
@@ -72,6 +76,7 @@ const model = createServer(async (req, res) => {
       ],
     });
     send({}, "tool_calls");
+    sendUsage();
     res.end("data: [DONE]\n\n");
     return;
   }
@@ -93,6 +98,7 @@ const model = createServer(async (req, res) => {
       ],
     });
     send({}, "tool_calls");
+    sendUsage();
     res.end("data: [DONE]\n\n");
     return;
   }
@@ -103,6 +109,7 @@ const model = createServer(async (req, res) => {
         '## Markdown 渲染示例\n\n这是 **重点** 与 `inline code`。\n\n- 第一项\n- 第二项\n\n> 引用内容\n\n| 模块 | 状态 | 说明 |\n| --- | --- | --- |\n| 知识库 | 就绪 | 可检索 |\n\n```javascript\nconst message = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";\nconsole.log(message);\n```\n\n[安全链接](https://example.com) [危险链接](javascript:alert(1))\n\n![远程图片](https://example.invalid/image.png)\n\n<img src=x onerror=window.markdownPwned=true>\n<script>window.markdownPwned=true</script>',
     });
     send({}, "stop");
+    sendUsage();
     res.end("data: [DONE]\n\n");
     return;
   }
@@ -116,6 +123,7 @@ const model = createServer(async (req, res) => {
   }
   send({ content: "收到：" + question });
   send({}, "stop");
+  sendUsage();
   res.end("data: [DONE]\n\n");
 });
 model.listen(0, "127.0.0.1");
@@ -234,8 +242,7 @@ try {
         .click();
     }
     await page
-      .locator(".configuration-heading")
-      .getByRole("heading", { name, exact: true })
+      .locator(`.configuration-workspace[data-page-title="${name}"]`)
       .waitFor();
   };
   const chat = async () => {
@@ -400,8 +407,7 @@ try {
   await config("知识库");
   await page.goto(base);
   await page
-    .locator(".configuration-heading h1")
-    .filter({ hasText: "模型连接" })
+    .locator('.configuration-workspace[data-page-title="模型连接"]')
     .waitFor();
   assert.equal(
     await page
@@ -411,15 +417,13 @@ try {
   );
   await page.goto(base + "#/settings/system");
   await page
-    .locator(".configuration-heading h1")
-    .filter({ hasText: "运行与维护" })
+    .locator('.configuration-workspace[data-page-title="运行与维护"]')
     .waitFor();
   await config("Agent");
   await config("知识库");
   await page.goBack();
   await page
-    .locator(".configuration-heading h1")
-    .filter({ hasText: /^Agent$/ })
+    .locator('.configuration-workspace[data-page-title="Agent"]')
     .waitFor();
   await chat();
   await page
@@ -443,14 +447,12 @@ try {
   );
   await other.goto(base);
   await other
-    .locator(".configuration-heading h1")
-    .filter({ hasText: "知识库" })
+    .locator('.configuration-workspace[data-page-title="知识库"]')
     .waitFor();
   await other.goto(base + "#/settings/agents");
   await other.getByRole("link", { name: "打开默认页面", exact: true }).click();
   await other
-    .locator(".configuration-heading h1")
-    .filter({ hasText: "知识库" })
+    .locator('.configuration-workspace[data-page-title="知识库"]')
     .waitFor();
   await other.evaluate(() =>
     localStorage.setItem("siagent.default-page", "settings/invalid"),
@@ -475,8 +477,7 @@ try {
     .filter({ hasText: "浏览器未允许保存默认页面" })
     .waitFor();
   await other
-    .locator(".configuration-heading h1")
-    .filter({ hasText: "运行与维护" })
+    .locator('.configuration-workspace[data-page-title="运行与维护"]')
     .waitFor();
   await other.close();
   await page.getByRole("button", { name: "测试模型连接", exact: true }).click();
@@ -1461,6 +1462,7 @@ try {
   // place without a page reload or error.
   await page.locator(".chat-stats").waitFor();
   assert.match(await page.locator(".chat-stats").innerText(), /\d+ 轮/);
+  assert.match(await page.locator(".chat-stats").innerText(), /tokens/);
   await page.locator(".message.assistant").last().hover();
   await page
     .getByRole("button", { name: "复制这条消息" })
@@ -2583,8 +2585,7 @@ try {
   await page.locator(".command-input-row input").fill("知识");
   await page.keyboard.press("Enter");
   await page
-    .locator(".configuration-heading")
-    .getByRole("heading", { name: "知识库", exact: true })
+    .locator('.configuration-workspace[data-page-title="知识库"]')
     .waitFor();
   await page.keyboard.press("Control+K");
   await page.locator(".command-panel").waitFor();
@@ -2736,9 +2737,77 @@ try {
   );
   assert.equal(await page.evaluate(() => localStorage.getItem("siagent.theme")), "light");
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await config("用量统计");
+  await page.locator(".usage-workspace").waitFor();
+  await page.locator(".usage-metrics").waitFor();
+  assert(
+    (await page.locator(".usage-chart-column").count()) > 0,
+    "usage trend must render time buckets",
+  );
+  const totalTokens = Number(
+    (await page.locator(".usage-metrics strong").first().innerText()).replace(
+      /[^0-9]/g,
+      "",
+    ),
+  );
+  assert(totalTokens > 0, "usage totals must include provider-reported tokens");
+  assert.match(
+    await page.locator(".usage-metrics").innerText(),
+    /缓存/,
+    "cache usage must reach the dashboard",
+  );
+  await page.getByRole("button", { name: "近 7 天", exact: true }).click();
+  await page.waitForTimeout(300);
+  await page.locator(".usage-metrics").waitFor();
+  assert(
+    (await page.locator(".usage-table tbody tr").count()) > 0,
+    "usage breakdown must list models or conversations",
+  );
+  // Every settings page shares one content column; a second page header would
+  // reintroduce the duplicated title/description row.
+  const configLayouts = [];
+  for (const name of [
+    "Agent",
+    "知识库",
+    "技能与工具",
+    "模型连接",
+    "用量统计",
+    "渠道接入",
+    "扩展插件",
+    "集成接口",
+    "接口文档",
+    "运行与维护",
+  ]) {
+    await config(name);
+    const layout = await page.evaluate(() => {
+      const content = document.querySelector(".configuration-content");
+      const root = content?.firstElementChild;
+      const box = root?.getBoundingClientRect();
+      return {
+        x: box ? Math.round(box.x) : -1,
+        width: box ? Math.round(box.width) : -1,
+      };
+    });
+    configLayouts.push({ name, ...layout });
+  }
+  assert.equal(
+    new Set(configLayouts.map((item) => item.x)).size,
+    1,
+    `settings pages must share one left edge: ${JSON.stringify(configLayouts)}`,
+  );
+  assert.equal(
+    new Set(configLayouts.map((item) => item.width)).size,
+    1,
+    `settings pages must share one width: ${JSON.stringify(configLayouts)}`,
+  );
+  assert.equal(
+    await page.locator(".configuration-heading").count(),
+    0,
+    "settings must not repeat a page title/description row",
+  );
   assert.deepEqual(errors, []);
   console.log(
-    "Browser passed: Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, Chinese/English switch with reload persistence, no JS errors.",
+    "Browser passed: Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, provider-reported token usage in the chat header and usage dashboard with time filters/trend/breakdowns, Chinese/English switch with reload persistence, no JS errors.",
   );
 } finally {
   releaseHold();

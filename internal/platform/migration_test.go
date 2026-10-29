@@ -58,7 +58,7 @@ func TestVersionOneUpgradePreservesCredentialsAndHistory(t *testing.T) {
 	if err := store.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 31 {
+	if version != 32 {
 		t.Fatalf("wrong migration version: %d", version)
 	}
 	server, err := New(store, &fakeRuntime{}, func() bool { return true }, "")

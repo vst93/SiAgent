@@ -34,6 +34,11 @@ type Conversation struct {
 	// TurnCount counts user messages, which is what a reader thinks of as the
 	// number of questions in the conversation.
 	TurnCount int `json:"turn_count"`
+	// UsageInput, UsageOutput and UsageTotal are the all-time provider-reported
+	// token totals for this conversation. Missing usage is stored as zero.
+	UsageInput  int64 `json:"usage_input"`
+	UsageOutput int64 `json:"usage_output"`
+	UsageTotal  int64 `json:"usage_total"`
 	// Scope is the context isolation unit of a channel conversation: "group"
 	// when the whole group shares one context, "member" when each member has
 	// their own. It is empty for private chats and Web conversations.
@@ -101,6 +106,9 @@ const conversationColumns = `
    coalesce(ch.name,'') AS channel_name,
    coalesce((SELECT max(m.created) FROM messages m WHERE m.conversation_id=c.id), c.created) AS last_activity,
    (SELECT count(*) FROM messages m WHERE m.conversation_id=c.id AND m.role='user') AS turn_count,
+   coalesce((SELECT sum(u.input_tokens) FROM run_usage u WHERE u.conversation_id=c.id),0) AS usage_input,
+   coalesce((SELECT sum(u.output_tokens) FROM run_usage u WHERE u.conversation_id=c.id),0) AS usage_output,
+   coalesce((SELECT sum(u.total_tokens) FROM run_usage u WHERE u.conversation_id=c.id),0) AS usage_total,
    coalesce((SELECT i.member FROM channel_inbox i
      WHERE i.conversation_id=c.id ORDER BY i.created DESC, i.rowid DESC LIMIT 1),'') AS last_member
  FROM conversations c
@@ -172,7 +180,7 @@ func applyChannelNames(values []Conversation, names map[string]contactLabel) {
 func scanConversation(scan func(...any) error) (Conversation, error) {
 	var v Conversation
 	var lastMember string
-	err := scan(&v.ID, &v.Title, &v.Created, &v.AgentID, &v.ChannelID, &v.ChannelKind, &v.ChannelSender, &v.ChannelGroup, &v.ChannelName, &v.LastActivity, &v.TurnCount, &lastMember)
+	err := scan(&v.ID, &v.Title, &v.Created, &v.AgentID, &v.ChannelID, &v.ChannelKind, &v.ChannelSender, &v.ChannelGroup, &v.ChannelName, &v.LastActivity, &v.TurnCount, &v.UsageInput, &v.UsageOutput, &v.UsageTotal, &lastMember)
 	if err != nil {
 		return v, err
 	}
@@ -778,6 +786,9 @@ func (s *Server) enqueueRunWithAttachments(ctx context.Context, conversationID, 
 	}
 	defer tx.Rollback()
 	_, err = tx.Exec("INSERT INTO runs(id,conversation_id,status,config,credential,created) VALUES(?,?,'queued',?,?,?)", runID, conversationID, string(config), s.store.encrypt(string(credentials)), created)
+	if err == nil {
+		_, err = tx.Exec("INSERT INTO run_usage(run_id,conversation_id,agent_id,model,reported,created) VALUES(?,?,?,?,0,?)", runID, conversationID, agent.ID, model.Name, created)
+	}
 	if err == nil {
 		public := make([]Attachment, 0, len(attachments))
 		for _, item := range attachments {

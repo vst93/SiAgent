@@ -7,6 +7,7 @@ import { ExtensionsWorkspace } from "./extensions";
 import { ChannelsWorkspace } from "./channels";
 import { ExecutionSettings } from "./runtime-controls";
 import { ApiKeysWorkspace } from "./api-keys";
+import { UsageWorkspace } from "./usage";
 import { ApiDocsWorkspace } from "./api-docs";
 import { configSections, type ConfigSection, type Page } from "./navigation";
 import type { Language } from "./i18n";
@@ -36,12 +37,15 @@ export function Configuration({
 }) {
   const current = configSections.find((item) => item.id === section)!;
   return (
-    <section className="configuration-workspace" aria-label="配置工作区">
+    <section
+      className="configuration-workspace"
+      aria-label="配置工作区"
+      data-page={section}
+      data-page-title={current.title}
+    >
       <main className="configuration-main">
-        <header className="configuration-heading">
-          <h1 title={current.title}>{current.title}</h1>
-          <p title={current.description}>{current.description}</p>
-        </header>
+        <h1 className="sr-only">{current.title}</h1>
+        <p className="sr-only">{current.description}</p>
         <div className="configuration-content" key={section}>
           {section === "models" && (
             <ModelsWorkspace
@@ -63,6 +67,7 @@ export function Configuration({
           {section === "knowledge" && <KnowledgeWorkspace request={request} />}
           {section === "tools" && <PluginsWorkspace request={request} />}
           {section === "extensions" && <ExtensionsWorkspace request={request} />}
+          {section === "usage" && <UsageWorkspace request={request} />}
           {section === "channels" && (
             <ChannelsWorkspace
               request={request}

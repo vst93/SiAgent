@@ -33,6 +33,13 @@ export const configSections = [
     icon: "models",
   },
   {
+    id: "usage",
+    group: "模型与渠道",
+    title: "用量统计",
+    description: "查看模型调用的 token 消耗与趋势；未返回用量的调用按 0 记录。",
+    icon: "chart",
+  },
+  {
     id: "channels",
     group: "模型与渠道",
     title: "渠道接入",
