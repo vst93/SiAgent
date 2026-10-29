@@ -28,7 +28,10 @@ type ModelUsage = {
   model: string;
   input: number;
   output: number;
+  cache_read: number;
+  cache_write: number;
   total: number;
+  cost: number;
   calls: number;
 };
 
@@ -38,7 +41,10 @@ type ConversationUsage = {
   agent_id: string;
   input: number;
   output: number;
+  cache_read: number;
+  cache_write: number;
   total: number;
+  cost: number;
   calls: number;
   last_seen: number;
 };
@@ -53,7 +59,7 @@ type Summary = {
   conversations: ConversationUsage[];
 };
 
-type RangeKey = "7d" | "30d" | "90d" | "all" | "custom";
+type RangeKey = "today" | "yesterday" | "7d" | "30d" | "90d" | "all" | "custom";
 type Query = { from: number; to: number };
 
 const day = 24 * 60 * 60 * 1000;
@@ -62,6 +68,11 @@ const compactFormat = new Intl.NumberFormat("zh-CN", {
   notation: "compact",
   maximumFractionDigits: 1,
 });
+
+function formatCost(value: number) {
+  if (!value) return "$0";
+  return value < 1 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`;
+}
 
 function startOfDay(value: Date) {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate());
@@ -99,6 +110,12 @@ function parseDate(value: string, end: boolean) {
 
 function queryFor(key: RangeKey, from = "", to = ""): Query | null {
   const now = Date.now();
+  if (key === "today") return { from: startOfDay(new Date(now)).getTime(), to: now };
+  if (key === "yesterday") {
+    const value = new Date(now);
+    value.setDate(value.getDate() - 1);
+    return { from: startOfDay(value).getTime(), to: endOfDay(value).getTime() };
+  }
   if (key === "all") return { from: 0, to: now };
   if (key === "custom") {
     const start = parseDate(from, false);
@@ -150,8 +167,8 @@ function bucketName(bucket: Summary["bucket"]) {
 
 export function UsageWorkspace({ request }: { request: Api }) {
   const now = new Date();
-  const [preset, setPreset] = useState<RangeKey>("30d");
-  const [query, setQuery] = useState<Query | null>(() => queryFor("30d"));
+  const [preset, setPreset] = useState<RangeKey>("today");
+  const [query, setQuery] = useState<Query | null>(() => queryFor("today"));
   const [fromDate, setFromDate] = useState(dateInput(new Date(Date.now() - 29 * day)));
   const [toDate, setToDate] = useState(dateInput(now));
   const [data, setData] = useState<Summary | null>(null);
@@ -206,7 +223,7 @@ export function UsageWorkspace({ request }: { request: Api }) {
   const series = data?.series ?? [];
   const max = Math.max(...series.map((item) => item.total), 0);
   const axisMax = max || 1;
-  const step = Math.max(1, Math.ceil(series.length / 7));
+  const step = Math.max(1, Math.ceil(series.length / 6));
   const labelIndices: number[] = [];
   for (let index = 0; index < series.length; index += step) {
     labelIndices.push(index);
@@ -230,6 +247,8 @@ export function UsageWorkspace({ request }: { request: Api }) {
         <div className="usage-presets" role="group" aria-label="统计时间范围">
           {(
             [
+              ["today", "今日"],
+              ["yesterday", "昨日"],
               ["7d", "近 7 天"],
               ["30d", "近 30 天"],
               ["90d", "近 90 天"],
@@ -301,32 +320,22 @@ export function UsageWorkspace({ request }: { request: Api }) {
             <div>
               <span>总 tokens</span>
               <strong>{numberFormat.format(totals?.total ?? 0)}</strong>
-              <small>
-                {totals && totals.reported_calls < totals.calls ? (
-                  <>
-                    {totals.reported_calls}/{totals.calls}{" "}
-                    <span>次调用返回用量</span>
-                  </>
-                ) : (
-                  <>
-                    {totals?.calls ?? 0} <span>次调用</span>
-                  </>
-                )}
-                {!!(totals && totals.cache_read + totals.cache_write) && (
-                  <>
-                    {" · "}
-                    <span>缓存</span>
-                    {compactFormat.format(
-                      (totals?.cache_read ?? 0) + (totals?.cache_write ?? 0),
-                    )}
-                  </>
-                )}
-              </small>
+              <small>含缓存与工具轮次</small>
             </div>
             <div>
-              <span>输入</span>
+              <span>非缓存输入</span>
               <strong>{numberFormat.format(totals?.input ?? 0)}</strong>
               <small>提示与上下文</small>
+            </div>
+            <div>
+              <span>命中缓存</span>
+              <strong>{numberFormat.format(totals?.cache_read ?? 0)}</strong>
+              <small>读取已有前缀</small>
+            </div>
+            <div>
+              <span>缓存写入</span>
+              <strong>{numberFormat.format(totals?.cache_write ?? 0)}</strong>
+              <small>写入新前缀</small>
             </div>
             <div>
               <span>输出</span>
@@ -347,6 +356,16 @@ export function UsageWorkspace({ request }: { request: Api }) {
                 )}
               </small>
             </div>
+            <div>
+              <span>有计量调用</span>
+              <strong>{numberFormat.format(totals?.reported_calls ?? 0)}</strong>
+              <small>返回 usage 的调用</small>
+            </div>
+            <div>
+              <span>预估成本</span>
+              <strong>{formatCost(totals?.cost ?? 0)}</strong>
+              <small>USD · 未返回价格按 0</small>
+            </div>
           </section>
 
           <section className="usage-panel usage-trend" aria-label="Token 趋势">
@@ -354,12 +373,14 @@ export function UsageWorkspace({ request }: { request: Api }) {
               <div>
                 <h2>趋势</h2>
                 <span>
-                  {data ? bucketName(data.bucket) : "按天"} · {range}
+                  {data ? bucketName(data.bucket) : "按天"}
+                  <span className="usage-trend-range"> · {range}</span>
                 </span>
               </div>
               <div className="usage-legend" aria-hidden="true">
-                <span className="usage-legend-input">输入</span>
-                <span className="usage-legend-cache">缓存</span>
+                <span className="usage-legend-input">非缓存</span>
+                <span className="usage-legend-cache-hit">命中</span>
+                <span className="usage-legend-cache-write">写入</span>
                 <span className="usage-legend-output">输出</span>
               </div>
             </header>
@@ -384,10 +405,12 @@ export function UsageWorkspace({ request }: { request: Api }) {
                     <div
                       className="usage-chart-column"
                       key={item.start}
-                      title={`${bucketLabel(item.start, data?.bucket ?? "day")} · 输入 ${numberFormat.format(
+                      title={`${bucketLabel(item.start, data?.bucket ?? "day")} · 非缓存 ${numberFormat.format(
                         item.input,
-                      )} · 缓存 ${numberFormat.format(
-                        item.cache_read + item.cache_write,
+                      )} · 命中缓存 ${numberFormat.format(
+                        item.cache_read,
+                      )} · 缓存写入 ${numberFormat.format(
+                        item.cache_write,
                       )} · 输出 ${numberFormat.format(
                         item.output,
                       )} · 合计 ${numberFormat.format(item.total)}`}
@@ -406,8 +429,12 @@ export function UsageWorkspace({ request }: { request: Api }) {
                                 style={{ flex: item.input }}
                               />
                               <span
-                                className="usage-chart-cache"
-                                style={{ flex: item.cache_read + item.cache_write }}
+                                className="usage-chart-cache-hit"
+                                style={{ flex: item.cache_read }}
+                              />
+                              <span
+                                className="usage-chart-cache-write"
+                                style={{ flex: item.cache_write }}
                               />
                               <span
                                 className="usage-chart-output"
@@ -466,14 +493,27 @@ export function UsageWorkspace({ request }: { request: Api }) {
                       <th>模型</th>
                       <th>调用</th>
                       <th>tokens</th>
+                      <th>成本</th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.models.map((item) => (
-                      <tr key={item.model}>
+                      <tr
+                        key={item.model}
+                        title={`非缓存 ${numberFormat.format(
+                          item.input,
+                        )} · 命中缓存 ${numberFormat.format(
+                          item.cache_read,
+                        )} · 缓存写入 ${numberFormat.format(
+                          item.cache_write,
+                        )} · 输出 ${numberFormat.format(item.output)} · 成本 ${formatCost(
+                          item.cost,
+                        )}`}
+                      >
                         <td title={item.model}>{item.model}</td>
                         <td>{numberFormat.format(item.calls)}</td>
                         <td>{numberFormat.format(item.total)}</td>
+                        <td>{formatCost(item.cost)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -495,14 +535,27 @@ export function UsageWorkspace({ request }: { request: Api }) {
                       <th>会话</th>
                       <th>调用</th>
                       <th>tokens</th>
+                      <th>成本</th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.conversations.map((item) => (
-                      <tr key={item.id}>
+                      <tr
+                        key={item.id}
+                        title={`非缓存 ${numberFormat.format(
+                          item.input,
+                        )} · 命中缓存 ${numberFormat.format(
+                          item.cache_read,
+                        )} · 缓存写入 ${numberFormat.format(
+                          item.cache_write,
+                        )} · 输出 ${numberFormat.format(item.output)} · 成本 ${formatCost(
+                          item.cost,
+                        )}`}
+                      >
                         <td title={item.title}>{item.title}</td>
                         <td>{numberFormat.format(item.calls)}</td>
                         <td>{numberFormat.format(item.total)}</td>
+                        <td>{formatCost(item.cost)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -515,7 +568,7 @@ export function UsageWorkspace({ request }: { request: Api }) {
 
           <p className="usage-note">
             <Icon name="chart" size={14} />
-            数据来自模型服务返回的 usage；未返回用量的调用按 0 记录。缓存读写计入总 tokens，输入仅含非缓存部分。
+            数据来自模型服务返回的 usage；非缓存输入、命中缓存、缓存写入与输出分开统计。未返回用量时 tokens 按 0 记录；适配器未返回价格时成本按 0 记录。
           </p>
         </>
       )}

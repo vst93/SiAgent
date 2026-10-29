@@ -56,7 +56,7 @@ const model = createServer(async (req, res) => {
     );
   const sendUsage = () =>
     res.write(
-      `data: ${JSON.stringify({ id: "browser", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [], usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20, prompt_tokens_details: { cached_tokens: 2 } } })}\n\n`,
+      `data: ${JSON.stringify({ id: "browser", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [], usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20, prompt_tokens_details: { cached_tokens: 2, cache_write_tokens: 1 } } })}\n\n`,
     );
   const question = messageText(body.messages.at(-1).content);
   modelInputs.push(question);
@@ -2740,6 +2740,11 @@ try {
   await config("用量统计");
   await page.locator(".usage-workspace").waitFor();
   await page.locator(".usage-metrics").waitFor();
+  assert.equal(
+    await page.getByRole("button", { name: "今日", exact: true }).getAttribute("aria-pressed"),
+    "true",
+    "today must be the default usage range",
+  );
   assert(
     (await page.locator(".usage-chart-column").count()) > 0,
     "usage trend must render time buckets",
@@ -2751,10 +2756,37 @@ try {
     ),
   );
   assert(totalTokens > 0, "usage totals must include provider-reported tokens");
-  assert.match(
-    await page.locator(".usage-metrics").innerText(),
-    /缓存/,
-    "cache usage must reach the dashboard",
+  const cacheMetrics = await page.evaluate(() => {
+    const cells = [...document.querySelectorAll(".usage-metrics > div")];
+    const valueFor = (label) => {
+      const cell = cells.find(
+        (item) => item.querySelector(":scope > span")?.textContent?.trim() === label,
+      );
+      return {
+        value: Number(
+          (cell?.querySelector("strong")?.textContent ?? "0").replace(/[^0-9]/g, ""),
+        ),
+        text: cell?.querySelector("strong")?.textContent ?? "",
+      };
+    };
+    return {
+      hit: valueFor("命中缓存"),
+      write: valueFor("缓存写入"),
+      cost: valueFor("预估成本"),
+    };
+  });
+  assert(cacheMetrics.hit.value > 0, "cache hits must be counted separately");
+  assert(cacheMetrics.write.value > 0, "cache writes must be counted separately");
+  assert.match(cacheMetrics.cost.text, /\$0/, "unknown model prices must cost 0");
+  assert(
+    (await page.locator(".usage-table th").filter({ hasText: "成本" }).count()) > 0,
+    "usage breakdown must include a cost column",
+  );
+  await page.getByRole("button", { name: "昨日", exact: true }).click();
+  await page.waitForTimeout(300);
+  assert.equal(
+    await page.getByRole("button", { name: "昨日", exact: true }).getAttribute("aria-pressed"),
+    "true",
   );
   await page.getByRole("button", { name: "近 7 天", exact: true }).click();
   await page.waitForTimeout(300);
@@ -2807,7 +2839,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "Browser passed: Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, provider-reported token usage in the chat header and usage dashboard with time filters/trend/breakdowns, Chinese/English switch with reload persistence, no JS errors.",
+    "Browser passed: Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, provider-reported token usage in the chat header and usage dashboard with today/yesterday/time filters, cache hit/write/non-cache split, cost and trend/breakdowns, Chinese/English switch with reload persistence, no JS errors.",
   );
 } finally {
   releaseHold();

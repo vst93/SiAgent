@@ -30,22 +30,28 @@ type usageBucket struct {
 }
 
 type usageModel struct {
-	Model  string `json:"model"`
-	Input  int64  `json:"input"`
-	Output int64  `json:"output"`
-	Total  int64  `json:"total"`
-	Calls  int    `json:"calls"`
+	Model      string  `json:"model"`
+	Input      int64   `json:"input"`
+	Output     int64   `json:"output"`
+	CacheRead  int64   `json:"cache_read"`
+	CacheWrite int64   `json:"cache_write"`
+	Total      int64   `json:"total"`
+	Cost       float64 `json:"cost"`
+	Calls      int     `json:"calls"`
 }
 
 type usageConversation struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	AgentID  string `json:"agent_id"`
-	Input    int64  `json:"input"`
-	Output   int64  `json:"output"`
-	Total    int64  `json:"total"`
-	Calls    int    `json:"calls"`
-	LastSeen int64  `json:"last_seen"`
+	ID         string  `json:"id"`
+	Title      string  `json:"title"`
+	AgentID    string  `json:"agent_id"`
+	Input      int64   `json:"input"`
+	Output     int64   `json:"output"`
+	CacheRead  int64   `json:"cache_read"`
+	CacheWrite int64   `json:"cache_write"`
+	Total      int64   `json:"total"`
+	Cost       float64 `json:"cost"`
+	Calls      int     `json:"calls"`
+	LastSeen   int64   `json:"last_seen"`
 }
 
 type usageSummary struct {
@@ -203,7 +209,10 @@ func (s *Server) usageSummary(w http.ResponseWriter, r *http.Request) {
 		}
 		modelItem.Input += input
 		modelItem.Output += output
+		modelItem.CacheRead += cacheRead
+		modelItem.CacheWrite += cacheWrite
 		modelItem.Total += total
+		modelItem.Cost += cost
 		modelItem.Calls++
 
 		conversation := conversations[conversationID]
@@ -213,7 +222,10 @@ func (s *Server) usageSummary(w http.ResponseWriter, r *http.Request) {
 		}
 		conversation.Input += input
 		conversation.Output += output
+		conversation.CacheRead += cacheRead
+		conversation.CacheWrite += cacheWrite
 		conversation.Total += total
+		conversation.Cost += cost
 		conversation.Calls++
 		if created > conversation.LastSeen {
 			conversation.LastSeen = created

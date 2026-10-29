@@ -17,9 +17,9 @@ func TestUsageSummaryAndConversationTotals(t *testing.T) {
 		('usage-run-2',?,'completed','{}',2000)`, conversation, conversation); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.store.db.Exec(`INSERT INTO run_usage(run_id,conversation_id,agent_id,model,input_tokens,output_tokens,total_tokens,cost,reported,created) VALUES
-		('usage-run-1',?,'default','model-a',10,5,15,0.02,1,1000),
-		('usage-run-2',?,'default','',0,0,0,0,0,2000)`, conversation, conversation); err != nil {
+	if _, err := f.store.db.Exec(`INSERT INTO run_usage(run_id,conversation_id,agent_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,total_tokens,cost,reported,created) VALUES
+		('usage-run-1',?,'default','model-a',10,5,2,1,18,0.02,1,1000),
+		('usage-run-2',?,'default','',0,0,0,0,0,0,0,2000)`, conversation, conversation); err != nil {
 		t.Fatal(err)
 	}
 	response := f.request(t, "GET", "/api/usage?from=1&to=10000", nil, true, nil)
@@ -28,7 +28,7 @@ func TestUsageSummaryAndConversationTotals(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary.Totals.Input != 10 || summary.Totals.Output != 5 || summary.Totals.Total != 15 {
+	if summary.Totals.Input != 10 || summary.Totals.Output != 5 || summary.Totals.CacheRead != 2 || summary.Totals.CacheWrite != 1 || summary.Totals.Total != 18 || summary.Totals.Cost != 0.02 {
 		t.Fatalf("unexpected totals: %+v", summary.Totals)
 	}
 	if summary.Totals.Calls != 2 || summary.Totals.ReportedCalls != 1 {
@@ -37,10 +37,10 @@ func TestUsageSummaryAndConversationTotals(t *testing.T) {
 	if len(summary.Series) == 0 {
 		t.Fatal("expected a series bucket")
 	}
-	if len(summary.Models) != 2 || summary.Models[0].Model != "model-a" || summary.Models[0].Total != 15 {
+	if len(summary.Models) != 2 || summary.Models[0].Model != "model-a" || summary.Models[0].Total != 18 || summary.Models[0].CacheRead != 2 || summary.Models[0].CacheWrite != 1 || summary.Models[0].Cost != 0.02 {
 		t.Fatalf("unexpected models: %+v", summary.Models)
 	}
-	if len(summary.Conversations) != 1 || summary.Conversations[0].Total != 15 || summary.Conversations[0].Title != "新对话" {
+	if len(summary.Conversations) != 1 || summary.Conversations[0].Total != 18 || summary.Conversations[0].CacheRead != 2 || summary.Conversations[0].CacheWrite != 1 || summary.Conversations[0].Cost != 0.02 || summary.Conversations[0].Title != "新对话" {
 		t.Fatalf("unexpected conversations: %+v", summary.Conversations)
 	}
 
@@ -50,7 +50,7 @@ func TestUsageSummaryAndConversationTotals(t *testing.T) {
 	if err := json.Unmarshal(list.Body.Bytes(), &conversations); err != nil {
 		t.Fatal(err)
 	}
-	if len(conversations) != 1 || conversations[0].UsageTotal != 15 || conversations[0].UsageInput != 10 || conversations[0].UsageOutput != 5 {
+	if len(conversations) != 1 || conversations[0].UsageTotal != 18 || conversations[0].UsageInput != 10 || conversations[0].UsageOutput != 5 {
 		t.Fatalf("conversation usage missing: %+v", conversations)
 	}
 
