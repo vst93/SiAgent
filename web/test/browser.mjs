@@ -345,12 +345,26 @@ try {
   await fallback.locator(".new-chat").click();
   await fallback.getByLabel("发送给助手的消息").waitFor();
   await fallback.getByLabel("发送给助手的消息").fill("no event stream");
-  await fallback.waitForTimeout(600);
+  const fallbackSend = fallback.getByRole("button", {
+    name: "发送",
+    exact: true,
+  });
   assert.equal(
-    await fallback.getByRole("button", { name: "发送", exact: false }).isEnabled(),
+    await fallbackSend.isEnabled(),
     true,
     "a new conversation must be writable without SSE",
   );
+  await fallbackSend.click();
+  // With the stream unavailable the answer must still arrive over HTTP: the
+  // submit refreshes immediately and the fallback poll picks up the result.
+  await fallback
+    .locator(".message.user .message-text")
+    .filter({ hasText: "no event stream" })
+    .waitFor();
+  await fallback
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "收到：no event stream" })
+    .waitFor({ timeout: 20000 });
   await fallback.close();
   let remoteImageRequests = 0;
   page.on("request", (request) => {

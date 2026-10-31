@@ -535,6 +535,10 @@ function App() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [auth?.authenticated]);
+  // refreshSnapshot reloads the open conversation over HTTP. The event stream
+  // and the polling fallback both use it, and a submit calls it directly so the
+  // member sees their message without waiting for either channel.
+  const refreshSnapshot = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {
     setSnapshot(null);
     setConnectionLost(false);
@@ -569,15 +573,21 @@ function App() {
         ),
       );
     };
-    void api<Snapshot>(`/conversations/${encodeURIComponent(selected)}`)
-      .then(applySnapshot)
-      .catch((error) => {
-        if (subscribed) setError(errorText(error));
-      });
+    // Every frame carries a sequence-free full page, so the reader can compare
+    // and skip identical bodies without tracking server state.
+    const loadPage = () =>
+      api<Snapshot>(`/conversations/${encodeURIComponent(selected)}`)
+        .then(applySnapshot)
+        .catch((error) => {
+          if (subscribed) setError(errorText(error));
+        });
+    refreshSnapshot.current = () => void loadPage();
+    void loadPage();
     const source = new EventSource(
       appURL(`/api/conversations/${encodeURIComponent(selected)}/events`),
     );
     source.addEventListener("snapshot", (event) => {
+      lastEvent = Date.now();
       applySnapshot(
         JSON.parse((event as MessageEvent<string>).data) as Snapshot,
       );
@@ -587,9 +597,26 @@ function App() {
       setConnectionLost(true);
       void refreshAuth().catch(() => {});
     };
+    // A proxy that buffers responses never delivers SSE frames, and an idle
+    // conversation produces no frame at all. Without a fallback the answer to a
+    // question the member just asked would never appear, which reads as "cannot
+    // send". Poll only while the stream is silent, and only in a visible tab.
+    let lastEvent = Date.now();
+    const poll = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastEvent < 4000) return;
+      void loadPage();
+    }, 3000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadPage();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       subscribed = false;
+      refreshSnapshot.current = undefined;
       source.close();
+      window.clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [selected, auth?.authenticated]);
   async function createConversation() {
@@ -659,6 +686,9 @@ function App() {
       );
       setInput((current) => (current === submitted ? "" : current));
       setAttachments([]);
+      // Show the accepted message immediately even when no stream frame arrives
+      // (a buffering proxy, or a quiet conversation).
+      refreshSnapshot.current?.();
     } catch (error) {
       setError(errorText(error));
     } finally {
