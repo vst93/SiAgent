@@ -135,7 +135,7 @@ type runConfig struct {
 // dispatch runs under s.mu. A slot remains occupied until Runtime confirms all
 // work and storage are closed, even when its terminal message is already saved.
 func (s *Server) dispatch() error {
-	if s.stopping || s.schedulerCtx.Err() != nil || s.restarting || !s.ready() {
+	if s.stopping || s.schedulerCtx.Err() != nil || !s.ready() {
 		return nil
 	}
 	for {
@@ -302,6 +302,11 @@ func (s *Server) Tick(now time.Time) error {
 	if s.stopping {
 		return nil
 	}
+	// A restart that finished while an interrupted write had failed leaves the
+	// flag set; ready means the runtime is serving and the flag is stale.
+	if s.restarting && s.ready() {
+		s.restarting = false
+	}
 	if err := s.dispatch(); err != nil {
 		return err
 	}
@@ -354,10 +359,14 @@ func (s *Server) Tick(now time.Time) error {
 		if p.cancel > 0 && now.UnixMilli()-p.cancel >= 10000 && !s.restarting {
 			s.restarting = true
 			if err := s.interruptAll("未能确认当前操作停止，正在重启对话进程；操作结果不明，请核对外部系统。", false); err != nil {
+				// Keep the escalation retryable: leaving the flag set while the
+				// runtime was never restarted rejects every later message.
+				s.restarting = false
 				return err
 			}
 			if peer, ok := s.runtime.(interface{ Restart() error }); ok {
 				if err := peer.Restart(); err != nil {
+					s.restarting = false
 					return err
 				}
 			}

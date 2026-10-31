@@ -640,7 +640,9 @@ func (s *Server) enqueueRun(ctx context.Context, conversationID, input string, r
 
 func (s *Server) enqueueRunWithAttachments(ctx context.Context, conversationID, input string, receivedAt int64, attachmentIDs []string, admitted func(*sql.Tx, string) error) (Run, error) {
 
-	if s.stopping || !s.ready() || s.restarting {
+	// Readiness is the authoritative gate. A stale in-memory restart flag must
+	// not reject messages once the runtime is serving again; Tick heals it.
+	if s.stopping || !s.ready() {
 		return Run{}, &admissionError{503, "对话服务正在启动或恢复，请稍后重试。"}
 	}
 	var agentID string
