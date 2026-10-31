@@ -45,6 +45,9 @@ type Descriptor struct {
 	// Priority orders adapters in the console so the recommended entry stays
 	// first; legacy adapters always sort last regardless.
 	Priority int `json:"priority,omitempty"`
+	// Login reports that the adapter can complete an interactive vendor login
+	// (for example a QR scan) instead of requiring pasted credentials.
+	Login bool `json:"login,omitempty"`
 }
 type Config struct {
 	ID       string            `json:"id"`
@@ -106,6 +109,31 @@ type Provider interface {
 	Descriptor() Descriptor
 	Validate(Config) error
 	Open(context.Context, Config, Receive) (Connection, error)
+}
+
+// LoginStatus is one snapshot of an interactive login. Secrets are only read by
+// the platform when the channel is saved and are never returned to the browser.
+type LoginStatus struct {
+	// State is pending, scanned, confirmed, expired or failed.
+	State   string
+	Message string
+	Values  map[string]string
+	Secrets map[string]string
+}
+
+// LoginSession is one in-progress interactive login. The platform renders its
+// code in the console, polls Status and owns the lifecycle: Close is called when
+// the operator cancels, the session expires or the channel is saved.
+type LoginSession interface {
+	// QRCode returns the content to encode and an optional PNG image of it.
+	QRCode() (string, []byte)
+	Status() LoginStatus
+	Close()
+}
+
+// LoginProvider is the optional capability behind Descriptor.Login.
+type LoginProvider interface {
+	Login(context.Context) (LoginSession, error)
 }
 
 // Plugin creates a bundled provider without access to platform storage or runtime.

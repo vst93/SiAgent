@@ -546,7 +546,7 @@ Release workflow 的版本输入可留空，按最高有效版本标签递增补
 ## 飞书与微信渠道插件
 
 - [x] 新增随系统分发的 `feishu-bot`：官方 `@larksuiteoapi/node-sdk` 长连接（`WSClient` + `EventDispatcher`），字段仅 App ID/App Secret（可选开放平台域名）；单聊/群聊身份、文本/富文本/图片/语音转写入站、交互式卡片原地更新与资源暂存。
-- [x] 新增随系统分发的 `weixin`（微信个人号）：腾讯 ilink 机器人网关长轮询，`siagent weixin-login` 扫码获取令牌，文本/引用/语音转写入站、图片 AES-128-ECB 解密、回复上下文与限流分类。
+- [x] 新增随系统分发的 `weixin`（微信个人号）：腾讯 ilink 机器人网关长轮询，渠道页内直接扫码登录（`LoginProvider`，令牌只在服务端合并），并提供 `siagent weixin-login` 供无界面部署使用；文本/引用/语音转写入站、图片 AES-128-ECB 解密、回复上下文与限流分类。
 - [x] 新增随系统分发的 `qqbot`（QQ 官方机器人 API v2）：Node 进程封装 WebSocket 网关（AppAccessToken、心跳、重连/恢复）、群 @ 与私聊事件、图片附件下载、`msg_id`+`msg_seq` 被动回复与错误分类。
 - [x] 渠道插件框架补充每插件入口解析：`-channel-worker` 仍指向企微入口，其它内置进程插件从同目录 `plugins/<id>/worker.js` 加载；Node 侧抽出共用分帧模块 `runtime/src/plugins/frames.ts`。
 - [x] 测试：`runtime/test/channel-feishu.test.mjs` 与 `runtime/test/channel-qqbot.test.mjs` 用本地协议服务验证认证、事件标准化、卡片/回复、图片暂存、拒绝/未知分类与不重放；Go 侧覆盖 ilink 长轮询、扫码登录解析、媒体解密、平台通用链路与内置插件能力声明；完整 Go/Node 套件通过。

@@ -21,6 +21,15 @@ type Provider = {
   fields: Field[];
   identity_fields: string[];
   legacy?: boolean;
+  login?: boolean;
+};
+type ChannelLogin = {
+  id: string;
+  state: string;
+  message: string;
+  qr_url?: string;
+  qr_png?: string;
+  config?: Record<string, string>;
 };
 type Status = { state: string; message: string };
 type Channel = {
@@ -128,7 +137,74 @@ function ChannelEditor({
   const [confirmed, setConfirmed] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  // A QR login is started by the plugin, so the operator never copies a token.
+  // Secrets stay server-side; only non-secret values are filled into the form.
+  const [login, setLogin] = useState<ChannelLogin | null>(null);
+  const [loginID, setLoginID] = useState("");
+  const [loginPending, setLoginPending] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [manual, setManual] = useState(false);
   const provider = providers.find((value) => value.id === draft.provider);
+  const useLogin = !!provider?.login && !manual;
+  useEffect(() => {
+    if (!login || (login.state !== "pending" && login.state !== "scanned"))
+      return;
+    let stopped = false;
+    const timer = setInterval(async () => {
+      try {
+        const status = await request<ChannelLogin>(
+          `/channel-logins/${login.id}`,
+        );
+        if (stopped) return;
+        setLogin((current) =>
+          current && current.id === login.id ? { ...current, ...status } : current,
+        );
+        if (status.state === "confirmed" && status.config) {
+          setLoginID(login.id);
+          setDraft((current) => ({
+            ...current,
+            config: { ...current.config, ...status.config },
+          }));
+        }
+      } catch {
+        if (!stopped)
+          setLogin((current) =>
+            current && current.id === login.id
+              ? { ...current, state: "expired", message: "扫码登录已失效，请重新发起。" }
+              : current,
+          );
+      }
+    }, 1000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [login?.id, login?.state]);
+  function discardLogin() {
+    if (login) void request(`/channel-logins/${login.id}`, "DELETE").catch(() => {});
+    setLogin(null);
+    setLoginID("");
+    setLoginError("");
+  }
+  async function startLogin() {
+    setLoginPending(true);
+    setLoginError("");
+    try {
+      setLogin(
+        await request<ChannelLogin>("/channel-logins", "POST", {
+          provider: draft.provider,
+        }),
+      );
+    } catch (error) {
+      setLoginError(note(error));
+    } finally {
+      setLoginPending(false);
+    }
+  }
+  function closeEditor() {
+    if (login) void request(`/channel-logins/${login.id}`, "DELETE").catch(() => {});
+    onClose();
+  }
   async function save(event: FormEvent) {
     event.preventDefault();
     setPending(true);
@@ -145,9 +221,12 @@ function ChannelEditor({
           agent_id: draft.agent_id,
           enabled: draft.enabled,
           confirm: confirmed,
+          login_id: loginID || undefined,
         },
       );
       setSecrets({});
+      setLogin(null);
+      setLoginID("");
       onSaved(result);
     } catch (error) {
       setError(note(error));
@@ -159,7 +238,7 @@ function ChannelEditor({
     <SettingsDialog
       title={channel.id ? "编辑渠道" : "新增渠道"}
       pending={pending}
-      onClose={onClose}
+      onClose={closeEditor}
     >
       <form className="channel-editor" onSubmit={save}>
         <fieldset disabled={pending}>
@@ -169,6 +248,8 @@ function ChannelEditor({
             disabled={!!draft.id}
             value={draft.provider}
             onChange={(event) => {
+              discardLogin();
+              setManual(false);
               setDraft({ ...draft, provider: event.target.value, config: {} });
               setSecrets({});
               setError("");
@@ -213,59 +294,154 @@ function ChannelEditor({
               }
             />
           </label>
-          {provider?.fields.map((field) => (
-            <label key={field.key} htmlFor={`channel-field-${field.key}`}>
-              {field.label}
-              <input
-                id={`channel-field-${field.key}`}
-                aria-label={field.label}
-                aria-describedby={
-                  field.help ? `channel-help-${field.key}` : undefined
-                }
-                type={
-                  field.secret
-                    ? "password"
-                    : field.type === "number"
-                      ? "number"
-                      : "text"
-                }
-                autoComplete={field.secret ? "new-password" : "off"}
-                required={
-                  field.required && (!field.secret || !draft.has_secrets)
-                }
-                disabled={
-                  !!draft.id && provider.identity_fields.includes(field.key)
-                }
-                value={
-                  field.secret
-                    ? (secrets[field.key] ?? "")
-                    : (draft.config[field.key] ?? "")
-                }
-                placeholder={
-                  field.secret && draft.has_secrets
-                    ? "已保存，留空保留原值"
-                    : undefined
-                }
-                onChange={(event) =>
-                  field.secret
-                    ? setSecrets({
-                        ...secrets,
-                        [field.key]: event.target.value,
-                      })
-                    : setDraft({
-                        ...draft,
-                        config: {
-                          ...draft.config,
-                          [field.key]: event.target.value,
-                        },
-                      })
-                }
-              />
-              {field.help && (
-                <small id={`channel-help-${field.key}`}>{field.help}</small>
+          {useLogin && (
+            <div className="channel-login">
+              {!login && (
+                <>
+                  <p className="muted">
+                    用手机微信扫码即可完成登录；机器人 ID 与登录令牌由插件自动获取，无需手动填写。
+                  </p>
+                  <button
+                    type="button"
+                    disabled={loginPending || pending}
+                    onClick={() => void startLogin()}
+                  >
+                    {loginPending ? "正在生成二维码…" : "生成登录二维码"}
+                  </button>
+                </>
               )}
-            </label>
-          ))}
+              {login && (
+                <>
+                  {login.qr_png && login.state !== "confirmed" && (
+                    <img
+                      className="channel-login-qr"
+                      src={`data:image/png;base64,${login.qr_png}`}
+                      alt="微信登录二维码"
+                    />
+                  )}
+                  <p className="muted">
+                    {login.message || "等待扫码"}
+                    {login.state === "confirmed" &&
+                      draft.config.bot_id &&
+                      `（机器人 ID：${draft.config.bot_id}）`}
+                  </p>
+                  {login.qr_url &&
+                    login.state !== "confirmed" && (
+                      <small>
+                        二维码无法显示时，可用手机微信打开：
+                        <a
+                          href={login.qr_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          登录链接
+                        </a>
+                      </small>
+                    )}
+                  {login.state !== "confirmed" && (
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={discardLogin}
+                    >
+                      取消扫码
+                    </button>
+                  )}
+                </>
+              )}
+              {loginError && <p className="error">{loginError}</p>}
+              <button
+                type="button"
+                className="link-button"
+                disabled={pending}
+                onClick={() => {
+                  discardLogin();
+                  setManual(true);
+                }}
+              >
+                手动填写凭据
+              </button>
+            </div>
+          )}
+          {(!useLogin || loginID) &&
+            provider?.fields.map((field) => {
+              // A confirmed login supplies the secret and the identity values,
+              // so those inputs are locked instead of silently overwriting them.
+              const suppliedByLogin =
+                !!loginID &&
+                (field.secret || provider.identity_fields.includes(field.key));
+              return (
+                <label key={field.key} htmlFor={`channel-field-${field.key}`}>
+                  {field.label}
+                  <input
+                    id={`channel-field-${field.key}`}
+                    aria-label={field.label}
+                    aria-describedby={
+                      field.help ? `channel-help-${field.key}` : undefined
+                    }
+                    type={
+                      field.secret
+                        ? "password"
+                        : field.type === "number"
+                          ? "number"
+                          : "text"
+                    }
+                    autoComplete={field.secret ? "new-password" : "off"}
+                    required={
+                      field.required &&
+                      (!field.secret || !draft.has_secrets) &&
+                      !suppliedByLogin
+                    }
+                    disabled={
+                      suppliedByLogin ||
+                      (!!draft.id && provider.identity_fields.includes(field.key))
+                    }
+                    value={
+                      field.secret
+                        ? (secrets[field.key] ?? "")
+                        : (draft.config[field.key] ?? "")
+                    }
+                    placeholder={
+                      suppliedByLogin
+                        ? "扫码登录已获取"
+                        : field.secret && draft.has_secrets
+                          ? "已保存，留空保留原值"
+                          : undefined
+                    }
+                    onChange={(event) =>
+                      field.secret
+                        ? setSecrets({
+                            ...secrets,
+                            [field.key]: event.target.value,
+                          })
+                        : setDraft({
+                            ...draft,
+                            config: {
+                              ...draft.config,
+                              [field.key]: event.target.value,
+                            },
+                          })
+                    }
+                  />
+                  {field.help && (
+                    <small id={`channel-help-${field.key}`}>{field.help}</small>
+                  )}
+                </label>
+              );
+            })}
+          {provider?.login && manual && (
+            <button
+              type="button"
+              className="link-button"
+              disabled={pending}
+              onClick={() => {
+                discardLogin();
+                setManual(false);
+              }}
+            >
+              改用扫码登录
+            </button>
+          )}
           <label htmlFor="channel-agent">绑定 Agent</label>
           <select
             id="channel-agent"

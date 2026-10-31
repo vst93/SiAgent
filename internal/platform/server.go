@@ -40,6 +40,8 @@ type Server struct {
 	channelTests       map[string]bool
 	channelConnections channelConnections
 	channelWork        sync.Mutex
+	channelLogins      map[string]*channelLogin
+	channelLoginsMu    sync.Mutex
 	// drafts remembers when a run last staged a channel draft, so progressive
 	// updates stay throttled without touching the database per token.
 	drafts                map[string]draftMark
@@ -85,6 +87,7 @@ func New(store *Store, runtime Runtime, ready func() bool, publicURL string, opt
 	s.advancedToolsDisabled = advancedToolsDisabledConfig(options)
 	s.channelConnections.values = make(map[string]channelConnection)
 	s.channelTests = make(map[string]bool)
+	s.channelLogins = make(map[string]*channelLogin)
 	s.drafts = make(map[string]draftMark)
 	if err := s.ConfigureChannelAdapters("node", "runtime/dist/channel-wecom.js"); err != nil {
 		return nil, err
@@ -200,6 +203,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/channel-contacts", s.authorize(http.HandlerFunc(s.saveChannelContact)))
 	mux.Handle("DELETE /api/channel-contacts", s.authorize(http.HandlerFunc(s.deleteChannelContact)))
 	mux.Handle("POST /api/channel-deliveries/{delivery}/retry", s.authorize(http.HandlerFunc(s.retryChannelSend)))
+	mux.Handle("POST /api/channel-logins", s.authorize(http.HandlerFunc(s.startChannelLogin)))
+	mux.Handle("GET /api/channel-logins/{login}", s.authorize(http.HandlerFunc(s.channelLoginStatus)))
+	mux.Handle("DELETE /api/channel-logins/{login}", s.authorize(http.HandlerFunc(s.cancelChannelLogin)))
 	mux.Handle("GET /api/wecom/channels", s.authorize(http.HandlerFunc(s.listChannels)))
 	mux.Handle("POST /api/wecom/channels", s.authorize(http.HandlerFunc(s.saveChannel)))
 	mux.Handle("PUT /api/wecom/channels/{channel}", s.authorize(http.HandlerFunc(s.saveChannel)))

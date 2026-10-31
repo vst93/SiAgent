@@ -4728,6 +4728,35 @@ summary {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.channel-login {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-raised);
+}
+.channel-login p {
+  margin: 0;
+}
+.channel-login .channel-login-qr {
+  width: 216px;
+  height: 216px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #fff;
+  image-rendering: pixelated;
+}
+.channel-login .link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--teal);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .channel-callback {
   margin-top: 16px;
 }

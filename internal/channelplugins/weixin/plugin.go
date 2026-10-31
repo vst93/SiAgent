@@ -41,10 +41,11 @@ func (p *Provider) Descriptor() channels.Descriptor {
 		MaxTextBytes:   maxTextBytes,
 		Images:         true,
 		Priority:       80,
+		Login:          true,
 		IdentityFields: []string{"bot_id"},
 		Fields: []channels.Field{
-			{Key: "bot_id", Label: "机器人 ID", Required: true, Help: "运行 siagent weixin-login 扫码后输出；也用于区分多账号。"},
-			{Key: "token", Label: "登录令牌", Secret: true, Required: true, Help: "扫码登录输出的 bot_token；过期或被撤销后需重新扫码。"},
+			{Key: "bot_id", Label: "机器人 ID", Required: true, Help: "扫码登录后自动填写；也用于区分多账号。"},
+			{Key: "token", Label: "登录令牌", Secret: true, Required: true, Help: "由扫码登录在服务端写入，不在页面显示；失效后重新扫码。"},
 			{Key: "base_url", Label: "网关地址", Help: "留空使用 https://ilinkai.weixin.qq.com；网关返回其他地址时填写。"},
 			{Key: "cdn_base_url", Label: "媒体 CDN 地址", Help: "留空使用 https://novac2c.cdn.weixin.qq.com/c2c。"},
 			{Key: "route_tag", Label: "路由标签", Help: "运营商要求时填写；留空表示不发送 SKRouteTag。"},

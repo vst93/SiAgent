@@ -12,7 +12,7 @@ import (
 func TestDescriptorDeclaresPollingAndImages(t *testing.T) {
 	provider := New()
 	descriptor := provider.Descriptor()
-	if descriptor.ID != "weixin" || descriptor.Transport != "polling" || !descriptor.Images {
+	if descriptor.ID != "weixin" || descriptor.Transport != "polling" || !descriptor.Images || !descriptor.Login {
 		t.Fatalf("unexpected descriptor: %+v", descriptor)
 	}
 	if len(descriptor.IdentityFields) != 1 || descriptor.IdentityFields[0] != "bot_id" {

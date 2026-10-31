@@ -107,6 +107,9 @@ type channelInput struct {
 	AgentID  string            `json:"agent_id"`
 	Enabled  bool              `json:"enabled"`
 	Confirm  bool              `json:"confirm"`
+	// LoginID attaches a confirmed interactive login (QR scan). Its secrets are
+	// merged server-side and never travel through the browser.
+	LoginID string `json:"login_id"`
 }
 
 func (s *Server) saveGenericChannel(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +142,9 @@ func (s *Server) persistChannel(ctx context.Context, channelID string, input cha
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	bad := func(status int, message string) (Channel, error) { return Channel{}, &admissionError{status, message} }
+	if err := s.applyChannelLogin(&input); err != nil {
+		return Channel{}, err
+	}
 	if s.channelTests[channelID] {
 		return Channel{}, &admissionError{409, "渠道正在连接测试，请等待结束后再保存。"}
 	}
@@ -263,6 +269,9 @@ func (s *Server) persistChannel(ctx context.Context, channelID string, input cha
 	_, err := s.store.db.ExecContext(ctx, "INSERT INTO channels(id,name,provider,identity,config,agent_id,enabled,secrets,version,verified) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,config=excluded.config,agent_id=excluded.agent_id,enabled=excluded.enabled,secrets=excluded.secrets,version=excluded.version,verified=excluded.verified", channelID, name, input.Provider, identity, string(config), input.AgentID, input.Enabled, s.store.encrypt(string(raw)), version, verified)
 	if err != nil {
 		return Channel{}, err
+	}
+	if input.LoginID != "" {
+		s.retireChannelLogin(input.LoginID)
 	}
 	c, _, err := s.loadChannel(ctx, channelID)
 	return c, err
