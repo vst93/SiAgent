@@ -336,6 +336,22 @@ try {
     path: join(artifacts, "desktop.png"),
     fullPage: true,
   });
+  // A conversation must load over HTTP even when the live event stream is
+  // unavailable; otherwise the composer stays disabled forever.
+  const fallback = await page.context().newPage();
+  fallback.on("pageerror", (error) => errors.push(error.message));
+  await fallback.route("**/api/conversations/*/events", (route) => route.abort());
+  await fallback.goto(base);
+  await fallback.locator(".new-chat").click();
+  await fallback.getByLabel("发送给助手的消息").waitFor();
+  await fallback.getByLabel("发送给助手的消息").fill("no event stream");
+  await fallback.waitForTimeout(600);
+  assert.equal(
+    await fallback.getByRole("button", { name: "发送", exact: false }).isEnabled(),
+    true,
+    "a new conversation must be writable without SSE",
+  );
+  await fallback.close();
   let remoteImageRequests = 0;
   page.on("request", (request) => {
     if (request.url().startsWith("https://example.invalid/"))
@@ -575,6 +591,32 @@ try {
     path: join(artifacts, "updates-mobile.png"),
     fullPage: true,
   });
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.getByRole("button", { name: "打开导航", exact: true }).click();
+  await page.waitForTimeout(300);
+  const drawer = await page.evaluate(() => {
+    const menu = document.querySelector(".mobile-menu.open");
+    const nav = menu?.querySelector("nav");
+    const trigger = document.querySelector(".mobile-menu-button");
+    const rect = menu.getBoundingClientRect();
+    return {
+      left: rect.left,
+      triggerLeft: trigger.getBoundingClientRect().left,
+      overflowY: nav ? getComputedStyle(nav).overflowY : "",
+      scrollable: nav ? nav.scrollHeight > nav.clientHeight : false,
+    };
+  });
+  assert.equal(drawer.left, 0, "the drawer must open from the trigger side");
+  assert(drawer.triggerLeft < 60, "the menu trigger stays at the top-left");
+  assert.equal(drawer.overflowY, "auto", "the mobile navigation must scroll");
+  assert.equal(drawer.scrollable, true, "a phone cannot show every section at once");
+  const lastSection = page
+    .getByRole("navigation", { name: "移动导航" })
+    .getByRole("button")
+    .last();
+  await lastSection.scrollIntoViewIfNeeded();
+  assert.equal(await lastSection.isVisible(), true);
+  await page.getByRole("button", { name: "关闭导航", exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 1000 });
   let updatePhase = "ready";
   const updateFixture = () => ({

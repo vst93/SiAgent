@@ -6217,16 +6217,17 @@ details[open] > summary > .disclosure-icon {
     display: flex;
     position: fixed;
     top: 0;
-    right: 0;
+    left: 0;
     bottom: 0;
     z-index: 41;
     width: min(86vw, 340px);
-    padding: 14px 12px;
+    padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
     flex-direction: column;
     background: var(--paper);
-    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
     box-shadow: var(--shadow-2);
-    transform: translateX(100%);
+    /* The trigger sits at the top-left, so the drawer opens from the same edge. */
+    transform: translateX(-100%);
     transition: transform 0.18s var(--ease);
   }
   .mobile-menu.open {
@@ -6251,8 +6252,16 @@ details[open] > summary > .disclosure-icon {
   }
   .mobile-menu nav {
     display: grid;
+    flex: 1 1 auto;
+    min-height: 0;
+    /* A phone cannot show every section at once; the navigation scrolls and the
+       footer stays reachable instead of pushing the last item off-screen. */
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    align-content: start;
     gap: 2px;
     padding-top: 10px;
+    padding-bottom: 8px;
   }
   .mobile-menu nav button {
     justify-content: flex-start;
@@ -6276,6 +6285,7 @@ details[open] > summary > .disclosure-icon {
     color: var(--faint);
   }
   .mobile-menu-footer {
+    flex: 0 0 auto;
     margin-top: auto;
     padding-top: 12px;
     border-top: 1px solid var(--line);

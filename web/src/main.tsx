@@ -540,13 +540,11 @@ function App() {
     setConnectionLost(false);
     if (!selected || !auth?.authenticated) return;
     let subscribed = true;
-    const source = new EventSource(
-      appURL(`/api/conversations/${encodeURIComponent(selected)}/events`),
-    );
-    source.addEventListener("snapshot", (event) => {
-      const value = JSON.parse(
-        (event as MessageEvent<string>).data,
-      ) as Snapshot;
+    // The detail view must not depend on the event stream: a reverse proxy may
+    // buffer SSE (or the stream may fail), which used to leave a conversation
+    // permanently "loading" and disabled the send button. Read the page over
+    // HTTP first and treat the stream as a live-update channel.
+    const applySnapshot = (value: Snapshot) => {
       if (!subscribed || value.conversation.id !== selected) return;
       setSnapshot(value);
       setConnectionLost(false);
@@ -569,6 +567,19 @@ function App() {
               }
             : item,
         ),
+      );
+    };
+    void api<Snapshot>(`/conversations/${encodeURIComponent(selected)}`)
+      .then(applySnapshot)
+      .catch((error) => {
+        if (subscribed) setError(errorText(error));
+      });
+    const source = new EventSource(
+      appURL(`/api/conversations/${encodeURIComponent(selected)}/events`),
+    );
+    source.addEventListener("snapshot", (event) => {
+      applySnapshot(
+        JSON.parse((event as MessageEvent<string>).data) as Snapshot,
       );
     });
     source.onerror = () => {
