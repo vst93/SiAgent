@@ -15,12 +15,17 @@ flowchart LR
 
 ## 随系统分发的插件
 
-`internal/channels` 提供 `Plugin` 工厂、`Provider` 收发接口和可选的 `WebhookProvider` / `CredentialTester` 接口。`internal/channelplugins/bundled.go` 是默认插件清单，负责组装以下两个插件：
+`internal/channels` 提供 `Plugin` 工厂、`Provider` 收发接口和可选的 `WebhookProvider` / `CredentialTester` 接口。`internal/channelplugins/bundled.go` 是默认插件清单，负责组装以下插件：
 
 | 插件 | 位置 | 职责 |
 | --- | --- | --- |
 | `wecom-bot` | `internal/channelplugins/wecombot/`、`runtime/src/plugins/wecom-bot/worker.ts` | 字段声明、官方 SDK 长连接、消息标准化、流式回复与回执 |
+| `feishu-bot` | `internal/channelplugins/feishubot/`、`runtime/src/plugins/feishu-bot/worker.ts` | 字段声明、官方 SDK 长连接、事件标准化、卡片原地更新与资源下载 |
+| `weixin` | `internal/channelplugins/weixin/` | 字段声明、ilink 长轮询、扫码登录凭据、消息/图片/引用解析、媒体解密与发送分类 |
+| `qqbot` | `internal/channelplugins/qqbot/`、`runtime/src/plugins/qqbot/worker.ts` | 字段声明、QQ Bot API v2 网关（认证/心跳/重连）、事件标准化、附件下载与被动回复 |
 | `wecom-app` | `internal/channelplugins/wecomapp/` | 字段声明、凭据测试、回调签名/AES 校验、消息解析、访问凭据缓存与发送 |
+
+三个进程插件（企微机器人、飞书、QQ）共用 `runtime/src/plugins/frames.ts` 的协议框架（行分帧、字节上限、关闭语义），各自的 worker 只负责厂商 SDK 与平台消息之间的转换。`-channel-worker` 仍指向企微机器人入口；其它内置进程插件从同一目录的 `plugins/<插件 ID>/worker.js` 加载，因此发布包无需为每个插件增加启动参数。
 
 平台启动通过 `ConfigureChannelAdapters` 加载默认清单和数据目录的外部进程插件。自定义宿主可以在启动工作线程前调用 `ConfigureChannelPlugins(node, workerScript, plugins)` 选择其他插件集合；传入空集合可只加载外部进程插件。宿主内插件编译时随程序分发，新增此类插件需重新构建；外部 Node 进程插件按下节安装，无需修改平台代码或重新编译。
 
@@ -164,7 +169,7 @@ stdin/stdout 使用一行一个 JSON 对象，每帧 `v:1`，最多 256 KiB。st
 
 `runtime/src/plugins/wecom-bot/worker.ts` 是官方 SDK 的薄封装，包含认证、消息标准化、`replyStream` 调用、回执分类、背压上限和 EOF 清理。它不导入 Pi 模型或 Agent API。SDK 的网络重连与平台的业务重试相互独立。
 
-`runtime/test/channel-wecom.test.mjs` 使用真实 SDK 与本地 WebSocket 协议服务验证订阅、回复、重连不重放。`TestInstalledProcessAdapterUsesCoreWithoutVendorSpecificRoutes` 安装一个独立清单及进程入口，通过同一管理 API、会话隔离、调度和投递流程运行，验证新增渠道不需要增加数据库表或专属配置页面。
+`runtime/test/channel-wecom.test.mjs`、`runtime/test/channel-feishu.test.mjs` 与 `runtime/test/channel-qqbot.test.mjs` 分别使用真实企微/飞书 SDK、QQ 网关协议与本地协议服务验证订阅、回复、卡片更新、资源下载、错误分类与重连不重放。微信个人号以 Go 进程内长轮询实现，协议与凭据测试见 `internal/channelplugins/weixin/`。`TestInstalledProcessAdapterUsesCoreWithoutVendorSpecificRoutes` 安装一个独立清单及进程入口，通过同一管理 API、会话隔离、调度和投递流程运行，验证新增渠道不需要增加数据库表或专属配置页面。
 
 OpenClaw、Pi Coding Agent 等工具的宿主插件接口与本协议不同。可复用其独立连接器或 SDK，另加薄协议封装；不能承诺直接安装任意宿主插件即可运行。
 

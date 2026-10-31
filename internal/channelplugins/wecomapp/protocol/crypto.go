@@ -2,87 +2,29 @@
 package wecom
 
 import (
-	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/sha1"
-	"crypto/subtle"
-	"encoding/base64"
-	"encoding/binary"
-	"encoding/hex"
 	"encoding/xml"
-	"errors"
-	"io"
-	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"siagent/internal/channelplugins/wxcrypt"
 )
 
-var ErrInvalid = errors.New("invalid WeCom callback")
+var ErrInvalid = wxcrypt.ErrInvalid
 
-type Cryptor struct {
-	token, corp string
-	key         []byte
-}
+// Cryptor is the shared WXBizMsgCrypt implementation. WeCom binds the
+// encrypted payload to the enterprise CorpID.
+type Cryptor = wxcrypt.Cryptor
 
 func NewCryptor(token, key, corp string) (*Cryptor, error) {
-	decoded, err := base64.StdEncoding.DecodeString(key + "=")
-	if err != nil || len(key) != 43 || len(decoded) != 32 || len(token) < 1 || len(token) > 256 || strings.ContainsAny(token, "\x00\r\n") || corp == "" {
-		return nil, ErrInvalid
-	}
-	return &Cryptor{token: token, corp: corp, key: decoded}, nil
+	return wxcrypt.New(token, key, corp)
 }
+
 func Signature(token, timestamp, nonce, encrypted string) string {
-	parts := []string{token, timestamp, nonce, encrypted}
-	slices.Sort(parts)
-	digest := sha1.Sum([]byte(strings.Join(parts, "")))
-	return hex.EncodeToString(digest[:])
+	return wxcrypt.Signature(token, timestamp, nonce, encrypted)
 }
-func (c *Cryptor) Decrypt(signature, timestamp, nonce, encrypted string) ([]byte, error) {
-	expected := Signature(c.token, timestamp, nonce, encrypted)
-	if len(signature) != 40 || subtle.ConstantTimeCompare([]byte(expected), []byte(signature)) != 1 {
-		return nil, ErrInvalid
-	}
-	data, err := base64.StdEncoding.DecodeString(encrypted)
-	if err != nil || len(data) == 0 || len(data)%aes.BlockSize != 0 || len(data) > 256*1024 {
-		return nil, ErrInvalid
-	}
-	block, _ := aes.NewCipher(c.key)
-	plain := make([]byte, len(data))
-	cipher.NewCBCDecrypter(block, c.key[:aes.BlockSize]).CryptBlocks(plain, data)
-	padding := int(plain[len(plain)-1])
-	if padding < 1 || padding > 32 || padding > len(plain) {
-		return nil, ErrInvalid
-	}
-	for _, value := range plain[len(plain)-padding:] {
-		if int(value) != padding {
-			return nil, ErrInvalid
-		}
-	}
-	plain = plain[:len(plain)-padding]
-	if len(plain) < 20 {
-		return nil, ErrInvalid
-	}
-	size := uint64(binary.BigEndian.Uint32(plain[16:20]))
-	if size > uint64(len(plain)-20) {
-		return nil, ErrInvalid
-	}
-	end := 20 + int(size)
-	if subtle.ConstantTimeCompare(plain[end:], []byte(c.corp)) != 1 || !utf8.Valid(plain[20:end]) {
-		return nil, ErrInvalid
-	}
-	return plain[20:end], nil
-}
+
 func XML(data []byte, target any) error {
-	d := xml.NewDecoder(bytes.NewReader(data))
-	if err := d.Decode(target); err != nil {
-		return ErrInvalid
-	}
-	var extra any
-	if err := d.Decode(&extra); err != io.EOF {
-		return ErrInvalid
-	}
-	return nil
+	return wxcrypt.XML(data, target)
 }
 
 type Envelope struct {

@@ -113,3 +113,15 @@ func TestExternalConfigPrecedence(t *testing.T) {
 		t.Fatalf("precedence wrong: %+v", options)
 	}
 }
+
+func TestWeixinLoginCommandParsing(t *testing.T) {
+	t.Setenv("SIAGENT_CONFIG", emptyConfig(t))
+	defaults := installation{DataDir: "data", Node: "node", Runtime: "runtime/dist/index.js", ChannelWorker: "runtime/dist/channel-wecom.js"}
+	options, err := parseCommand([]string{"weixin-login", "-weixin-api", "https://gateway.example", "-weixin-timeout", "30"}, defaults, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.Command != "weixin-login" || options.WeixinAPI != "https://gateway.example" || options.WeixinTimeout != 30 {
+		t.Fatalf("unexpected weixin login options: %+v", options)
+	}
+}

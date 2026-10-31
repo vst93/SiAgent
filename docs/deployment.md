@@ -187,7 +187,7 @@ python3 tests/container.py --image siagent:check
 
 额外可信包安装在 `<data>/channel-adapters/<package>/`，重启后发现。格式错误的包会跳过并记录安装错误；连接或适配进程异常不停止基础 Web 对话。平台不自动下载包或执行依赖安装脚本。包含安装代码和依赖的整个数据目录仍应停机备份；重建容器后会重新加载这些包。协议及限制见 [channel-adapters.md](channel-adapters.md)。
 
-`-channel-worker` / `SIAGENT_CHANNEL_WORKER` 可独立指定内置机器人传输入口，默认 `runtime/dist/channel-wecom.js`；修改模型 `-runtime` 不改变渠道入口。Node 路径复用 `-node`。每个启用的进程适配渠道使用独立 Node 进程，应按实际渠道数量准备内存。停用后关闭对应连接和进程。
+`-channel-worker` / `SIAGENT_CHANNEL_WORKER` 可独立指定内置机器人传输入口，默认 `runtime/dist/channel-wecom.js`；其它内置进程插件（当前为飞书机器人）从该入口同目录的 `plugins/<插件 ID>/worker.js` 加载，发布包保持原目录结构即可；修改模型 `-runtime` 不改变渠道入口。Node 路径复用 `-node`。每个启用的进程适配渠道使用独立 Node 进程，应按实际渠道数量准备内存。停用后关闭对应连接和进程。
 
 schema 8 → 9 迁移保留旧渠道、会话及出站状态。升级前停止 Go 及其所有子进程并完整备份；旧二进制不能直接打开新数据库，回退必须恢复旧完整备份。
 

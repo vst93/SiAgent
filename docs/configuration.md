@@ -69,7 +69,7 @@ SiAgent 的系统级配置可以放在操作系统用户 config 目录中，使�
 | `base_path` | `SIAGENT_BASE_PATH` | `-base-path` |
 | `runtime` | `SIAGENT_RUNTIME` | `-runtime` |
 | `node` | `SIAGENT_NODE` | `-node` |
-| `channel_worker` | `SIAGENT_CHANNEL_WORKER` | `-channel-worker` |
+| `channel_worker` | `SIAGENT_CHANNEL_WORKER` | `-channel-worker`（企微机器人入口；其它内置插件从同目录 `plugins/` 加载） |
 
 `public_url` 只填写协议和主机（可带端口），不包含路径；HTTPS 会启用 Secure Cookie。`base_path` 用于 `/siagent/` 这类子路径部署。
 

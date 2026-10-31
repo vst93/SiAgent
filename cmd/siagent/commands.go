@@ -22,6 +22,8 @@ import (
 type commandOptions struct {
 	Command, DataDir, Listen, PublicURL, BasePath, Runtime, Node, ChannelWorker, Probe, Conversation string
 	ConfigPath, ServiceAction, ServiceManager                                                        string
+	WeixinAPI, WeixinRouteTag                                                                        string
+	WeixinTimeout                                                                                    int
 	Attachments                                                                                      appconfig.Attachments
 	Knowledge                                                                                        *appconfig.Knowledge
 	Limits                                                                                           *appconfig.Limits
@@ -61,6 +63,9 @@ func parseCommand(args []string, installed installation, output io.Writer) (comm
 	flags.StringVar(&options.Runtime, "runtime", env("SIAGENT_RUNTIME", firstNonEmpty(file.Runtime, installed.Runtime)), "runtime adapter entrypoint")
 	flags.StringVar(&options.Node, "node", env("SIAGENT_NODE", firstNonEmpty(file.Node, installed.Node)), "Node.js executable")
 	flags.StringVar(&options.ChannelWorker, "channel-worker", env("SIAGENT_CHANNEL_WORKER", firstNonEmpty(file.ChannelWorker, installed.ChannelWorker)), "bundled channel plugin entrypoint")
+	flags.StringVar(&options.WeixinAPI, "weixin-api", env("SIAGENT_WEIXIN_API", "https://ilinkai.weixin.qq.com"), "personal-WeChat (ilink) gateway used by weixin-login")
+	flags.StringVar(&options.WeixinRouteTag, "weixin-route-tag", env("SIAGENT_WEIXIN_ROUTE_TAG", ""), "optional SKRouteTag for the personal-WeChat gateway")
+	flags.IntVar(&options.WeixinTimeout, "weixin-timeout", 480, "seconds to wait for the personal-WeChat QR login")
 	flags.StringVar(&options.Probe, "probe", "", "run a model prompt through the private protocol, then exit")
 	flags.StringVar(&options.Conversation, "conversation", "probe", "probe conversation identifier")
 	flags.BoolVar(&options.ProbeTool, "probe-tool", false, "enable the harmless add tool for a probe")
@@ -97,7 +102,7 @@ func parseCommand(args []string, installed installation, output io.Writer) (comm
 	case "help":
 		flags.Usage()
 		return options, flag.ErrHelp
-	case "serve", "service", "update", "version":
+	case "serve", "service", "update", "version", "weixin-login":
 	default:
 		return options, fmt.Errorf("未知命令 %q；运行 siagent help 查看帮助", options.Command)
 	}
@@ -133,6 +138,10 @@ func runCLI(args []string) error {
 		return runUpdate(options, executable)
 	case "service":
 		return runService(options, executable, installed)
+	case "weixin-login":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return runWeixinLogin(ctx, options, os.Stdout)
 	default:
 		return runServer(options, executable, installed)
 	}

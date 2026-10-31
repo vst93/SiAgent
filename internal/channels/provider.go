@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -41,6 +42,9 @@ type Descriptor struct {
 	// Without it the platform rejects image messages with a text-only notice
 	// instead of promising a capability the transport does not have.
 	Images bool `json:"images,omitempty"`
+	// Priority orders adapters in the console so the recommended entry stays
+	// first; legacy adapters always sort last regardless.
+	Priority int `json:"priority,omitempty"`
 }
 type Config struct {
 	ID       string            `json:"id"`
@@ -111,6 +115,17 @@ type PluginOptions struct {
 	WorkerScript string
 }
 
+// Worker resolves a bundled adapter entry shipped beside the configured channel
+// worker. The `-channel-worker` flag keeps its compatibility meaning (the WeCom
+// entrypoint) while every other bundled Node plugin loads from the same
+// runtime/dist tree, so a release does not need one flag per plugin.
+func (o PluginOptions) Worker(name string) string {
+	if strings.TrimSpace(o.WorkerScript) == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(o.WorkerScript), "plugins", name, "worker.js")
+}
+
 type CallbackProvider interface{ CallbackPath(string) string }
 
 // WebhookProvider authenticates vendor callbacks before invoking receive or
@@ -168,6 +183,9 @@ func (r *Registry) Descriptors() []Descriptor {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Legacy != out[j].Legacy {
 			return !out[i].Legacy
+		}
+		if out[i].Priority != out[j].Priority {
+			return out[i].Priority > out[j].Priority
 		}
 		return out[i].ID < out[j].ID
 	})

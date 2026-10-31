@@ -4,7 +4,7 @@
 
 当前已实现内部使用路径，并完成阶段三运行可靠性及阶段四 Skills / MCP、阶段五原生知识库的本地功能：**启动 → 使用首次令牌设置管理员密码 → 配置模型 → 默认助手对话**。支持 Web 流式 Markdown 回答、取消、按当前配置获取模型列表与下拉选择、模型连接测试、助手指令与启停、会话历史和重启后继续对话。
 
-可按需上传 Skills 技能包或本机文件夹、以 ZIP 导出单个技能或整库并支持同名覆盖恢复、连接 stdio / Streamable HTTP MCP，并逐项授权给指定助手。每次运行记录模型返回的 token 用量，`配置 → 用量统计` 支持今日/昨日与时间范围筛选、趋势、非缓存/缓存命中/缓存写入拆分、模型与会话成本；未返回用量或价格的调用按 0 记录。知识库支持独立管理、文档处理、中英文全文检索和可打开的回答来源，不依赖 MCP。渠道通过统一插件接口接入，随系统分发基于官方 SDK 的企微智能机器人长连接（BotID/Secret）与兼容自建应用两个插件，支持扩展进程插件及 Webhook 插件；通用消息底座统一管理会话、去重、任务和投递，并通过本地协议链路验证；真实企业收发、外部模型及第三方 MCP 兼容性仍待验收。实现进度见 [docs/progress.md](docs/progress.md)；企微配置及扩展见 [渠道说明](docs/channels.md)。
+可按需上传 Skills 技能包或本机文件夹、以 ZIP 导出单个技能或整库并支持同名覆盖恢复、连接 stdio / Streamable HTTP MCP，并逐项授权给指定助手。每次运行记录模型返回的 token 用量，`配置 → 用量统计` 支持今日/昨日与时间范围筛选、趋势、非缓存/缓存命中/缓存写入拆分、模型与会话成本；未返回用量或价格的调用按 0 记录。知识库支持独立管理、文档处理、中英文全文检索和可打开的回答来源，不依赖 MCP。渠道通过统一插件接口接入，随系统分发基于官方 SDK 的企微智能机器人长连接（BotID/Secret）、飞书自建应用机器人长连接（App ID/Secret）、微信个人号 ilink 长轮询（扫码登录）、QQ 官方机器人 API v2 网关、兼容企微自建应用五个插件，支持扩展进程插件及 Webhook 插件；通用消息底座统一管理会话、去重、任务和投递，并通过本地协议链路验证；真实企业收发、外部模型及第三方 MCP 兼容性仍待验收。实现进度见 [docs/progress.md](docs/progress.md)；企微配置及扩展见 [渠道说明](docs/channels.md)。
 
 ## 一键安装
 
@@ -116,7 +116,8 @@ docker compose logs siagent
 | `SIAGENT_PUBLIC_URL` / `-public-url` | 空 | 浏览器源地址；HTTPS 时启用 Secure Cookie |
 | `-runtime` | `runtime/dist/index.js` | Runtime 入口；发布包按安装目录定位 |
 | `SIAGENT_NODE` / `-node` | 源码：`node`；发布包：`<安装目录>/libexec/node` | Node.js 可执行文件 |
-| `SIAGENT_CHANNEL_WORKER` / `-channel-worker` | `runtime/dist/channel-wecom.js` | 内置渠道入口；发布包按安装目录定位 |
+| `SIAGENT_CHANNEL_WORKER` / `-channel-worker` | `runtime/dist/channel-wecom.js` | 内置渠道入口；其余内置进程插件从同目录 `plugins/<id>/worker.js` 加载 |
+| `SIAGENT_WEIXIN_API` / `-weixin-api` | `https://ilinkai.weixin.qq.com` | `siagent weixin-login` 使用的个人微信 ilink 网关 |
 
 健康检查：`/health/live` 表示 Go 存活，`/health/ready` 表示 Runtime 就绪，均不检查外部模型。模型可用性在设置中单独测试。Runtime 异常退出最多退避重启 3 次，耗尽后整个平台退出；运行结果不明时标记中断，不自动重试。
 
