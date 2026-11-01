@@ -349,6 +349,9 @@ try {
     name: "发送",
     exact: true,
   });
+  // The snapshot arrives over HTTP; wait for it instead of racing the request.
+  for (let i = 0; i < 50 && !(await fallbackSend.isEnabled()); i++)
+    await fallback.waitForTimeout(100);
   assert.equal(
     await fallbackSend.isEnabled(),
     true,
@@ -2893,9 +2896,185 @@ try {
     0,
     "settings must not repeat a page title/description row",
   );
+  // A deployment mounted below a reverse-proxy prefix must stay usable. The
+  // readiness probe lives in the API namespace now, so a proxy that keeps the
+  // prefix cannot leave the composer disabled, and nothing may resolve the
+  // prefix twice.
+  const prefixDirectory = await mkdtemp(join(tmpdir(), "siagent-prefix-"));
+  const freePort = async () => {
+    const probe = createServer();
+    probe.listen(0, "127.0.0.1");
+    await once(probe, "listening");
+    const port = probe.address().port;
+    await new Promise((resolve) => probe.close(resolve));
+    return port;
+  };
+  const prefixProxyPort = await freePort();
+  const prefixInstancePort = await freePort();
+  // Keeps the prefix, exactly like the documented nginx recipe that forwards
+  // /siagent/ to the same path on the instance.
+  const prefixProxy = createServer(async (request, response) => {
+    try {
+      const upstream = await fetch(
+        `http://127.0.0.1:${prefixInstancePort}${request.url}`,
+        {
+          method: request.method,
+          headers: Object.fromEntries(
+            Object.entries(request.headers).filter(
+              ([key]) => key !== "connection" && key !== "transfer-encoding",
+            ),
+          ),
+          body: ["GET", "HEAD"].includes(request.method) ? undefined : request,
+          duplex: "half",
+        },
+      );
+      const headers = Object.fromEntries(upstream.headers.entries());
+      response.writeHead(upstream.status, headers);
+      if ((headers["content-type"] ?? "").includes("text/event-stream")) {
+        // Forward the stream instead of buffering it: the browser must be able
+        // to hold the connection open, and a buffered copy would never finish.
+        const reader = upstream.body.getReader();
+        response.on("close", () => void reader.cancel().catch(() => {}));
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          response.write(Buffer.from(value));
+        }
+        response.end();
+        return;
+      }
+      response.end(Buffer.from(await upstream.arrayBuffer()));
+    } catch {
+      try {
+        response.writeHead(502).end();
+      } catch {}
+    }
+  });
+  prefixProxy.listen(prefixProxyPort, "127.0.0.1");
+  await once(prefixProxy, "listening");
+  const prefixBase = `http://127.0.0.1:${prefixProxyPort}/si`;
+  const prefixChild = spawn(
+    "./bin/siagent",
+    [
+      "-data-dir",
+      prefixDirectory,
+      "-listen",
+      `127.0.0.1:${prefixInstancePort}`,
+      "-base-path",
+      "/si",
+      "-public-url",
+      prefixBase,
+    ],
+    {
+      cwd: root,
+      env: Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([key]) => !key.startsWith("SIAGENT_"),
+        ),
+      ),
+      stdio: ["ignore", "ignore", "pipe"],
+    },
+  );
+  let prefixToken = "";
+  prefixChild.stderr.on("data", (chunk) => {
+    const match = String(chunk).match(/令牌.*?: (\S+)/);
+    if (match) prefixToken = match[1];
+  });
+  for (let i = 0; i < 200 && !prefixToken; i++)
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  for (let i = 0; i < 200; i++) {
+    const probe = await fetch(`${prefixBase}/health/ready`).catch(
+      () => undefined,
+    );
+    if (probe?.ok) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const prefixSetup = await fetch(`${prefixBase}/api/auth/setup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      password: "prefix-password-123",
+      token: prefixToken,
+    }),
+  });
+  assert.ok(
+    prefixSetup.ok,
+    `setup must work below the prefix, got ${prefixSetup.status}`,
+  );
+  const prefixCookie = String(prefixSetup.headers.get("set-cookie")).split(
+    ";",
+  )[0];
+  const prefixCSRF = (await prefixSetup.json()).csrf;
+  const prefixModel = await fetch(`${prefixBase}/api/model`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": prefixCSRF,
+      Cookie: prefixCookie,
+    },
+    body: JSON.stringify({
+      base_url: `http://127.0.0.1:${model.address().port}/v1`,
+      name: "prefix-fixture",
+      api_key: "prefix-fixture-key",
+    }),
+  });
+  assert.ok(
+    prefixModel.ok,
+    `the model must save below the prefix, got ${prefixModel.status}`,
+  );
+  const prefixPage = await browser.newPage();
+  const prefixErrors = [];
+  prefixPage.on("pageerror", (error) => prefixErrors.push(error.message));
+  const prefixRequests = [];
+  prefixPage.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.includes("health")) prefixRequests.push(path);
+  });
+  await prefixPage.goto(`${prefixBase}/`);
+  await prefixPage.getByLabel("管理员密码").fill("prefix-password-123");
+  await prefixPage.getByRole("button", { name: "登录", exact: true }).click();
+  await prefixPage.getByLabel("发送给助手的消息").waitFor();
+  await prefixPage.locator(".new-chat").click();
+  await prefixPage.getByLabel("发送给助手的消息").fill("前缀发送");
+  const prefixSend = prefixPage.getByRole("button", {
+    name: "发送",
+    exact: true,
+  });
+  for (let i = 0; i < 50 && !(await prefixSend.isEnabled()); i++)
+    await prefixPage.waitForTimeout(100);
+  assert.equal(
+    await prefixSend.isEnabled(),
+    true,
+    "a prefixed deployment must keep the composer enabled",
+  );
+  await prefixSend.click();
+  await prefixPage
+    .locator(".message.assistant .message-text")
+    .filter({ hasText: "收到：前缀发送" })
+    .waitFor({ timeout: 30000 });
+  assert.ok(
+    prefixRequests.includes("/si/api/health"),
+    `readiness must be probed in the API namespace, saw ${prefixRequests.join(", ")}`,
+  );
+  assert.deepEqual(
+    prefixRequests.filter((path) => path.startsWith("/si/si/")),
+    [],
+    "no request may resolve the prefix twice",
+  );
+  assert.deepEqual(prefixErrors, []);
+  await prefixPage.close();
+  prefixProxy.closeAllConnections();
+  await new Promise((resolve) => prefixProxy.close(resolve));
+  prefixChild.kill("SIGTERM");
+  await Promise.race([
+    once(prefixChild, "close"),
+    new Promise((resolve) => setTimeout(resolve, 15000)),
+  ]);
+  await rm(prefixDirectory, { recursive: true, force: true });
+
   assert.deepEqual(errors, []);
   console.log(
-    "Browser passed: Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, provider-reported token usage in the chat header and usage dashboard with today/yesterday/time filters, cache hit/write/non-cache split, cost and trend/breakdowns, Chinese/English switch with reload persistence, no JS errors.",
+    "Browser passed: subpath deployment with the readiness probe in the API namespace, Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, provider-reported token usage in the chat header and usage dashboard with today/yesterday/time filters, cache hit/write/non-cache split, cost and trend/breakdowns, Chinese/English switch with reload persistence, no JS errors.",
   );
 } finally {
   releaseHold();

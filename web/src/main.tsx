@@ -17,7 +17,7 @@ import {
   type ConfigSection,
 } from "./navigation";
 import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
-import { appURL } from "./urls";
+import { appURL, setPublicBase } from "./urls";
 import {
   applyLanguage,
   rememberLanguage,
@@ -74,6 +74,7 @@ type Auth = {
   authenticated: boolean;
   csrf: string;
   requires_setup_token: boolean;
+  public_url?: string;
 };
 let csrf = "";
 async function api<T>(
@@ -404,6 +405,7 @@ function App() {
   async function refreshAuth() {
     const state = await api<Auth>("/auth/status");
     csrf = state.csrf;
+    setPublicBase(state.public_url);
     setAuth(state);
   }
   async function load() {
@@ -502,11 +504,26 @@ function App() {
   }, [auth?.authenticated]);
   useEffect(() => {
     const controller = new AbortController();
+    // Readiness comes from the API namespace, not /health/ready: the health
+    // endpoints stay at the instance root for machine probes, so under a mount
+    // prefix a proxy that rewrites one and not the other would leave the send
+    // button disabled. This probe resolves exactly like every other API call.
+    // One dropped poll must not disable the composer: the server already
+    // refuses submissions while the runtime is down, and a transient network
+    // error used to leave the button dead until the next tick. Require two
+    // consecutive failures before showing "starting".
+    let failures = 0;
     const check = () =>
-      fetch(appURL("/health/ready"), { signal: controller.signal })
-        .then((response) => setReady(response.ok))
+      fetch(appURL("/api/health"), { signal: controller.signal })
+        .then((response) => (response.ok ? response.json() : { ready: false }))
+        .then((state: { ready?: boolean }) => {
+          failures = 0;
+          setReady(state.ready === true);
+        })
         .catch(() => {
-          if (!controller.signal.aborted) setReady(false);
+          if (controller.signal.aborted) return;
+          failures += 1;
+          if (failures >= 2) setReady(false);
         });
     void check();
     const timer = setInterval(check, 5000);

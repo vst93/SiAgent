@@ -1,5 +1,5 @@
 import { MessageMarkdown } from "./message-markdown";
-import { appURL } from "./urls";
+import { externalURL } from "./urls";
 import type { Language } from "./i18n";
 
 const GITHUB_DOC =
@@ -16,7 +16,7 @@ const zhContent = `# SiAgent 集成接口
 3. 调用 \`/v1\` 接口，或从 OpenAPI 生成客户端。
 
 \`\`\`bash
-curl -sS ${appURL("/v1/agents/default/runs")} \\
+curl -sS ${externalURL("/v1/agents/default/runs")} \\
   -H "Authorization: Bearer siagent_xxx" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: ticket-1001" \\
@@ -75,7 +75,7 @@ curl -sS ${appURL("/v1/agents/default/runs")} \\
 ## 文档与源码
 
 - [完整接口说明（GitHub）](${GITHUB_DOC})
-- [OpenAPI 规范](${appURL("/v1/openapi.yaml")})
+- [OpenAPI 规范](${externalURL("/v1/openapi.yaml")})
 
 > 密钥默认隐藏；查看会记录审计。吊销后仍可删除；未吊销的密钥需先吊销再删除。`;
 
@@ -90,7 +90,7 @@ Machine-to-machine APIs for business systems. Use \`Authorization: Bearer <key>\
 3. Call the \`/v1\` API, or generate a client from OpenAPI.
 
 \`\`\`bash
-curl -sS ${appURL("/v1/agents/default/runs")} \\
+curl -sS ${externalURL("/v1/agents/default/runs")} \\
   -H "Authorization: Bearer siagent_xxx" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: ticket-1001" \\
@@ -149,7 +149,7 @@ Failed deliveries retry three times after 0/2/5 seconds. Receivers should dedupl
 ## Documentation and source
 
 - [Full integration guide (GitHub)](${GITHUB_DOC})
-- [OpenAPI specification](${appURL("/v1/openapi.yaml")})
+- [OpenAPI specification](${externalURL("/v1/openapi.yaml")})
 
 > Keys are hidden by default; revealing one writes an audit record. Revoked keys can still be deleted; active keys must be revoked first.`;
 

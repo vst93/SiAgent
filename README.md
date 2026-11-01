@@ -119,7 +119,7 @@ docker compose logs siagent
 | `SIAGENT_CHANNEL_WORKER` / `-channel-worker` | `runtime/dist/channel-wecom.js` | 内置渠道入口；其余内置进程插件从同目录 `plugins/<id>/worker.js` 加载 |
 | `SIAGENT_WEIXIN_API` / `-weixin-api` | `https://ilinkai.weixin.qq.com` | `siagent weixin-login` 使用的个人微信 ilink 网关 |
 
-健康检查：`/health/live` 表示 Go 存活，`/health/ready` 表示 Runtime 就绪，均不检查外部模型。模型可用性在设置中单独测试。Runtime 异常退出最多退避重启 3 次，耗尽后整个平台退出；运行结果不明时标记中断，不自动重试。
+健康检查：`/health/live` 表示 Go 存活，`/health/ready` 表示 Runtime 就绪，均不检查外部模型；二者留在实例根路径供探针使用，网页自身改用同一前缀下的 `GET /api/health` 判断就绪，子路径部署不需要为健康检查单独配置代理。模型可用性在设置中单独测试。Runtime 异常退出最多退避重启 3 次，耗尽后整个平台退出；运行结果不明时标记中断，不自动重试。
 
 ## 数据与备份
 

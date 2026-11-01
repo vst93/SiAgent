@@ -35,3 +35,7 @@ web/test/artifacts/
 .DS_Store
 .idea/
 .vscode/
+
+# Local agent state and local release staging
+/.pi/
+/releases/

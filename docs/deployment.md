@@ -42,7 +42,7 @@ docker compose logs -f siagent
 SIAGENT_PUBLIC_URL=https://agent.example.com docker compose up -d
 ```
 
-`SIAGENT_PUBLIC_URL` 只填写浏览器看到的协议和主机，不包含路径；HTTPS 会启用 Secure Cookie。修改地址后重新登录。
+`SIAGENT_PUBLIC_URL` 填写浏览器看到的协议和主机，HTTPS 会启用 Secure Cookie；挂在子路径时可带上路径（例如 `https://example.com/si`），渠道回调地址和接口文档示例会据此生成对外可访问的完整地址。同源校验只比较协议和主机，路径不影响登录。修改地址后重新登录。
 
 网页资源、API 和知识来源链接均按当前目录解析，因此可以挂在 `/siagent/` 这类子路径。二选一：
 
@@ -74,7 +74,11 @@ location /siagent/ {
 
 如果实例自身已用 `-base-path /siagent` 挂载，代理直接把 `/siagent/` 转发到 `http://127.0.0.1:8080/siagent/`，不要再剥掉前缀。证书和 TLS server 配置由部署环境提供。SSE 依赖关闭缓冲和持续连接。文档文件默认上限为 20 MiB（可用 `knowledge.max_file_bytes` 调整），代理需允许 multipart 的额外大小。企微回调路径不加管理员登录或 CSRF 层，其自身验签解密；企业还需配置应用可见范围和可信 IP/域名，见 [wecom.md](wecom.md)。
 
-`/health/live` 表示 Go 存活，`/health/ready` 要求平台和 Runtime 就绪。异常重复退出应检查服务退出码、普通日志和认证诊断；不要持续无上限重放失败任务。日志不应被配置为记录请求正文、Cookie、模型密钥或回调密文/明文。
+`/health/live` 表示 Go 存活，`/health/ready` 要求平台和 Runtime 就绪。这两个探针刻意留在实例根路径，供服务管理器、监控和自动更新使用；设置 `-base-path` 后它们同时接受带前缀的路径（`/siagent/health/ready`），但不要指望代理为它们单独改写。
+
+网页自己判断就绪时使用 `GET /api/health`（无需登录，返回 `{"status":"ready|starting","ready":true|false}`），它和其余接口走同一前缀规则。因此反向代理只需把 `/siagent/` 整体转发，不需要为健康检查单独开 location；把前缀重写两次（例如 `/siagent/siagent/health/ready`）只会得到 404，并让发送按钮一直停在“正在恢复”。
+
+异常重复退出应检查服务退出码、普通日志和认证诊断；不要持续无上限重放失败任务。日志不应被配置为记录请求正文、Cookie、模型密钥或回调密文/明文。
 
 ## 本地停机备份
 

@@ -58,7 +58,7 @@ func parseCommand(args []string, installed installation, output io.Writer) (comm
 	flags.SetOutput(output)
 	flags.StringVar(&options.DataDir, "data-dir", env("SIAGENT_DATA_DIR", firstNonEmpty(file.DataDir, installed.DataDir)), "persistent data directory")
 	flags.StringVar(&options.Listen, "listen", env("SIAGENT_LISTEN", firstNonEmpty(file.Listen, "127.0.0.1:8080")), "HTTP address")
-	flags.StringVar(&options.PublicURL, "public-url", env("SIAGENT_PUBLIC_URL", file.PublicURL), "public HTTP(S) origin; HTTPS enables Secure cookies")
+	flags.StringVar(&options.PublicURL, "public-url", env("SIAGENT_PUBLIC_URL", file.PublicURL), "public HTTP(S) address, optionally with a mount prefix; HTTPS enables Secure cookies")
 	flags.StringVar(&options.BasePath, "base-path", env("SIAGENT_BASE_PATH", file.BasePath), "URL path prefix, for example /siagent; empty means the site root")
 	flags.StringVar(&options.Runtime, "runtime", env("SIAGENT_RUNTIME", firstNonEmpty(file.Runtime, installed.Runtime)), "runtime adapter entrypoint")
 	flags.StringVar(&options.Node, "node", env("SIAGENT_NODE", firstNonEmpty(file.Node, installed.Node)), "Node.js executable")

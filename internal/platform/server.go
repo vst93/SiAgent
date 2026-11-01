@@ -51,6 +51,7 @@ type Server struct {
 	mu                    sync.Mutex
 	token                 string
 	publicURL             string
+	publicBase            string
 	secure                bool
 	loginFailures         int
 	loginWindow           time.Time
@@ -94,10 +95,14 @@ func New(store *Store, runtime Runtime, ready func() bool, publicURL string, opt
 	}
 	if publicURL != "" {
 		parsed, err := url.Parse(publicURL)
-		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
-			return nil, fmt.Errorf("public URL must be an http(s) origin without a path")
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return nil, fmt.Errorf("public URL must be an http(s) address without a query or fragment")
 		}
+		// The browser sends an Origin header without a path, so origin checks use
+		// the bare origin; links that leave the process (channel callbacks, API
+		// examples) need the whole address including any mount prefix.
 		s.publicURL = parsed.Scheme + "://" + parsed.Host
+		s.publicBase = strings.TrimRight(parsed.Scheme+"://"+parsed.Host+parsed.Path, "/")
 		s.secure = parsed.Scheme == "https"
 	}
 	var initialized int
@@ -158,6 +163,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/updates/prepare", s.authorize(http.HandlerFunc(s.prepareUpdate)))
 	mux.Handle("POST /api/updates/cancel", s.authorize(http.HandlerFunc(s.cancelUpdate)))
 	mux.Handle("POST /api/updates/apply", s.authorize(http.HandlerFunc(s.applyUpdate)))
+	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/auth/status", s.authStatus)
 	mux.HandleFunc("POST /api/auth/setup", s.setup)
 	mux.HandleFunc("POST /api/auth/login", s.login)
@@ -402,7 +408,22 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	csrf, ok := s.session(r)
-	respond(w, 200, map[string]any{"initialized": initialized > 0, "authenticated": ok, "csrf": csrf, "requires_setup_token": true})
+	respond(w, 200, map[string]any{"initialized": initialized > 0, "authenticated": ok, "csrf": csrf, "requires_setup_token": true, "public_url": s.publicBase})
+}
+
+// health answers readiness inside the API namespace. Machine probes keep using
+// /health/ready at the instance root, but the browser must not: that path lives
+// outside the mount prefix, so a reverse proxy that keeps the prefix (or adds
+// one) would have to special-case it, and any mismatch left the send button
+// disabled. Every other browser request already resolves against the same
+// prefix as this one.
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	ready := s.ready() && !s.restarting && !s.stopping
+	status := "starting"
+	if ready {
+		status = "ready"
+	}
+	respond(w, 200, map[string]any{"status": status, "ready": ready})
 }
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 	var input struct {
