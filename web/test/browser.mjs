@@ -341,8 +341,31 @@ try {
   const fallback = await page.context().newPage();
   fallback.on("pageerror", (error) => errors.push(error.message));
   await fallback.route("**/api/conversations/*/events", (route) => route.abort());
+  // Hold creation open to reproduce slow-server input loss deterministically.
+  // Typing must wait until the completion callback has cleared the old draft.
+  let releaseCreation;
+  let creationStarted;
+  const creationGate = new Promise((resolve) => { releaseCreation = resolve; });
+  const creationRequest = new Promise((resolve) => { creationStarted = resolve; });
+  await fallback.route("**/api/conversations", async (route) => {
+    if (route.request().method() === "POST") {
+      creationStarted();
+      await creationGate;
+    }
+    await route.continue();
+  });
   await fallback.goto(base);
   await fallback.locator(".new-chat").click();
+  await creationRequest;
+  try {
+    assert.equal(
+      await fallback.getByLabel("发送给助手的消息").isDisabled(),
+      true,
+      "creation must finish before accepting a draft that its callback would erase",
+    );
+  } finally {
+    releaseCreation();
+  }
   await fallback.getByLabel("发送给助手的消息").waitFor();
   await fallback.getByLabel("发送给助手的消息").fill("no event stream");
   const fallbackSend = fallback.getByRole("button", {

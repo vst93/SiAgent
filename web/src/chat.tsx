@@ -1712,6 +1712,7 @@ const [search, setSearch] = useState("");
                     }
                     maxLength={100000}
                     disabled={
+                      pending ||
                       agent?.policy.session.types === "group" ||
                       agent?.enabled === false ||
                       agent?.archived ||
