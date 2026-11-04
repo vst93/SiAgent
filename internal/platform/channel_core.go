@@ -68,22 +68,29 @@ func (s *Server) archiveChannel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) channelDiagnostics(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.db.Query("SELECT id,msg_id,member,agent_id,state,error,run_id,conversation_id,created,substr(content,1,200) FROM channel_inbox WHERE channel_id=? ORDER BY created DESC,rowid DESC LIMIT 50", r.PathValue("channel"))
+	rows, err := s.store.db.Query("SELECT id,msg_id,member,agent_id,state,error,run_id,conversation_id,created,substr(content,1,200),reply_context FROM channel_inbox WHERE channel_id=? ORDER BY created DESC,rowid DESC LIMIT 50", r.PathValue("channel"))
 	if err != nil {
 		internal(w)
 		return
 	}
 	inbox := []map[string]any{}
 	for rows.Next() {
-		var id, msg, member, agent, state, reason, run, conversation, preview string
+		var id, msg, member, agent, state, reason, run, conversation, preview, replyRaw string
 		var created int64
-		if err := rows.Scan(&id, &msg, &member, &agent, &state, &reason, &run, &conversation, &created, &preview); err != nil {
+		if err := rows.Scan(&id, &msg, &member, &agent, &state, &reason, &run, &conversation, &created, &preview, &replyRaw); err != nil {
 			rows.Close()
 			internal(w)
 			return
 		}
+		// Expose only the bounded, content-free media summary, never routing keys.
+		var reply map[string]string
+		_ = json.Unmarshal([]byte(replyRaw), &reply)
+		diagnostic := reply["media_diagnostic"]
+		if len(diagnostic) > 512 {
+			diagnostic = ""
+		}
 		who := sessionParticipants(member)
-		inbox = append(inbox, map[string]any{"id": id, "msg_id": msg, "member": member, "agent_id": agent, "state": state, "error": reason, "run_id": run, "conversation_id": conversation, "created": created, "preview": preview, "chat_kind": who.kind, "group_id": who.group, "sender_id": who.sender})
+		inbox = append(inbox, map[string]any{"id": id, "msg_id": msg, "member": member, "agent_id": agent, "state": state, "error": reason, "run_id": run, "conversation_id": conversation, "created": created, "preview": preview, "media_diagnostic": diagnostic, "chat_kind": who.kind, "group_id": who.group, "sender_id": who.sender})
 	}
 	err = rows.Err()
 	rows.Close()

@@ -53,6 +53,7 @@ type Inbox = {
   state: string;
   error: string;
   preview: string;
+  media_diagnostic?: string;
   conversation_id: string;
   created: number;
   chat_kind?: string;
@@ -814,6 +815,7 @@ export function ChannelsWorkspace({
                         <time>{new Date(item.created).toLocaleString()}</time>
                       </header>
                       <p title={item.preview}>{item.preview}</p>
+                      {item.media_diagnostic && <small>{item.media_diagnostic}</small>}
                       {item.error && <small>{item.error}</small>}
                       {item.conversation_id && (
                         <button

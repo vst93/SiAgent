@@ -1,6 +1,6 @@
 import { WSClient, type WsFrame } from "@wecom/aibot-node-sdk";
 import { randomBytes } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { serve } from "../frames.js";
@@ -97,54 +97,54 @@ export function runWorker(wsUrl?: string) {
           return;
         }
         outstanding.add(body.msgid);
-        // Text is taken from the plain text body and from the text parts of a
-        // mixed (text + image) message. Pictures are downloaded before the
-        // frame is reported, so the platform receives one complete message.
-        const { text, pictures } = describeInbound(body);
-        void stageImages(body.msgid, pictures)
-          .then((images) =>
-            session.output({
-              type: "incoming",
-              incoming: {
-                id: body.msgid,
-                chat_type: body.chattype,
-                sender_id: sender,
-                group_id: chat,
-                session: JSON.stringify([body.chattype, chat, sender]),
-                kind: pictures.length > 0 ? "image" : "text",
-                text,
-                images,
-                reply_context: {
-                  req_id: req,
-                  chat_id: chat,
-                  sender,
-                  received_at: String(Date.now()),
-                },
+        // Resolve only the explicit quote carried by this callback. Do not
+        // infer attachments from other messages or follow nested quotes.
+        // Download all pictures before reporting one complete question.
+        const direct = describeInbound(body);
+        const quoted = describeInbound(body.quote ?? {});
+        const pictures = [...direct.pictures, ...quoted.pictures];
+        const text = [
+          direct.text,
+          quoted.text ? `[引用内容]\n${quoted.text}\n[/引用内容]` : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        const imageCount = direct.imageCount + quoted.imageCount;
+        const unsupported = direct.unsupported || quoted.unsupported;
+        const typeName = (value: unknown) =>
+          ["text", "image", "mixed", "voice", "file", "video"].includes(String(value))
+            ? String(value)
+            : "unknown";
+        const report = (images: { name: string; file: string }[], failed: boolean) =>
+          session.output({
+            type: "incoming",
+            incoming: {
+              id: body.msgid,
+              chat_type: body.chattype,
+              sender_id: sender,
+              group_id: chat,
+              session: JSON.stringify([body.chattype, chat, sender]),
+              kind: unsupported ? "file" : imageCount > 0 ? "image" : "text",
+              text,
+              images,
+              reply_context: {
+                req_id: req,
+                chat_id: chat,
+                sender,
+                received_at: String(Date.now()),
+                media_diagnostic: `正文=${typeName(body.msgtype)}；引用=${body.quote == null ? "none" : typeName(body.quote.msgtype)}；正文图片=${direct.imageCount}；引用图片=${quoted.imageCount}；可下载图片=${pictures.length}；已暂存=${images.length}；处理=${unsupported ? "unsupported" : failed ? "failed" : "ok"}`,
               },
-            }),
-          )
-          .catch(() => {
-            // A failed download must not lose the message: report the text it did
-            // carry, or an empty text frame the platform turns into a clear notice.
-            session.output({
-              type: "incoming",
-              incoming: {
-                id: body.msgid,
-                chat_type: body.chattype,
-                sender_id: sender,
-                group_id: chat,
-                session: JSON.stringify([body.chattype, chat, sender]),
-                kind: "text",
-                text,
-                reply_context: {
-                  req_id: req,
-                  chat_id: chat,
-                  sender,
-                  received_at: String(Date.now()),
-                },
-              },
-            });
+            },
           });
+        if (unsupported) {
+          report([], false);
+        } else if (imageCount !== pictures.length || imageCount > maxInboundImages) {
+          report([], true);
+        } else {
+          void stageImages(body.msgid, pictures)
+            .then((images) => report(images, imageCount > 0 && images.length === 0))
+            .catch(() => report([], true));
+        }
       });
       session.onClose(() => client?.disconnect());
       session.state("connecting");
@@ -172,9 +172,14 @@ export function runWorker(wsUrl?: string) {
   function describeInbound(body: Record<string, any>): {
     text: string;
     pictures: { url: string; aeskey?: string }[];
+    imageCount: number;
+    unsupported: boolean;
   } {
     const pictures: { url: string; aeskey?: string }[] = [];
+    let imageCount = 0;
+    const unsupported = ["file", "video"].includes(body.msgtype);
     const pushPicture = (image: any) => {
+      imageCount++;
       if (
         pictures.length < maxInboundImages &&
         image &&
@@ -191,10 +196,12 @@ export function runWorker(wsUrl?: string) {
       return {
         text: typeof body.text?.content === "string" ? body.text.content : "",
         pictures,
+        imageCount,
+        unsupported,
       };
     if (body.msgtype === "image") {
       pushPicture(body.image);
-      return { text: "", pictures };
+      return { text: "", pictures, imageCount, unsupported };
     }
     if (body.msgtype === "mixed" && Array.isArray(body.mixed?.msg_item)) {
       const parts: string[] = [];
@@ -203,7 +210,7 @@ export function runWorker(wsUrl?: string) {
           parts.push(item.text.content);
         else if (item?.msgtype === "image") pushPicture(item.image);
       }
-      return { text: parts.join("\n"), pictures };
+      return { text: parts.join("\n"), pictures, imageCount, unsupported };
     }
     // Voice messages carry their transcript, which is the useful content.
     if (body.msgtype === "voice")
@@ -211,8 +218,10 @@ export function runWorker(wsUrl?: string) {
         text:
           typeof body.voice?.content === "string" ? body.voice.content : "",
         pictures,
+        imageCount,
+        unsupported,
       };
-    return { text: "", pictures };
+    return { text: "", pictures, imageCount, unsupported };
   }
 
   // stageImages downloads and decrypts each picture into the platform staging
@@ -224,21 +233,31 @@ export function runWorker(wsUrl?: string) {
   ): Promise<{ name: string; file: string }[]> {
     if (!pictures.length || !mediaDir || !client) return [];
     const staged: { name: string; file: string }[] = [];
-    for (const [index, picture] of pictures.entries()) {
-      const { buffer, filename } = await client.downloadFile(
-        picture.url,
-        picture.aeskey,
+    try {
+      for (const [index, picture] of pictures.entries()) {
+        const { buffer, filename } = await client.downloadFile(
+          picture.url,
+          picture.aeskey,
+        );
+        if (buffer.length === 0 || buffer.length > maxInboundImageBytes)
+          throw new Error("Invalid image size");
+        // A random name keeps the staging area inert even if two messages race.
+        const file = `${msgid.replace(/[^A-Za-z0-9_-]/g, "_")}-${index}-${randomBytes(6).toString("hex")}.bin`;
+        staged.push({
+          name: typeof filename === "string" ? filename : `图片${index + 1}`,
+          file,
+        });
+        await writeFile(join(mediaDir, file), buffer, { mode: 0o600 });
+      }
+      return staged;
+    } catch {
+      await Promise.all(
+        staged.map((image) =>
+          unlink(join(mediaDir, image.file)).catch(() => {}),
+        ),
       );
-      if (buffer.length === 0 || buffer.length > maxInboundImageBytes) continue;
-      // A random name keeps the staging area inert even if two messages race.
-      const file = `${msgid.replace(/[^A-Za-z0-9_-]/g, "_")}-${index}-${randomBytes(6).toString("hex")}.bin`;
-      await writeFile(join(mediaDir, file), buffer, { mode: 0o600 });
-      staged.push({
-        name: typeof filename === "string" ? filename : `图片${index + 1}`,
-        file,
-      });
+      throw new Error("Image staging failed");
     }
-    return staged;
   }
 
   async function send(id: string, delivery: any, session: any) {

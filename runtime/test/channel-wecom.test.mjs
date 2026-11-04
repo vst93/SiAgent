@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createCipheriv } from "node:crypto";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
@@ -33,6 +34,14 @@ const pixelPNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 );
+const imageKey = Buffer.alloc(32, 7);
+const cipher = createCipheriv("aes-256-cbc", imageKey, imageKey.subarray(0, 16));
+cipher.setAutoPadding(false);
+const padding = 32 - (pixelPNG.length % 32);
+const encryptedPNG = Buffer.concat([
+  cipher.update(Buffer.concat([pixelPNG, Buffer.alloc(padding, padding)])),
+  cipher.final(),
+]);
 async function fixture(t) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, "listening");
@@ -46,7 +55,7 @@ async function fixture(t) {
       "content-type": "image/png",
       "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent("截图.png")}`,
     });
-    response.end(pixelPNG);
+    response.end(request.url === "/encrypted.png" ? encryptedPNG : pixelPNG);
   });
   media.listen(0, "127.0.0.1");
   await once(media, "listening");
@@ -184,7 +193,8 @@ test("official WeCom SDK authenticates, normalizes isolated text sessions and se
     .filter((frame) => frame.type === "incoming")
     .map((frame) => frame.incoming);
   assert.equal(new Set(incoming.map((message) => message.session)).size, 3);
-  const { received_at, ...routing } = incoming[1].reply_context;
+  const { received_at, media_diagnostic, ...routing } = incoming[1].reply_context;
+  assert.match(media_diagnostic, /引用=none/);
   assert(Number(received_at) > 0);
   assert.deepEqual(routing, {
     req_id: "req-two",
@@ -410,10 +420,11 @@ test("inbound images are downloaded, decrypted and staged for the platform inste
   assert.match(mixed.text, /这张图说了什么/);
   assert.equal(mixed.images.length, 1);
 
-  // A failed download degrades to text instead of losing the message.
+  // A failed download stays an image so the platform rejects missing content.
   const broken = byID["broken"];
-  assert.equal(broken.kind, "text");
-  assert.equal(broken.images, undefined);
+  assert.equal(broken.kind, "image");
+  assert.deepEqual(broken.images, []);
+  assert.match(broken.reply_context.media_diagnostic, /处理=failed/);
   assert.equal(broken.text, "");
 
   // Voice messages keep their transcript, which is the useful content.
@@ -432,4 +443,62 @@ test("inbound images are downloaded, decrypted and staged for the platform inste
     .filter((frame) => frame.type === "incoming")
     .find((frame) => frame.incoming.id === "voice").incoming;
   assert.equal(voice.text, "语音转写内容");
+});
+
+test("group quotes preserve the question and referenced images, with bounded content-free diagnostics", async (t) => {
+  const f = await fixture(t);
+  const cases = [
+    ["quote-image", { msgtype: "image", image: { url: f.mediaURL.replace("photo.png", "encrypted.png"), aeskey: imageKey.toString("base64") } }],
+    ["quote-mixed", { msgtype: "mixed", mixed: { msg_item: [
+      { msgtype: "text", text: { content: "引用的说明" } },
+      { msgtype: "image", image: { url: f.mediaURL } },
+    ] } }],
+    ["quote-missing", { msgtype: "image", image: {} }],
+    ["quote-broken", { msgtype: "image", image: { url: f.mediaURL.replace("photo.png", "broken.png") } }],
+    ["quote-file", { msgtype: "file", file: { url: "https://private.example/file", aeskey: "private-key" } }],
+    ["no-quote", undefined],
+    ["partial-failure", { msgtype: "mixed", mixed: { msg_item: [
+      { msgtype: "image", image: { url: f.mediaURL } },
+      { msgtype: "image", image: { url: f.mediaURL.replace("photo.png", "broken.png") } },
+    ] } }],
+    ["too-many", { msgtype: "mixed", mixed: { msg_item: Array.from({ length: 9 }, () => (
+      { msgtype: "image", image: { url: f.mediaURL } }
+    )) } }],
+  ];
+  for (const [msgid, quote] of cases) {
+    f.sockets[0].send(JSON.stringify({
+      cmd: "aibot_msg_callback",
+      headers: { req_id: `req-${msgid}` },
+      body: {
+        msgid, aibotid: "fixture-bot", chattype: "group", chatid: "group-a",
+        from: { userid: "member" }, msgtype: "text",
+        text: { content: "@机器人 分析这张图" }, quote,
+      },
+    }));
+  }
+  await waitUntil(() => f.frames.filter((frame) => frame.type === "incoming").length === cases.length);
+  const messages = Object.fromEntries(f.frames.filter((frame) => frame.type === "incoming").map((frame) => [frame.incoming.id, frame.incoming]));
+  for (const id of ["quote-image", "quote-mixed"]) {
+    const message = messages[id];
+    assert.equal(message.kind, "image");
+    assert.match(message.text, /^@机器人 分析这张图/);
+    assert.equal(message.images.length, 1);
+    assert.deepEqual(await readFile(join(f.stagingRoot, message.images[0].file)), pixelPNG);
+    assert.equal(message.session, JSON.stringify(["group", "group-a", "member"]));
+    assert.equal(message.reply_context.req_id, `req-${id}`);
+    assert.match(message.reply_context.media_diagnostic, /引用图片=1；可下载图片=1；已暂存=1；处理=ok/);
+  }
+  assert.match(messages["quote-mixed"].text, /\[引用内容\]\n引用的说明/);
+  for (const id of ["quote-missing", "quote-broken", "partial-failure", "too-many"]) {
+    assert.equal(messages[id].kind, "image");
+    assert.deepEqual(messages[id].images, []);
+    assert.match(messages[id].reply_context.media_diagnostic, /处理=failed/);
+  }
+  assert.equal(messages["quote-file"].kind, "file");
+  assert.match(messages["quote-file"].reply_context.media_diagnostic, /处理=unsupported/);
+  assert.equal(messages["no-quote"].kind, "text");
+  assert.match(messages["no-quote"].reply_context.media_diagnostic, /引用=none/);
+  assert.equal((await readdir(f.stagingRoot)).length, 2, "failed batches must clean up staged images");
+  const output = JSON.stringify(f.frames);
+  for (const secret of [f.mediaURL, "private.example", "private-key", imageKey.toString("base64")]) assert(!output.includes(secret));
 });

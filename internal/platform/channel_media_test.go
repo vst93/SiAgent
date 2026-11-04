@@ -576,3 +576,42 @@ func TestChannelNonTextKindsKeepTheScopeNotice(t *testing.T) {
 		t.Fatal("unsupported kinds created runs")
 	}
 }
+
+func TestChannelMissingImageRejectsQuestionAndExposesOnlyMediaSummary(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	f.model(t, "fixture", "secret")
+	c, _ := newImageChannel(t, f)
+	diagnostic := "正文=text；引用=image；正文图片=0；引用图片=1；可下载图片=1；已暂存=0；处理=failed"
+	in := channels.Incoming{
+		ID: "missing-quoted-image", ChatType: "group", GroupID: "room", SenderID: "member",
+		Kind: "image", Text: "分析这张图",
+		ReplyContext: map[string]string{"media_diagnostic": diagnostic, "req_id": "private-routing-token"},
+	}
+	if err := f.server.receiveChannel(context.Background(), c.ID, c.Version, in); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.server.admitChannelInbox(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.runtime.requests) != 0 {
+		t.Fatal("missing image was sent to the model as a text question")
+	}
+	response := f.request(t, "GET", "/api/channels/"+c.ID+"/diagnostics", nil, true, nil)
+	requireStatus(t, response, 200)
+	var result struct {
+		Inbox []struct {
+			State, Error string
+			Diagnostic   string `json:"media_diagnostic"`
+		}
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Inbox) != 1 || result.Inbox[0].State != "rejected" || !strings.Contains(result.Inbox[0].Error, "未能获取图片") || result.Inbox[0].Diagnostic != diagnostic {
+		t.Fatalf("unexpected diagnostics: %s", response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "private-routing-token") {
+		t.Fatal("diagnostics exposed reply context")
+	}
+}

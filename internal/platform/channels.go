@@ -447,6 +447,8 @@ func (s *Server) receiveChannel(ctx context.Context, channelID string, version i
 	// silently degraded, even when it carries a caption.
 	if in.Kind != "text" && in.Kind != "image" {
 		state, reason = "rejected", "目前仅支持文字和图片消息，请重新发送。"
+	} else if in.Kind == "image" && len(media) == 0 {
+		state, reason = "rejected", "收到图片消息，但未能获取图片内容，请重新发送。"
 	} else if text == "" && len(media) == 0 {
 		state, reason = "rejected", "未收到可处理的内容，请重新发送问题。"
 	}
