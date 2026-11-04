@@ -22,6 +22,7 @@ FROM node:24.22.0-bookworm-slim
 ENV NODE_ENV=production SIAGENT_DATA_DIR=/data SIAGENT_LISTEN=0.0.0.0:8080 SIAGENT_DEPLOYMENT=docker
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
+COPY licenses /app/licenses
 COPY --from=go-build /siagent /app/siagent
 COPY --from=node-build /build/runtime/dist /app/runtime/dist
 COPY --from=node-build /build/runtime/node_modules /app/runtime/node_modules

@@ -195,6 +195,12 @@ func (s *Server) admitChannelInbox(ctx context.Context) error {
 			prompt := text
 			if prompt == "" && len(images) > 0 {
 				prompt = "请查看图片。"
+				for _, item := range images {
+					if item.Kind == "file" {
+						prompt = "请阅读附件并概述主要内容。"
+						break
+					}
+				}
 			}
 			var attachmentIDs []string
 			if len(images) > 0 {

@@ -76,7 +76,7 @@ type WebhookProvider interface {
 }
 ```
 
-`streaming: true` 表示可在同一消息 ID 下原地更新；`images: true` 表示能下载并暂存入站图片。两者都缺省为 `false`。
+`streaming: true` 表示可在同一消息 ID 下原地更新；`images: true` 表示能下载并暂存入站图片。`files: true` 表示能下载并暂存文档附件，三者都缺省为 `false`。
 
 `id` 使用小写字母、数字与连字符，不能覆盖内置或其他已安装 ID。字段键使用小写字母、数字、下划线；最多 32 个字段。`identity_fields` 必须引用必填的普通配置字段，不能使用密钥。相同适配器的同一连接标识只允许一个未归档渠道。
 
@@ -100,7 +100,7 @@ stdin/stdout 使用一行一个 JSON 对象，每帧 `v:1`，最多 256 KiB。st
 {"v":1,"type":"configure","config":{"id":"channel-id","provider":"example-chat","version":1,"config":{"account":"account-id"},"secrets":{"token":"private-value"},"media_dir":"/data/channel-media/channel-id/inbox"}}
 ```
 
-`media_dir` 是平台为该渠道创建的私有上传目录，只有声明了 `images: true` 的适配器才需要使用。平台在建立连接前清空它，并在渠道归档时再次清空；适配器只能在其中写入普通文件。
+`media_dir` 是平台为该渠道创建的私有上传目录，声明了 `images: true` 或 `files: true` 的适配器使用。平台在建立连接前清空它，并在渠道归档时再次清空；适配器只能在其中写入普通文件。
 
 适配器初始化 SDK 并异步连接，发出：
 
@@ -126,6 +126,7 @@ stdin/stdout 使用一行一个 JSON 对象，每帧 `v:1`，最多 256 KiB。st
 - `kind`：`text` 或 `image`；其他类型形成明确的文字范围说明。
 - `text`：UTF-8 文本，最多 100000 字节，仍受 Agent 的输入与上下文限制。
 - `images`：可选，最多 8 项，每项 `{name, file}`。适配器必须先自行下载并解密图片，再写入 `configure.config.media_dir` 给出的目录，并在 `file` 中只填该目录内的文件基名；平台读一次即删除该文件，不接受路径、上级目录或符号链接。图片不放进协议帧：单帧上限 256 KiB，而单张图片允许 4 MiB。平台按内容检测格式与大小，通过后暂存到自己的目录，准入时转成该会话的普通对话附件（与 Web 附件同构）。清单声明 `images: true` 后平台才会接受 `images`；未声明时图片消息返回文字说明。
+- `files`：可选，与 `images` 合计最多 8 项，每项 `{name, file}`；暂存目录和路径校验与图片相同。`name` 必须保留实际文档扩展名；平台按 TXT/MD/Markdown/CSV/JSON/PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX 白名单校验并提取内容。适配器须声明 `files: true`。`kind: "file"` 且附件列表为空表示文件获取失败，平台拒绝本轮并提示重新发送；图片与文件都成功下载后再报告一条完整消息。
 - `reply_context`：用于回复的厂商协议上下文，最多 16 项、序列化 8 KiB。作为业务数据持久化，清理会话时移除，不能在其中传入用于其他系统的凭据。
 
 群聊示例：

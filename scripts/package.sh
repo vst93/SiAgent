@@ -34,6 +34,7 @@ python3 scripts/fetch-node.py "$platform" "$architecture" "$release_dir"
 PATH="$release_dir/libexec:$PATH" npm --prefix "$release_dir/runtime" ci --omit=dev
 "$release_dir/libexec/node" -e 'require("node:sqlite")'
 cp LICENSE "$release_dir/LICENSE"
+cp -R licenses "$release_dir/licenses"
 cp docs/server-package.md "$release_dir/README.md"
 # Keep executable JS, assets and licenses; omit type declarations and source maps.
 python3 - "$release_dir" "artifacts/$name.tar.xz" <<'PY'

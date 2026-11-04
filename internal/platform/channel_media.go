@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -10,8 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"siagent/internal/channels"
+	"siagent/internal/knowledge"
 )
 
 // Channel adapters download inbound images themselves, because only they hold
@@ -22,10 +26,13 @@ import (
 // the Web composer's image path: same content checks, same per-conversation
 // limits, same visual-model gate and the same Web history rendering.
 
-// stagedImage is one validated inbound image waiting for admission. Path is
+// stagedImage is one validated inbound attachment waiting for admission. The
+// historical name and absent Kind on old records remain compatible. Path is
 // relative to the data directory; AttachmentID is set once the file has been
 // promoted, so a deferred admission can retry without uploading twice.
 type stagedImage struct {
+	Kind         string `json:"kind,omitempty"`
+	Extracted    string `json:"extracted,omitempty"`
 	Name         string `json:"name"`
 	Mime         string `json:"mime"`
 	Path         string `json:"path"`
@@ -276,7 +283,11 @@ func (s *Server) promoteStagedImages(inboxID, conversationID string, staged []st
 			_ = os.Remove(source)
 		}
 		written = append(written, target)
-		if _, err := s.store.db.Exec("INSERT INTO attachments(id,conversation_id,name,mime,kind,size,path,extracted,created) VALUES(?,?,?,?,?,?,?,'',strftime('%s','now')*1000)", attachmentID, conversationID, item.Name, item.Mime, "image", item.Size, relative); err != nil {
+		kind := item.Kind
+		if kind == "" {
+			kind = "image"
+		} // Older staged records contain only images.
+		if _, err := s.store.db.Exec("INSERT INTO attachments(id,conversation_id,name,mime,kind,size,path,extracted,created) VALUES(?,?,?,?,?,?,?,?,strftime('%s','now')*1000)", attachmentID, conversationID, item.Name, item.Mime, kind, item.Size, relative, item.Extracted); err != nil {
 			undo()
 			return nil, err
 		}
@@ -354,4 +365,49 @@ func (s *Server) discardInboundAttachments(ids []string) {
 		}
 		_ = os.Remove(filepath.Join(s.store.directory, filepath.Clean(path)))
 	}
+}
+
+// stageChannelFiles uses the chat attachment allowlist and parsers. A failed
+// document rejects the batch rather than asking the model about partial input.
+func (s *Server) stageChannelFiles(ctx context.Context, channelID, inboxID string, files []consumedImage) (staged []stagedImage, err error) {
+	defer func() {
+		if err != nil {
+			s.discardStagedImages(staged)
+		}
+	}()
+	for index, file := range files {
+		name := strings.TrimSpace(filepath.Base(strings.ReplaceAll(file.Name, "\\", "/")))
+		ext := strings.ToLower(filepath.Ext(name))
+		mime, ok := fileTypes[ext]
+		if !ok || name == "" || len(name) > 200 || !utf8.ValidString(name) {
+			return staged, &admissionError{415, "仅支持 TXT、Markdown、CSV、JSON、PDF、DOC/DOCX、PPT/PPTX、XLS/XLSX 文件；不接收可执行文件、脚本及宏文档。"}
+		}
+		if len(file.data) == 0 || int64(len(file.data)) > s.attachmentLimits.MaxFileBytes {
+			return staged, &admissionError{413, fmt.Sprintf("文件为空或超过 %d MiB 上限。", s.attachmentLimits.MaxFileBytes>>20)}
+		}
+		relative := filepath.Join("channel-media", channelID, "staged", fmt.Sprintf("%s-file-%d%s", inboxID, index, ext))
+		target := filepath.Join(s.store.directory, relative)
+		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+			return staged, err
+		}
+		staged = append(staged, stagedImage{Name: name, Mime: mime, Kind: "file", Path: relative, Size: int64(len(file.data))})
+		if err := os.WriteFile(target, file.data, 0600); err != nil {
+			return staged, err
+		}
+		parseCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		text, parseErr := knowledge.ExtractText(parseCtx, target, strings.TrimPrefix(ext, "."))
+		cancel()
+		if parseErr != nil {
+			return staged, &admissionError{422, "文件解析失败：" + parseErr.Error()}
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return staged, &admissionError{422, "文件没有可提取的文本；扫描件和图片内容暂不支持 OCR。"}
+		}
+		if utf8.RuneCountInString(text) > s.attachmentLimits.MaxExtractedRunes {
+			return staged, &admissionError{413, "文件提取文本超过上限，请拆分后重试。"}
+		}
+		staged[len(staged)-1].Extracted = text
+	}
+	return staged, nil
 }

@@ -51,6 +51,11 @@ var imageMIMETypes = map[string]string{
 }
 
 var fileTypes = map[string]string{
+	".doc":      "application/msword",
+	".xls":      "application/vnd.ms-excel",
+	".ppt":      "application/vnd.ms-powerpoint",
+	".pptx":     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	".xlsx":     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 	".txt":      "text/plain",
 	".md":       "text/markdown",
 	".markdown": "text/markdown",
@@ -93,7 +98,7 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	} else if value, ok := fileTypes[ext]; ok {
 		mimeType, kind = value, "file"
 	} else {
-		fail(w, 415, "仅支持 PNG/JPEG/WebP/GIF 图片，以及 TXT、Markdown、CSV、JSON、PDF、DOCX 文件。")
+		fail(w, 415, "仅支持 PNG/JPEG/WebP/GIF 图片，以及 TXT、Markdown、CSV、JSON、PDF、DOC/DOCX、PPT/PPTX、XLS/XLSX 文件。")
 		return
 	}
 	var existingCount int

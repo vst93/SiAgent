@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,12 +27,13 @@ const pixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A
 // the bundled WeCom bot does. It lets the platform path be tested without a
 // vendor network.
 type imageChannelPlugin struct {
+	files    bool
 	mediaDir string
 	sent     []channels.Delivery
 }
 
-func (*imageChannelPlugin) Descriptor() channels.Descriptor {
-	return channels.Descriptor{ID: "fixture-image", Name: "Fixture image", Transport: "websocket", Streaming: true, Images: true, MaxTextBytes: 4096, IdentityFields: []string{"account"}, Fields: []channels.Field{
+func (p *imageChannelPlugin) Descriptor() channels.Descriptor {
+	return channels.Descriptor{ID: "fixture-image", Name: "Fixture image", Transport: "websocket", Streaming: true, Images: true, Files: p.files, MaxTextBytes: 4096, IdentityFields: []string{"account"}, Fields: []channels.Field{
 		{Key: "account", Label: "Account", Required: true},
 		{Key: "token", Label: "Token", Secret: true, Required: true},
 	}}
@@ -613,5 +615,143 @@ func TestChannelMissingImageRejectsQuestionAndExposesOnlyMediaSummary(t *testing
 	}
 	if strings.Contains(response.Body.String(), "private-routing-token") {
 		t.Fatal("diagnostics exposed reply context")
+	}
+}
+
+func TestChannelDocumentReachesTextModelAndDeduplicates(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	f.model(t, "fixture", "secret")
+	c, plugin := newImageChannel(t, f)
+	plugin.files = true
+	in := channels.Incoming{ID: "file-message", ChatType: "group", GroupID: "room", SenderID: "member", Kind: "file", Text: "概述预算", Files: []channels.IncomingImage{{Name: "预算.txt", File: stageFile(t, plugin, "document.bin", []byte("下季度预算 500 万元"))}}}
+	if err := f.server.receiveChannel(context.Background(), c.ID, c.Version, in); err != nil {
+		t.Fatal(err)
+	}
+	// A redelivery uses a new staging path but retains the same content identity.
+	in.Files[0].File = stageFile(t, plugin, "retry.bin", []byte("下季度预算 500 万元"))
+	if err := f.server.receiveChannel(context.Background(), c.ID, c.Version, in); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.server.admitChannelInbox(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.runtime.requests) != 1 {
+		t.Fatalf("expected one run: %d", len(f.runtime.requests))
+	}
+	attachments, _ := f.runtime.requests[0]["attachments"].([]map[string]any)
+	if len(attachments) != 1 || attachments[0]["kind"] != "file" || attachments[0]["name"] != "预算.txt" || attachments[0]["text"] != "下季度预算 500 万元" {
+		t.Fatalf("missing extracted file: %#v", attachments)
+	}
+	if f.runtime.requests[0]["input"] != "概述预算" {
+		t.Fatal("question lost")
+	}
+	entries, err := os.ReadDir(plugin.mediaDir)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("adapter files not cleaned up", err)
+	}
+	in.Files[0] = channels.IncomingImage{Name: "renamed.exe", File: stageFile(t, plugin, "renamed.bin", []byte("下季度预算 500 万元"))}
+	if err := f.server.receiveChannel(context.Background(), c.ID, c.Version, in); err == nil {
+		t.Fatal("different filename bypassed fingerprint")
+	}
+}
+
+func TestChannelDocumentRejectsUnsafeAndInvalidBatches(t *testing.T) {
+	for _, tc := range []struct{ name, body, reason string }{
+		{"program.exe", "executable", "仅支持"}, {"script.ps1", "Write-Host test", "仅支持"},
+		{"macro.xlsm", "zip", "仅支持"}, {"legacy.doc", "legacy", "文件解析失败"},
+		{"fake.txt", "MZ executable", "可执行文件"}, {"fake.xlsx", "not a zip", "文件解析失败"},
+		{"empty.txt", " ", "文件解析失败"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.setup(t)
+			f.model(t, "fixture", "secret")
+			c, plugin := newImageChannel(t, f)
+			plugin.files = true
+			in := channels.Incoming{ID: "bad-file", ChatType: "single", SenderID: "member", Kind: "file", Text: "分析附件", Files: []channels.IncomingImage{
+				{Name: "good.txt", File: stageFile(t, plugin, "good.bin", []byte("正常内容"))},
+				{Name: tc.name, File: stageFile(t, plugin, "bad.bin", []byte(tc.body))},
+			}}
+			if err := f.server.receiveChannel(context.Background(), c.ID, c.Version, in); err != nil {
+				t.Fatal(err)
+			}
+			var state, reason string
+			if err := f.store.db.QueryRow("SELECT state,error FROM channel_inbox WHERE msg_id='bad-file'").Scan(&state, &reason); err != nil {
+				t.Fatal(err)
+			}
+			if state != "rejected" || !strings.Contains(reason, tc.reason) {
+				t.Fatalf("unexpected %s %s", state, reason)
+			}
+			if err := f.server.admitChannelInbox(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if len(f.runtime.requests) != 0 {
+				t.Fatal("rejected file reached model")
+			}
+			entries, _ := os.ReadDir(filepath.Join(f.server.channelMediaDir(c.ID), "staged"))
+			if len(entries) != 0 {
+				t.Fatal("partial document batch left files")
+			}
+		})
+	}
+}
+
+func TestChannelFileOnlyPromptAndSizeLimit(t *testing.T) {
+	for _, oversized := range []bool{false, true} {
+		t.Run(fmt.Sprint(oversized), func(t *testing.T) {
+			f := newFixture(t)
+			f.setup(t)
+			f.model(t, "fixture", "secret")
+			c, plugin := newImageChannel(t, f)
+			plugin.files = true
+			if oversized {
+				f.server.attachmentLimits.MaxFileBytes = 4
+			}
+			in := channels.Incoming{ID: "document-only", ChatType: "single", SenderID: "member", Kind: "file", Files: []channels.IncomingImage{{Name: "test.txt", File: stageFile(t, plugin, "only.bin", []byte("document content"))}}}
+			if err := f.server.receiveChannel(context.Background(), c.ID, c.Version, in); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.server.admitChannelInbox(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if oversized {
+				if len(f.runtime.requests) != 0 {
+					t.Fatal("oversized file reached runtime")
+				}
+			} else if len(f.runtime.requests) != 1 || f.runtime.requests[0]["input"] != "请阅读附件并概述主要内容。" {
+				t.Fatal("file-only prompt missing")
+			}
+		})
+	}
+}
+
+func TestChannelLegacyOfficeAttachmentsReachRuntime(t *testing.T) {
+	for _, tc := range []struct{ name, expected string }{{"simple.doc", "Word 97"}, {"simple.xls", "replaceMe"}, {"basic.ppt", "test title"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.setup(t)
+			f.model(t, "fixture", "secret")
+			c, plugin := newImageChannel(t, f)
+			plugin.files = true
+			data, err := os.ReadFile(filepath.Join("..", "knowledge", "testdata", "legacy", tc.name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			in := channels.Incoming{ID: "office-file", ChatType: "group", GroupID: "room", SenderID: "member", Kind: "file", Text: "总结这份文件", Files: []channels.IncomingImage{{Name: tc.name, File: stageFile(t, plugin, "office.bin", data)}}}
+			if err := f.server.receiveChannel(context.Background(), c.ID, c.Version, in); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.server.admitChannelInbox(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if len(f.runtime.requests) != 1 {
+				t.Fatalf("no file run: %d", len(f.runtime.requests))
+			}
+			attachments, _ := f.runtime.requests[0]["attachments"].([]map[string]any)
+			if len(attachments) != 1 || attachments[0]["kind"] != "file" || !strings.Contains(attachments[0]["text"].(string), tc.expected) {
+				t.Fatalf("missing document content: %#v", attachments)
+			}
+		})
 	}
 }

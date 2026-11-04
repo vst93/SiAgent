@@ -1739,8 +1739,8 @@ const [search, setSearch] = useState("");
                         disabled={blocked || uploading}
                         accept={
                           model?.options.input?.includes("image")
-                            ? ".png,.jpg,.jpeg,.webp,.gif,.txt,.md,.markdown,.csv,.json,.pdf,.docx"
-                            : ".txt,.md,.markdown,.csv,.json,.pdf,.docx"
+                            ? ".png,.jpg,.jpeg,.webp,.gif,.txt,.md,.markdown,.csv,.json,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
+                            : ".txt,.md,.markdown,.csv,.json,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
                         }
                         onChange={(event) => {
                           if (event.target.files?.length)

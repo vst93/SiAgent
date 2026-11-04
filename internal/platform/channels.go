@@ -358,7 +358,7 @@ func (s *Server) receiveChannel(ctx context.Context, channelID string, version i
 	if err := normalizeIncoming(&in); err != nil {
 		return err
 	}
-	if in.ID == "" || len(in.ID) > 256 || in.Session == "" || len(in.Session) > 2048 || len(in.Text) > 100000 || len(in.Kind) > 64 || len(in.Images) > 8 || !utf8.ValidString(in.ID+in.Session+in.Text+in.Kind) || strings.ContainsAny(in.ID+in.Session, "\x00\r\n") {
+	if in.ID == "" || len(in.ID) > 256 || in.Session == "" || len(in.Session) > 2048 || len(in.Text) > 100000 || len(in.Kind) > 64 || len(in.Images)+len(in.Files) > 8 || !utf8.ValidString(in.ID+in.Session+in.Text+in.Kind) || strings.ContainsAny(in.ID+in.Session, "\x00\r\n") {
 		return errors.New("invalid channel message")
 	}
 	reply, err := json.Marshal(in.ReplyContext)
@@ -370,6 +370,11 @@ func (s *Server) receiveChannel(ctx context.Context, channelID string, version i
 	// staging file names that differ per attempt.
 	media, err := s.consumeAdapterImages(channelID, in.Images)
 	if err != nil {
+		s.discardAdapterMedia(channelID, in.Files)
+		return err
+	}
+	files, err := s.consumeAdapterImages(channelID, in.Files)
+	if err != nil {
 		return err
 	}
 	// The text-only fingerprint stays byte-identical to earlier versions so a
@@ -379,6 +384,10 @@ func (s *Server) receiveChannel(ctx context.Context, channelID string, version i
 	for _, image := range media {
 		hashed := sha256.Sum256(image.data)
 		fields = append(fields, hex.EncodeToString(hashed[:]))
+	}
+	for _, file := range files {
+		hashed := sha256.Sum256(file.data)
+		fields = append(fields, "file", file.Name, hex.EncodeToString(hashed[:]))
 	}
 	original, _ := json.Marshal(fields)
 	digest := sha256.Sum256(original)
@@ -442,14 +451,27 @@ func (s *Server) receiveChannel(ctx context.Context, channelID string, version i
 		}
 	}
 	state, reason := "pending", ""
-	// Only text and image messages are consumed. Anything else (a file, a video,
-	// an unsupported vendor type) keeps the explicit scope notice instead of being
-	// silently degraded, even when it carries a caption.
-	if in.Kind != "text" && in.Kind != "image" {
+	// Documents require explicit adapter support, independently of vision.
+	provider, providerOK := s.channelProviders.Get(c.Provider)
+	acceptsFiles := providerOK && provider.Descriptor().Files
+	var totalBytes int64
+	for _, item := range append(media, files...) {
+		totalBytes += int64(len(item.data))
+	}
+	if (len(files) > 0 || in.Kind == "file") && !acceptsFiles {
+		state, reason = "rejected", "当前渠道仅支持文字和图片消息，不支持文件。"
+	} else if totalBytes > s.attachmentLimits.MaxMessageBytes || len(media)+len(files) > s.attachmentLimits.MaxMessageCount {
+		state, reason = "rejected", "单条消息附件数量或总大小超过上限，请拆分发送。"
+	} else if in.Kind == "file" && len(files) == 0 {
+		state, reason = "rejected", "收到文件消息，但未能获取文件内容，请重新发送。"
+	} else if in.Kind != "text" && in.Kind != "image" && in.Kind != "file" {
 		state, reason = "rejected", "目前仅支持文字和图片消息，请重新发送。"
+		if acceptsFiles {
+			reason = "目前仅支持文字、图片和允许的文档格式，不支持该消息类型。"
+		}
 	} else if in.Kind == "image" && len(media) == 0 {
 		state, reason = "rejected", "收到图片消息，但未能获取图片内容，请重新发送。"
-	} else if text == "" && len(media) == 0 {
+	} else if text == "" && len(media) == 0 && len(files) == 0 {
 		state, reason = "rejected", "未收到可处理的内容，请重新发送问题。"
 	}
 	staged := []stagedImage{}
@@ -465,6 +487,21 @@ func (s *Server) receiveChannel(ctx context.Context, channelID string, version i
 			} else {
 				return err
 			}
+		}
+	}
+	if state == "pending" && len(files) > 0 {
+		documents, fileErr := s.stageChannelFiles(ctx, channelID, in.ID, files)
+		if fileErr != nil {
+			s.discardStagedImages(staged)
+			staged = nil
+			var rejected *admissionError
+			if errors.As(fileErr, &rejected) {
+				state, reason = "rejected", rejected.Message
+			} else {
+				return fileErr
+			}
+		} else {
+			staged = append(staged, documents...)
 		}
 	}
 	encodedMedia := "[]"

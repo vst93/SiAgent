@@ -51,6 +51,11 @@ async function fixture(t) {
       response.writeHead(500).end();
       return;
     }
+    if (request.url === "/document.txt") {
+      response.writeHead(200, { "content-disposition": "attachment; filename=notes.txt" });
+      response.end("季度计划和预算");
+      return;
+    }
     response.writeHead(200, {
       "content-type": "image/png",
       "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent("截图.png")}`,
@@ -455,7 +460,7 @@ test("group quotes preserve the question and referenced images, with bounded con
     ] } }],
     ["quote-missing", { msgtype: "image", image: {} }],
     ["quote-broken", { msgtype: "image", image: { url: f.mediaURL.replace("photo.png", "broken.png") } }],
-    ["quote-file", { msgtype: "file", file: { url: "https://private.example/file", aeskey: "private-key" } }],
+    ["quote-file", { msgtype: "file", file: { url: f.mediaURL.replace("photo.png", "document.txt") } }],
     ["no-quote", undefined],
     ["partial-failure", { msgtype: "mixed", mixed: { msg_item: [
       { msgtype: "image", image: { url: f.mediaURL } },
@@ -486,7 +491,7 @@ test("group quotes preserve the question and referenced images, with bounded con
     assert.deepEqual(await readFile(join(f.stagingRoot, message.images[0].file)), pixelPNG);
     assert.equal(message.session, JSON.stringify(["group", "group-a", "member"]));
     assert.equal(message.reply_context.req_id, `req-${id}`);
-    assert.match(message.reply_context.media_diagnostic, /引用图片=1；可下载图片=1；已暂存=1；处理=ok/);
+    assert.match(message.reply_context.media_diagnostic, /引用图片=1；可下载图片=1；已暂存=1；.*处理=ok/);
   }
   assert.match(messages["quote-mixed"].text, /\[引用内容\]\n引用的说明/);
   for (const id of ["quote-missing", "quote-broken", "partial-failure", "too-many"]) {
@@ -495,10 +500,42 @@ test("group quotes preserve the question and referenced images, with bounded con
     assert.match(messages[id].reply_context.media_diagnostic, /处理=failed/);
   }
   assert.equal(messages["quote-file"].kind, "file");
-  assert.match(messages["quote-file"].reply_context.media_diagnostic, /处理=unsupported/);
+  assert.equal(messages["quote-file"].files.length, 1);
+  assert.equal(messages["quote-file"].files[0].name, "notes.txt");
+  assert.equal(await readFile(join(f.stagingRoot, messages["quote-file"].files[0].file), "utf8"), "季度计划和预算");
+  assert.match(messages["quote-file"].reply_context.media_diagnostic, /引用文件=1；文件已暂存=1；处理=ok/);
   assert.equal(messages["no-quote"].kind, "text");
   assert.match(messages["no-quote"].reply_context.media_diagnostic, /引用=none/);
-  assert.equal((await readdir(f.stagingRoot)).length, 2, "failed batches must clean up staged images");
+  assert.equal((await readdir(f.stagingRoot)).length, 3, "failed batches must clean up staged images");
   const output = JSON.stringify(f.frames);
   for (const secret of [f.mediaURL, "private.example", "private-key", imageKey.toString("base64")]) assert(!output.includes(secret));
+});
+
+test("direct documents and failed file references retain file identity", async (t) => {
+  const f = await fixture(t);
+  for (const [id, body] of [
+    ["direct-file", { msgtype: "file", file: { url: f.mediaURL.replace("photo.png", "document.txt") } }],
+    ["missing-file", { msgtype: "text", text: { content: "总结这份文件" }, quote: { msgtype: "file", file: {} } }],
+    ["failed-file", { msgtype: "text", text: { content: "总结这份文件" }, quote: { msgtype: "file", file: { url: f.mediaURL.replace("photo.png", "broken.png") } } }],
+    ["video", { msgtype: "video" }],
+  ]) {
+    f.sockets[0].send(JSON.stringify({
+      cmd: "aibot_msg_callback", headers: { req_id: `req-${id}` },
+      body: { msgid: id, aibotid: "fixture-bot", chattype: "single", from: { userid: "member" }, ...body },
+    }));
+  }
+  await waitUntil(() => f.frames.filter((frame) => frame.type === "incoming").length === 4);
+  const messages = Object.fromEntries(f.frames.filter((frame) => frame.type === "incoming").map((frame) => [frame.incoming.id, frame.incoming]));
+  assert.equal(messages["direct-file"].kind, "file");
+  assert.equal(messages["direct-file"].files[0].name, "notes.txt");
+  assert.deepEqual(messages["direct-file"].images, []);
+  assert.equal(messages["direct-file"].text, "");
+  for (const id of ["missing-file", "failed-file"]) {
+    assert.equal(messages[id].kind, "file");
+    assert.deepEqual(messages[id].files, []);
+    assert.equal(messages[id].text, "总结这份文件");
+    assert.match(messages[id].reply_context.media_diagnostic, /处理=failed/);
+  }
+  assert.equal(messages.video.kind, "unsupported");
+  for (const message of Object.values(messages)) assert(Buffer.byteLength(message.reply_context.media_diagnostic) <= 512);
 });

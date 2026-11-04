@@ -907,7 +907,7 @@ export const exact: Record<string, string> = {
   "当前模型未声明支持图片输入，请切换视觉模型或移除图片。": "The current model does not declare image input. Switch to a vision model or remove the image.",
   "单个附件不能超过 10 MiB。": "Each attachment must be 10 MiB or smaller.",
   "每个对话最多保留 40 个附件、总计 100 MiB；请删除未发送附件或新建对话。": "Each conversation can keep up to 40 attachments and 100 MiB total. Remove unsent attachments or start a new conversation.",
-  "仅支持 PNG/JPEG/WebP/GIF 图片，以及 TXT、Markdown、CSV、JSON、PDF、DOCX 文件。": "Supported attachments: PNG/JPEG/WebP/GIF images and TXT, Markdown, CSV, JSON, PDF or DOCX files.",
+  "仅支持 PNG/JPEG/WebP/GIF 图片，以及 TXT、Markdown、CSV、JSON、PDF、DOC/DOCX、PPT/PPTX、XLS/XLSX 文件。": "Supported attachments: PNG/JPEG/WebP/GIF images and TXT, Markdown, CSV, JSON, PDF, DOC/DOCX, PPT/PPTX or XLS/XLSX files.",
   "文件解析失败：": "File parsing failed: ",
   "文件提取文本超过 300,000 字符，请拆分后重试。": "Extracted text exceeds 300,000 characters. Split the file and try again.",
   "文件没有可提取的文本。": "The file contains no extractable text.",

@@ -42,6 +42,8 @@ type Descriptor struct {
 	// Without it the platform rejects image messages with a text-only notice
 	// instead of promising a capability the transport does not have.
 	Images bool `json:"images,omitempty"`
+	// Files reports support for downloaded document attachments.
+	Files bool `json:"files,omitempty"`
 	// Priority orders adapters in the console so the recommended entry stays
 	// first; legacy adapters always sort last regardless.
 	Priority int `json:"priority,omitempty"`
@@ -81,6 +83,7 @@ type Incoming struct {
 	Kind         string            `json:"kind"`
 	Text         string            `json:"text"`
 	Images       []IncomingImage   `json:"images,omitempty"`
+	Files        []IncomingImage   `json:"files,omitempty"`
 	ReplyContext map[string]string `json:"reply_context"`
 }
 type Delivery struct {

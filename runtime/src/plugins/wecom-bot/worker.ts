@@ -12,8 +12,8 @@ import { serve } from "../frames.js";
 // worker holds the per-message AES key, so it downloads and decrypts the bytes
 // and stages them for the platform. The platform validates the content, applies
 // its own size limits and turns accepted files into ordinary chat attachments.
-const maxInboundImages = 8;
-const maxInboundImageBytes = 16 * 1024 * 1024;
+const maxInboundAttachments = 8;
+const maxInboundMediaBytes = 16 * 1024 * 1024;
 // Bounded in-flight messages: the platform must confirm durable admission, so an
 // unbounded queue would only hide a stalled consumer.
 const maxOutstanding = 128;
@@ -99,10 +99,12 @@ export function runWorker(wsUrl?: string) {
         outstanding.add(body.msgid);
         // Resolve only the explicit quote carried by this callback. Do not
         // infer attachments from other messages or follow nested quotes.
-        // Download all pictures before reporting one complete question.
+        // Download all attachments before reporting one complete question.
         const direct = describeInbound(body);
         const quoted = describeInbound(body.quote ?? {});
         const pictures = [...direct.pictures, ...quoted.pictures];
+        const files = [...direct.files, ...quoted.files];
+        const fileCount = direct.fileCount + quoted.fileCount;
         const text = [
           direct.text,
           quoted.text ? `[引用内容]\n${quoted.text}\n[/引用内容]` : "",
@@ -115,7 +117,7 @@ export function runWorker(wsUrl?: string) {
           ["text", "image", "mixed", "voice", "file", "video"].includes(String(value))
             ? String(value)
             : "unknown";
-        const report = (images: { name: string; file: string }[], failed: boolean) =>
+        const report = (staged: { name: string; file: string }[], failed: boolean) =>
           session.output({
             type: "incoming",
             incoming: {
@@ -124,25 +126,34 @@ export function runWorker(wsUrl?: string) {
               sender_id: sender,
               group_id: chat,
               session: JSON.stringify([body.chattype, chat, sender]),
-              kind: unsupported ? "file" : imageCount > 0 ? "image" : "text",
+              kind: unsupported
+                ? "unsupported"
+                : fileCount > 0 ? "file" : imageCount > 0 ? "image" : "text",
               text,
-              images,
+              images: staged.slice(0, pictures.length),
+              files: staged.slice(pictures.length),
               reply_context: {
                 req_id: req,
                 chat_id: chat,
                 sender,
                 received_at: String(Date.now()),
-                media_diagnostic: `正文=${typeName(body.msgtype)}；引用=${body.quote == null ? "none" : typeName(body.quote.msgtype)}；正文图片=${direct.imageCount}；引用图片=${quoted.imageCount}；可下载图片=${pictures.length}；已暂存=${images.length}；处理=${unsupported ? "unsupported" : failed ? "failed" : "ok"}`,
+                media_diagnostic: `正文=${typeName(body.msgtype)}；引用=${body.quote == null ? "none" : typeName(body.quote.msgtype)}；正文图片=${direct.imageCount}；引用图片=${quoted.imageCount}；可下载图片=${pictures.length}；已暂存=${Math.min(staged.length, pictures.length)}；正文文件=${direct.fileCount}；引用文件=${quoted.fileCount}；文件已暂存=${Math.max(0, staged.length - pictures.length)}；处理=${unsupported ? "unsupported" : failed ? "failed" : "ok"}`,
               },
             },
           });
         if (unsupported) {
           report([], false);
-        } else if (imageCount !== pictures.length || imageCount > maxInboundImages) {
+        } else if (
+          imageCount !== pictures.length ||
+          fileCount !== files.length ||
+          imageCount + fileCount > maxInboundAttachments
+        ) {
           report([], true);
         } else {
-          void stageImages(body.msgid, pictures)
-            .then((images) => report(images, imageCount > 0 && images.length === 0))
+          void stageMedia(body.msgid, [...pictures, ...files])
+            .then((staged) =>
+              report(staged, imageCount + fileCount > 0 && staged.length === 0),
+            )
             .catch(() => report([], true));
         }
       });
@@ -173,15 +184,28 @@ export function runWorker(wsUrl?: string) {
     text: string;
     pictures: { url: string; aeskey?: string }[];
     imageCount: number;
+    files: { url: string; aeskey?: string }[];
+    fileCount: number;
     unsupported: boolean;
   } {
     const pictures: { url: string; aeskey?: string }[] = [];
     let imageCount = 0;
-    const unsupported = ["file", "video"].includes(body.msgtype);
+    const files: { url: string; aeskey?: string }[] = [];
+    const fileCount = body.msgtype === "file" ? 1 : 0;
+    if (
+      fileCount && typeof body.file?.url === "string" &&
+      body.file.url.length > 0 && body.file.url.length <= 4096
+    ) {
+      files.push({
+        url: body.file.url,
+        aeskey: typeof body.file.aeskey === "string" ? body.file.aeskey : undefined,
+      });
+    }
+    const unsupported = body.msgtype === "video";
     const pushPicture = (image: any) => {
       imageCount++;
       if (
-        pictures.length < maxInboundImages &&
+        pictures.length < maxInboundAttachments &&
         image &&
         typeof image.url === "string" &&
         image.url.length > 0 &&
@@ -197,11 +221,13 @@ export function runWorker(wsUrl?: string) {
         text: typeof body.text?.content === "string" ? body.text.content : "",
         pictures,
         imageCount,
+        files,
+        fileCount,
         unsupported,
       };
     if (body.msgtype === "image") {
       pushPicture(body.image);
-      return { text: "", pictures, imageCount, unsupported };
+      return { text: "", pictures, imageCount, files, fileCount, unsupported };
     }
     if (body.msgtype === "mixed" && Array.isArray(body.mixed?.msg_item)) {
       const parts: string[] = [];
@@ -210,7 +236,7 @@ export function runWorker(wsUrl?: string) {
           parts.push(item.text.content);
         else if (item?.msgtype === "image") pushPicture(item.image);
       }
-      return { text: parts.join("\n"), pictures, imageCount, unsupported };
+      return { text: parts.join("\n"), pictures, imageCount, files, fileCount, unsupported };
     }
     // Voice messages carry their transcript, which is the useful content.
     if (body.msgtype === "voice")
@@ -219,15 +245,17 @@ export function runWorker(wsUrl?: string) {
           typeof body.voice?.content === "string" ? body.voice.content : "",
         pictures,
         imageCount,
+        files,
+        fileCount,
         unsupported,
       };
-    return { text: "", pictures, imageCount, unsupported };
+    return { text: "", pictures, imageCount, files, fileCount, unsupported };
   }
 
-  // stageImages downloads and decrypts each picture into the platform staging
+  // stageMedia downloads and decrypts each attachment into the platform staging
   // directory. The bytes never enter a protocol frame: one frame is capped at
   // 256 KiB while a picture may be several MiB.
-  async function stageImages(
+  async function stageMedia(
     msgid: string,
     pictures: { url: string; aeskey?: string }[],
   ): Promise<{ name: string; file: string }[]> {
@@ -239,12 +267,12 @@ export function runWorker(wsUrl?: string) {
           picture.url,
           picture.aeskey,
         );
-        if (buffer.length === 0 || buffer.length > maxInboundImageBytes)
+        if (buffer.length === 0 || buffer.length > maxInboundMediaBytes)
           throw new Error("Invalid image size");
         // A random name keeps the staging area inert even if two messages race.
         const file = `${msgid.replace(/[^A-Za-z0-9_-]/g, "_")}-${index}-${randomBytes(6).toString("hex")}.bin`;
         staged.push({
-          name: typeof filename === "string" ? filename : `图片${index + 1}`,
+          name: typeof filename === "string" ? filename : `附件${index + 1}`,
           file,
         });
         await writeFile(join(mediaDir, file), buffer, { mode: 0o600 });
