@@ -1,6 +1,7 @@
 import { Icon } from "./icons";
 import { FormEvent, useState, useEffect, useRef } from "react";
 import type { Model, ModelOptions } from "./agents";
+import { KnowledgeDialog as SettingsDialog } from "./knowledge-dialog";
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 const protocols = [
   {
@@ -74,6 +75,8 @@ export function ModelsWorkspace({
   const [key, setKey] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [query, setQuery] = useState("");
   const [providers, setProviders] = useState<ProviderPreset[]>([]);
@@ -807,34 +810,82 @@ export function ModelsWorkspace({
             </footer>
           </fieldset>
           {editor.id > 1 && !editor.archived && (
-            <details className="agent-archive">
-              <summary>
-                <Icon
-                  name="caret-right"
-                  size={14}
-                  className="disclosure-icon"
-                />
-                归档模型连接
-              </summary>
-              <p>先解除所有未归档 Agent 的关联。归档保留历史和已提交任务。</p>
+            <section className="agent-archive" aria-label="归档模型连接">
+              <div className="agent-archive-head">
+                <div>
+                  <h3>归档模型连接</h3>
+                  <p>归档后不再可被选择，历史和已提交任务保留。</p>
+                </div>
+                <button
+                  type="button"
+                  className="danger-ghost"
+                  disabled={pending}
+                  onClick={() => setArchiving(true)}
+                >
+                  归档模型连接
+                </button>
+              </div>
+              <p className="agent-archive-hint">
+                归档前须先让所有未归档 Agent 改用其他模型。
+              </p>
+            </section>
+          )}
+        </form>
+        {archiving && (
+          <SettingsDialog
+            title={`归档模型连接“${editor.options.display_name || editor.name}”？`}
+            pending={pending}
+            onClose={() => setArchiving(false)}
+          >
+            <p>
+              归档后此连接不再可被任何 Agent 选择。历史记录和已提交任务保留，使用其提交时的独立快照。
+            </p>
+            <p className="muted">
+              若仍有未归档 Agent 使用此连接，归档会被拒绝；请先为它们改选其他模型。
+            </p>
+            {archiveError && (
+              <p role="alert" className="error">
+                {archiveError}
+              </p>
+            )}
+            <footer>
               <button
-                type="button"
+                data-dialog-cancel
+                disabled={pending}
+                onClick={() => setArchiving(false)}
+              >
+                取消
+              </button>
+              <button
+                className="danger-button"
                 disabled={pending}
                 onClick={() =>
                   void action(async () => {
-                    await request(`/models/${editor.id}`, "DELETE");
-                    setEditor({ ...editor, archived: true });
-                    setKey("");
-                    await onSaved();
-                    setFeedback("模型连接已归档，已提交任务仍使用其独立快照。");
+                    setArchiveError("");
+                    try {
+                      await request(`/models/${editor.id}`, "DELETE");
+                      setEditor({ ...editor, archived: true });
+                      setKey("");
+                      setArchiving(false);
+                      await onSaved();
+                      setFeedback(
+                        "模型连接已归档，已提交任务仍使用其独立快照。",
+                      );
+                    } catch (failure) {
+                      setArchiveError(
+                        failure instanceof Error
+                          ? failure.message
+                          : "归档未完成，请稍后重试。",
+                      );
+                    }
                   })
                 }
               >
-                确认归档模型连接
+                {pending ? "正在归档…" : "确认归档"}
               </button>
-            </details>
-          )}
-        </form>
+            </footer>
+          </SettingsDialog>
+        )}
         {error && (
           <p className="error model-feedback" role="alert">
             {error}

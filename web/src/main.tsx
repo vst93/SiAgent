@@ -18,7 +18,12 @@ import {
 } from "./navigation";
 import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { appURL, setPublicBase } from "./urls";
-import { rememberSpaceAgent, storedSpaceAgent } from "./catalog-scope";
+import {
+  ALL_SPACE,
+  isAllSpace,
+  rememberSpaceAgent,
+  storedSpaceAgent,
+} from "./catalog-scope";
 import {
   applyLanguage,
   rememberLanguage,
@@ -305,6 +310,9 @@ function App() {
   const [auth, setAuth] = useState<Auth | null>(null);
   const [models, setModels] = useState<Model[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  // `space` may be "all"; `agentID` is always a concrete Agent, because chat,
+  // runs and per-Agent endpoints need one. Settings pages read `space`.
+  const [space, setSpace] = useState(() => storedSpaceAgent() || "default");
   const [agentID, setAgentID] = useState("default");
   const agent = agents.find((value) => value.id === agentID) ?? null;
   const model = models.find((value) => value.id === agent?.model_id) ?? null;
@@ -407,8 +415,9 @@ function App() {
       setModels(models);
       setAgents(agents);
       if (!models.length && !sourceID) navigation.navigate("settings/models");
-      // Honor the last Agent the user explicitly opened instead of jumping to
-      // whichever Agent happened to receive the latest conversation.
+      // Honor the last space the user explicitly chose instead of jumping to
+      // whichever Agent happened to receive the latest conversation. "all" is a
+      // valid stored space, but chat still needs one concrete Agent.
       const preferred = storedSpaceAgent();
       const selectedAgent =
         agents.find((value) => value.id === preferred) ??
@@ -417,6 +426,7 @@ function App() {
         agents[0];
       const nextAgentID = selectedAgent?.id ?? list[0]?.agent_id ?? "default";
       setAgentID(nextAgentID);
+      if (!isAllSpace(preferred)) setSpace(nextAgentID);
       listSignature.current = conversationSignature(list);
       setConversations(list);
       setSelected((current) => {
@@ -838,13 +848,17 @@ function App() {
     models.find((item) => item.id === agent?.model_id) ?? null;
   // Switching the space keeps you where you are: it re-scopes the current page
   // rather than navigating, because the space is a filter over the whole shell.
+  // "all" widens the settings pages; chat still needs one concrete Agent, so it
+  // keeps the current one instead of inventing a merged conversation list.
   function switchSpace(id: string) {
     rememberSpaceAgent(id);
+    setSpace(id);
+    setInput("");
+    setAttachments([]);
+    if (isAllSpace(id)) return;
     setAgentID(id);
     const owned = conversations.filter((item) => item.agent_id === id);
     setSelected(owned[0]?.id ?? "");
-    setInput("");
-    setAttachments([]);
   }
   const commandItems: CommandItem[] = [
     {
@@ -988,7 +1002,7 @@ function App() {
             title={`当前空间：${agent?.name ?? "未选择 Agent"}`}
             onClick={() => setRailCollapsed(false)}
           >
-            <Icon name="agent" size={16} />
+            <Icon name="space" size={16} />
           </button>
         ) : (
         <div className="rail-space">
@@ -997,11 +1011,14 @@ function App() {
             <span className="sr-only">切换 Agent 空间</span>
             <select
               aria-label="切换 Agent 空间"
-              value={agentID}
+              value={space}
               onChange={(event) => switchSpace(event.target.value)}
               disabled={!liveAgents.length}
             >
               {!liveAgents.length && <option value="">尚未创建 Agent</option>}
+              {liveAgents.length > 0 && (
+                <option value={ALL_SPACE}>全部 Agent（{liveAgents.length}）</option>
+              )}
               {liveAgents.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
@@ -1130,11 +1147,14 @@ function App() {
               <span className="sr-only">切换 Agent 空间</span>
               <select
                 aria-label="切换 Agent 空间"
-                value={agentID}
+                value={space}
                 onChange={(event) => switchSpace(event.target.value)}
                 disabled={!liveAgents.length}
               >
                 {!liveAgents.length && <option value="">尚未创建 Agent</option>}
+                {liveAgents.length > 0 && (
+                  <option value={ALL_SPACE}>全部 Agent（{liveAgents.length}）</option>
+                )}
                 {liveAgents.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
@@ -1291,7 +1311,9 @@ function App() {
               models={models}
               agents={agents}
               spaceAgentID={agentID}
+              space={space}
               onSpaceAgent={setAgentID}
+              onSwitchSpace={switchSpace}
               onSaved={refreshCatalog}
               onStart={() => selectAgent("default")}
               onSelectAgent={selectAgent}

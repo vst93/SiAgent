@@ -3,6 +3,7 @@ import { externalURL } from "./urls";
 import { FormEvent, useEffect, useState } from "react";
 import type { Agent } from "./agents";
 import { KnowledgeDialog as SettingsDialog } from "./knowledge-dialog";
+import { isAllSpace } from "./catalog-scope";
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 type Field = {
   key: string;
@@ -516,11 +517,13 @@ export function ChannelsWorkspace({
   request,
   agents,
   spaceAgentID,
+  space,
   onConversation,
 }: {
   request: Api;
   agents: Agent[];
   spaceAgentID: string;
+  space: string;
   onConversation: (id: string) => Promise<void>;
 }) {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -535,8 +538,13 @@ export function ChannelsWorkspace({
   const [pending, setPending] = useState(false);
   const [diagnostics, setDiagnostics] = useState<Diagnostics>(empty);
   const [refresh, setRefresh] = useState(0);
-  const current =
-    channels.find((channel) => channel.id === selected) ?? channels[0];
+  // A concrete space shows only the channels bound to that Agent; "all" shows
+  // every channel and labels each one with its Agent so nothing is invisible.
+  const all = isAllSpace(space);
+  const scoped = all
+    ? channels
+    : channels.filter((channel) => channel.agent_id === spaceAgentID);
+  const current = scoped.find((channel) => channel.id === selected) ?? scoped[0];
   const provider = providers.find((value) => value.id === current?.provider);
   useEffect(() => {
     let active = true;
@@ -629,7 +637,7 @@ export function ChannelsWorkspace({
       <header className="plugin-section-heading">
         <div>
           <h2>
-            已接入渠道 <span>{channels.length}</span>
+            已接入渠道 <span>{scoped.length}</span>
           </h2>
           <p>选择渠道适配器，连接聊天平台并绑定 Agent。</p>
         </div>
@@ -667,7 +675,7 @@ export function ChannelsWorkspace({
       ) : (
         <div className="channel-layout">
           <nav className="channel-catalog" aria-label="渠道列表">
-            {channels.map((channel) => (
+            {scoped.map((channel) => (
               <button
                 key={channel.id}
                 disabled={pending}
@@ -684,6 +692,9 @@ export function ChannelsWorkspace({
                     ?.name ?? channel.provider}
                 </span>
                 <small>
+                  {all
+                    ? `${agents.find((agent) => agent.id === channel.agent_id)?.name ?? "未绑定 Agent"} · `
+                    : ""}
                   {channel.archived
                     ? "已归档"
                     : channel.enabled
@@ -768,11 +779,17 @@ export function ChannelsWorkspace({
                   {pending ? "正在检查…" : "检查连接"}
                 </button>
                 <button
-                  disabled={pending || current.enabled}
+                  className="danger-ghost"
+                  disabled={pending}
                   onClick={() => {
                     setArchive(current);
                     setArchiveError("");
                   }}
+                  title={
+                    current.enabled
+                      ? "归档前须先停用此渠道"
+                      : "归档后停止接收新消息，历史保留"
+                  }
                 >
                   归档渠道
                 </button>

@@ -797,6 +797,7 @@ export const exact: Record<string, string> = {
   "上传到当前 Agent 会自动挂载；同一份技能可被多个 Agent 使用，不会复制。": "Uploads mount to the current Agent automatically. One Skill can serve several Agents without being copied.",
   "当前 Agent 空间": "Current Agent space",
   "当前空间": "Current space",
+  "已被 Agent 挂载": "Mounted by an Agent",
   "切换 Agent 空间": "Switch Agent space",
   "空间": "Space",
   "Agent 设置": "Agent settings",

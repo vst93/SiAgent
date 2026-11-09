@@ -565,10 +565,16 @@
     display: none;
   }
 
+  /* `flex: 1 0 auto` refused to shrink, so seven presets overflowed a 320px
+     screen and were clipped. Allow shrinking and keep the labels on one line. */
   .usage-presets button {
-    flex: 1 0 auto;
-    padding: 0 8px;
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 0 6px;
+    font-size: 11px;
     white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
   }
 
   .usage-range {

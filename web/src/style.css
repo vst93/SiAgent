@@ -1803,6 +1803,51 @@ summary {
   color: var(--faint);
   font-size: 11px;
 }
+/* "All" space: an overview of every Agent. Rows switch into one space instead
+   of editing fields that only make sense for a single Agent. */
+.agent-overview-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.agent-overview-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+}
+.agent-overview-row:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--surface);
+}
+.agent-overview-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.agent-overview-row small {
+  grid-column: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--faint);
+  font-size: 11px;
+}
+.agent-overview-row .ui-icon {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  color: var(--faint);
+}
 .agents-model-editor {
   border: 1px solid var(--line);
   padding: 16px;
@@ -6177,6 +6222,7 @@ details[open] > summary > .disclosure-icon {
   margin: 8px 0;
 }
 .api-docs table {
+  max-width: 100%;
   width: 100%;
   border-collapse: collapse;
   margin: 10px 0;
@@ -6198,12 +6244,21 @@ details[open] > summary > .disclosure-icon {
   padding: 1px 4px;
   border-radius: 4px;
 }
+/* A <pre> only scrolls if its container lets it shrink. Without min-width:0 the
+   grid/flex parent grows to the code width and the block is clipped instead of
+   scrolling, which is what pushed the API docs off-screen on phones. */
+.api-docs {
+  min-width: 0;
+}
 .api-docs pre {
+  max-width: 100%;
+  min-width: 0;
   background: var(--surface-raised);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   padding: 12px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
 .api-docs pre code {
   background: transparent;

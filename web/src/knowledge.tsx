@@ -3,7 +3,7 @@ import { appURL } from "./urls";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { KnowledgeDialog } from "./knowledge-dialog";
 import { RowMenu } from "./row-menu";
-import { useSpaceScope } from "./catalog-scope";
+import { isAllSpace, useSpaceScope } from "./catalog-scope";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 type Base = {
@@ -526,14 +526,17 @@ export function KnowledgeWorkspace({
   request,
   agents,
   spaceAgentID,
+  space: spaceID,
   onSpaceAgent,
 }: {
   request: Api;
   agents: { id: string; name: string; archived: boolean }[];
   spaceAgentID: string;
+  space: string;
   onSpaceAgent: (id: string) => void;
 }) {
   const space = useSpaceScope(agents, spaceAgentID, onSpaceAgent);
+  const all = isAllSpace(spaceID);
   const [bound, setBound] = useState<string[]>([]);
   const [bases, setBases] = useState<Base[]>([]);
   const [selected, setSelected] = useState("");
@@ -558,7 +561,10 @@ export function KnowledgeWorkspace({
   // can state which bases this Agent actually retrieves instead of leaving that
   // fact buried in the Agent editor.
   useEffect(() => {
-    if (!space.agentID) return;
+    if (!space.agentID || all) {
+      setBound([]);
+      return;
+    }
     let active = true;
     void request<{ knowledge_ids: string[] }>(
       `/agents/${space.agentID}/knowledge`,
@@ -572,7 +578,7 @@ export function KnowledgeWorkspace({
     return () => {
       active = false;
     };
-  }, [space.agentID, bases.length]);
+  }, [space.agentID, bases.length, all]);
   useEffect(() => {
     mounted.current = true;
     void Promise.all([
@@ -621,7 +627,7 @@ export function KnowledgeWorkspace({
                 {bases.map((base) => (
                   <option key={base.id} value={base.id}>
                     {base.name} · {base.documents} 份文档
-                    {bound.includes(base.id) ? " · 已关联" : ""}
+                    {!all && bound.includes(base.id) ? " · 已关联" : ""}
                   </option>
                 ))}
               </select>

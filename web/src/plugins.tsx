@@ -14,6 +14,7 @@ import { appURL } from "./urls";
 import {
   emptyLinks,
   groupByScope,
+  isAllSpace,
   useSpaceScope,
   type CapabilityLinks,
   type LinkedAgent,
@@ -65,11 +66,13 @@ export function PluginsWorkspace({
   request,
   agents,
   spaceAgentID,
+  space,
   onSpaceAgent,
 }: {
   request: Api;
   agents: { id: string; name: string; archived: boolean }[];
   spaceAgentID: string;
+  space: string;
   onSpaceAgent: (id: string) => void;
 }) {
   const [tab, setTab] = useState<"skills" | "mcp">("skills");
@@ -133,6 +136,7 @@ export function PluginsWorkspace({
           request={request}
           agents={agents}
           spaceAgentID={spaceAgentID}
+          space={space}
           onSpaceAgent={onSpaceAgent}
         />
       </div>
@@ -448,6 +452,7 @@ function SkillDetail({
   request,
   skill,
   mounted,
+  allSpace,
   scopeName,
   others,
   pending,
@@ -459,6 +464,7 @@ function SkillDetail({
   request: Api;
   skill: Skill;
   mounted: boolean;
+  allSpace: boolean;
   scopeName: string;
   others: LinkedAgent[];
   pending: boolean;
@@ -580,9 +586,9 @@ function SkillDetail({
           {mounted ? (
             <span className="skill-mount-state">
               <Icon name="check" size={14} />
-              已挂载到{scopeName}
+              {allSpace ? "已被 Agent 挂载" : `已挂载到${scopeName}`}
             </span>
-          ) : (
+          ) : allSpace ? null : (
             <button
               className="primary"
               disabled={pending}
@@ -820,14 +826,17 @@ function SkillCatalog({
   request,
   agents,
   spaceAgentID,
+  space,
   onSpaceAgent,
 }: {
   request: Api;
   agents: { id: string; name: string; archived: boolean }[];
   spaceAgentID: string;
+  space: string;
   onSpaceAgent: (id: string) => void;
 }) {
   const scope = useSpaceScope(agents, spaceAgentID, onSpaceAgent);
+  const all = isAllSpace(space);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [links, setLinks] = useState<CapabilityLinks>(emptyLinks);
   const [selected, setSelected] = useState("");
@@ -835,6 +844,8 @@ function SkillCatalog({
   // Skills nobody mounts are the least interesting rows; they stay collapsed so
   // the two groups that need a decision are always on screen.
   const [showUnused, setShowUnused] = useState(false);
+  // Other Agents' skills are opt-in: sharing is an action, not a default view.
+  const [showAvailable, setShowAvailable] = useState(false);
   const [sort, setSort] = useState<SkillSort>(() => {
     try {
       const stored = localStorage.getItem("siagent.skill-sort");
@@ -906,12 +917,22 @@ function SkillCatalog({
       // "recent" keeps the server order (newest first); "name" is A-Z.
       return sort === "recent" ? 0 : a.name.localeCompare(b.name, "zh-CN");
     });
-  const groups = groupByScope(filtered, links.skills, scope.agentID);
-  const visible = ordered([
-    ...groups.mounted.map((entry) => entry.item),
-    ...groups.available.map((entry) => entry.item),
-    ...groups.unused,
-  ]);
+  // A concrete space answers one question: what does THIS Agent have? Other
+  // Agents' skills are available on demand but not in the default list, which is
+  // what made a 12-skill catalog feel mixed together. "All" flattens everything
+  // and labels each row with its users instead.
+  const groups = all
+    ? { mounted: [], available: [], unused: [] }
+    : groupByScope(filtered, links.skills, scope.agentID);
+  const visible = all
+    ? ordered(filtered)
+    : ordered([
+        ...groups.mounted.map((entry) => entry.item),
+        ...(showAvailable || query
+          ? groups.available.map((entry) => entry.item)
+          : []),
+        ...groups.unused,
+      ]);
   const current = visible.find((skill) => skill.id === selected) ?? visible[0];
   const usersOf = (id: string) => links.skills[id] ?? [];
   const othersOf = (id: string) =>
@@ -971,7 +992,18 @@ function SkillCatalog({
           <span title={skill.description}>{skill.description}</span>
         </span>
         <span className="skill-list-meta">
-          {users.length > 1 ? (
+          {all ? (
+            <span
+              className="skill-scope-badge"
+              title={
+                users.length
+                  ? users.map((agent) => agent.name).join("、")
+                  : "没有任何 Agent 挂载"
+              }
+            >
+              {users.length ? `${users.length} 个 Agent` : "未挂载"}
+            </span>
+          ) : users.length > 1 ? (
             <span
               className="skill-scope-badge"
               title={users.map((agent) => agent.name).join("、")}
@@ -1096,7 +1128,8 @@ function SkillCatalog({
               </label>
             </div>
             <nav className="skill-list" aria-label="技能列表">
-              {!!groups.mounted.length && (
+              {all && visible.map(row)}
+              {!all && !!groups.mounted.length && (
                 <>
                   <p className="skill-list-group">
                     已挂载 · {scope.agent?.name ?? "当前 Agent"}
@@ -1105,18 +1138,24 @@ function SkillCatalog({
                   {ordered(groups.mounted.map((entry) => entry.item)).map(row)}
                 </>
               )}
-              {!!groups.available.length && (
+              {!all && !!groups.available.length && (
                 <>
-                  <p className="skill-list-group">
-                    可复用 · 其他 Agent 在用
+                  <button
+                    type="button"
+                    className="skill-list-group skill-list-toggle"
+                    aria-expanded={showAvailable || !!query}
+                    onClick={() => setShowAvailable((value) => !value)}
+                  >
+                    其他 Agent 在用
                     <span>{groups.available.length}</span>
-                  </p>
-                  {ordered(groups.available.map((entry) => entry.item)).map(
-                    row,
-                  )}
+                  </button>
+                  {(showAvailable || !!query) &&
+                    ordered(groups.available.map((entry) => entry.item)).map(
+                      row,
+                    )}
                 </>
               )}
-              {!!groups.unused.length && (
+              {!all && !!groups.unused.length && (
                 <>
                   <button
                     type="button"
@@ -1140,9 +1179,12 @@ function SkillCatalog({
               key={current.id}
               request={request}
               skill={current}
-              mounted={groups.mounted.some(
-                (entry) => entry.item.id === current.id,
-              )}
+              mounted={
+                all
+                  ? usersOf(current.id).length > 0
+                  : groups.mounted.some((entry) => entry.item.id === current.id)
+              }
+              allSpace={all}
               scopeName={scope.agent?.name ?? "当前 Agent"}
               others={othersOf(current.id)}
               pending={pending}

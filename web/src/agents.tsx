@@ -7,8 +7,9 @@ import { Icon } from "./icons";
 import { CapabilitySettings } from "./capabilities";
 import { KnowledgeBindings } from "./knowledge-bindings";
 import { KnowledgeDialog as SettingsDialog } from "./knowledge-dialog";
+import { isAllSpace } from "./catalog-scope";
 import { MessageMarkdown } from "./message-markdown";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 export type ModelOptions = {
   display_name: string;
   api: "openai-completions" | "openai-responses" | "anthropic-messages";
@@ -51,12 +52,18 @@ export function AgentWorkspace({
   request,
   agents,
   models,
+  space,
+  onSpaceAgent,
+  onSwitchSpace,
   onSaved,
   onSelect,
 }: {
   request: Api;
   agents: Agent[];
   models: Model[];
+  space: string;
+  onSpaceAgent: (id: string) => void;
+  onSwitchSpace: (id: string) => void;
   onSaved: () => Promise<void>;
   onSelect: (id: string) => void;
 }) {
@@ -71,6 +78,14 @@ export function AgentWorkspace({
     archived: false,
   };
   const [editor, setEditor] = useState<Agent>(agents[0] ?? blank);
+  // "All" is an overview: you can see and switch Agents, but editing happens in
+  // one space, because every field below belongs to a single Agent.
+  const all = isAllSpace(space);
+  useEffect(() => {
+    if (all || !space) return;
+    const target = agents.find((agent) => agent.id === space);
+    if (target && target.id !== editor.id) chooseAgent(target);
+  }, [space, all]);
   const [tab, setTab] = useState<
     "basic" | "session" | "context" | "output" | "knowledge" | "tools"
   >("basic");
@@ -256,6 +271,45 @@ export function AgentWorkspace({
           工具和知识库。默认助手保留，可以停用。
         </p>
       </section>
+      {all ? (
+        <section className="agent-editor agent-overview">
+          <div className="agent-editor-heading">
+            <h2>全部 Agent</h2>
+          </div>
+          <p className="muted">
+            共 {agents.length} 个 Agent（{agents.filter((a) => !a.archived).length}{" "}
+            个未归档）。选择一个进入它的空间后再编辑；这里的字段都属于单个
+            Agent，不能批量修改。
+          </p>
+          <ul className="agent-overview-list">
+            {agents.map((agent) => (
+              <li key={agent.id}>
+                <button
+                  type="button"
+                  className="agent-overview-row"
+                  onClick={() => onSwitchSpace(agent.id)}
+                >
+                  <strong title={agent.name}>{agent.name}</strong>
+                  <small>
+                    {agent.archived
+                      ? "已归档"
+                      : agent.enabled
+                        ? "接收新任务"
+                        : "已停用"}
+                    {" · "}
+                    {models.find((model) => model.id === agent.model_id)
+                      ?.options.display_name ??
+                      models.find((model) => model.id === agent.model_id)
+                        ?.name ??
+                      "模型不可用"}
+                  </small>
+                  <Icon name="arrow-right" size={14} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
       <section className="agent-editor">
         <div className="agent-editor-heading">
           <h2 title={editor.id ? editor.name : undefined}>
@@ -850,6 +904,7 @@ export function AgentWorkspace({
           </>
         )}
       </section>
+      )}
       {archiveOpen && editor.id && (
         <SettingsDialog
           title={`归档助手“${editor.name}”？`}

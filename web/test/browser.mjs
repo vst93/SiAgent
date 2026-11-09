@@ -1782,6 +1782,35 @@ try {
     0,
     "settings pages must not repeat the space picker",
   );
+  // "全部" is a real scope: every Agent's skills at once, flat and labelled,
+  // while a concrete space lists only what that Agent mounts.
+  const spaceSelect = page.locator(".app-rail .rail-space-picker select");
+  const spaceOptions = await spaceSelect.locator("option").allInnerTexts();
+  assert(
+    spaceOptions.some((text) => text.includes("全部 Agent")),
+    `the space picker must offer 全部: ${spaceOptions.join("|")}`,
+  );
+  const mountedNames = () =>
+    page.locator(".skill-list-item strong").allInnerTexts();
+  const scopedNames = await mountedNames();
+  await spaceSelect.selectOption("all");
+  await page.waitForTimeout(400);
+  const allNames = await mountedNames();
+  assert(
+    allNames.length >= scopedNames.length,
+    "全部 must not show fewer skills than a single space",
+  );
+  assert.equal(
+    await page.locator(".skill-list-group").count(),
+    0,
+    "全部 must not group by Agent",
+  );
+  assert(
+    (await page.locator(".skill-scope-badge").count()) > 0,
+    "全部 rows must state which Agents use them",
+  );
+  await spaceSelect.selectOption("default");
+  await page.waitForTimeout(400);
   // Sorting changes the visible order and is remembered for the browser.
   const skillNames = () =>
     page.locator(".skill-list-item strong").allInnerTexts();

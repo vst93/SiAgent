@@ -5,6 +5,15 @@ import { useEffect } from "react";
 // exactly one answer and the title bar can state it.
 const scopeKey = "siagent.space-agent";
 
+// "all" is a real scope, not a missing selection: it shows every Agent's
+// resources at once for cross-Agent work (audits, bulk cleanup, comparing two
+// Agents). A specific Agent shows only what belongs to it.
+export const ALL_SPACE = "all";
+
+export function isAllSpace(id: string) {
+  return id === ALL_SPACE;
+}
+
 export function storedSpaceAgent(): string {
   try {
     return localStorage.getItem(scopeKey) ?? "";

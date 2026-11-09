@@ -19,7 +19,9 @@ export function Configuration({
   agents,
   models,
   spaceAgentID,
+  space,
   onSpaceAgent,
+  onSwitchSpace,
   onSaved,
   onSelectAgent,
   onConversation,
@@ -32,7 +34,9 @@ export function Configuration({
   agents: Agent[];
   models: Model[];
   spaceAgentID: string;
+  space: string;
   onSpaceAgent: (id: string) => void;
+  onSwitchSpace: (id: string) => void;
   onSaved: () => Promise<void>;
   onSelectAgent: (id: string) => void;
   onConversation: (id: string) => Promise<void>;
@@ -64,6 +68,9 @@ export function Configuration({
               request={request}
               agents={agents}
               models={models}
+              space={space}
+              onSpaceAgent={onSpaceAgent}
+              onSwitchSpace={onSwitchSpace}
               onSaved={onSaved}
               onSelect={onSelectAgent}
             />
@@ -73,6 +80,7 @@ export function Configuration({
               request={request}
               agents={agents}
               spaceAgentID={spaceAgentID}
+              space={space}
               onSpaceAgent={onSpaceAgent}
             />
           )}
@@ -81,6 +89,7 @@ export function Configuration({
               request={request}
               agents={agents}
               spaceAgentID={spaceAgentID}
+              space={space}
               onSpaceAgent={onSpaceAgent}
             />
           )}
@@ -91,6 +100,7 @@ export function Configuration({
               request={request}
               agents={agents}
               spaceAgentID={spaceAgentID}
+              space={space}
               onConversation={onConversation}
             />
           )}
