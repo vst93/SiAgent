@@ -1031,30 +1031,6 @@ function SkillCatalog({
           </button>
         </div>
       </header>
-      {scope.agents.length > 1 && (
-        <div className="skill-scope-bar">
-          <label className="skill-scope-picker">
-            <span>当前 Agent</span>
-            <select
-              aria-label="技能库作用域"
-              value={scope.agentID}
-              onChange={(event) => {
-                scope.select(event.target.value);
-                setQuery("");
-              }}
-            >
-              {scope.agents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="muted">
-            上传和挂载都作用于这个 Agent；其他 Agent 在用和无人使用的技能单独分组。
-          </p>
-        </div>
-      )}
       {feedback && (
         <p className="success plugin-feedback" role="status">
           {feedback}

@@ -830,6 +830,12 @@ function App() {
         );
   const contextLabel = activeSection?.title ?? "Agent 对话";
   const liveAgents = agents.filter((item) => !item.archived);
+  const spaceSections = configSections.filter((item) => item.scope === "space");
+  const platformSections = configSections.filter(
+    (item) => item.scope === "platform",
+  );
+  const spaceModel =
+    models.find((item) => item.id === agent?.model_id) ?? null;
   // Switching the space keeps you where you are: it re-scopes the current page
   // rather than navigating, because the space is a filter over the whole shell.
   function switchSpace(id: string) {
@@ -914,26 +920,9 @@ function App() {
           </button>
         </div>
         <div className="titlebar-crumbs" aria-label="当前位置">
-          {/* The Agent is the space the whole workbench is scoped to, so the
-              switcher lives here instead of on each settings page. */}
-          {liveAgents.length > 1 ? (
-            <label className="titlebar-space">
-              <span className="sr-only">当前 Agent 空间</span>
-              <select
-                aria-label="当前 Agent 空间"
-                value={agentID}
-                onChange={(event) => switchSpace(event.target.value)}
-              >
-                {liveAgents.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <span title="当前 Agent 空间">{agent?.name ?? "未选择 Agent"}</span>
-          )}
+          <span className="titlebar-space-name" title={agent?.name ?? "未选择 Agent"}>
+            {agent?.name ?? "未选择 Agent"}
+          </span>
           <span className="titlebar-slash" aria-hidden="true">
             /
           </span>
@@ -990,8 +979,48 @@ function App() {
         />
       </header>
       <aside className="app-rail" aria-label="应用侧栏">
+        {/* The Agent is a level, not an entry: it owns the pages below it. */}
+        {railCollapsed ? (
+          <button
+            type="button"
+            className="rail-space-compact"
+            aria-label={`当前空间：${agent?.name ?? "未选择"}，点击展开`}
+            title={`当前空间：${agent?.name ?? "未选择 Agent"}`}
+            onClick={() => setRailCollapsed(false)}
+          >
+            <Icon name="agent" size={16} />
+          </button>
+        ) : (
+        <div className="rail-space">
+          <span className="rail-space-label">当前空间</span>
+          <label className="rail-space-picker">
+            <span className="sr-only">切换 Agent 空间</span>
+            <select
+              aria-label="切换 Agent 空间"
+              value={agentID}
+              onChange={(event) => switchSpace(event.target.value)}
+              disabled={!liveAgents.length}
+            >
+              {!liveAgents.length && <option value="">尚未创建 Agent</option>}
+              {liveAgents.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+            <Icon name="caret-down" size={14} />
+          </label>
+          <div className="rail-space-meta">
+            <span title={spaceModel?.name ?? "未选择模型"}>
+              {spaceModel?.name ?? "未选择模型"}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>{conversationCounts[agentID] ?? 0} 个对话</span>
+          </div>
+        </div>
+        )}
         <nav className="rail-nav" aria-label="主导航">
-          <p className="rail-group">工作区</p>
+          <p className="rail-group">空间</p>
           <button
             className={`rail-link ${navigation.page === "chat" ? "selected" : ""}`}
             aria-current={navigation.page === "chat" ? "page" : undefined}
@@ -1001,10 +1030,26 @@ function App() {
             <Icon name="chat" size={16} />
             <span>Agent 对话</span>
           </button>
-          {configSections.map((item, index) => (
+          {spaceSections.map((item) => (
+            <button
+              key={item.id}
+              className={`rail-link ${
+                navigation.page === `settings/${item.id}` ? "selected" : ""
+              }`}
+              aria-current={
+                navigation.page === `settings/${item.id}` ? "page" : undefined
+              }
+              title={item.title}
+              onClick={() => navigation.navigate(`settings/${item.id}`)}
+            >
+              <Icon name={item.icon} size={16} />
+              <span>{item.title}</span>
+            </button>
+          ))}
+          {platformSections.map((item, index) => (
             <Fragment key={item.id}>
               {(index === 0 ||
-                configSections[index - 1].group !== item.group) && (
+                platformSections[index - 1].group !== item.group) && (
                 <p className="rail-group">{item.group}</p>
               )}
               <button
@@ -1079,7 +1124,27 @@ function App() {
           </button>
         </header>
         <nav aria-label="移动导航">
-          <p className="mobile-menu-label">工作区</p>
+          <div className="mobile-space">
+            <span className="mobile-menu-label">当前空间</span>
+            <label className="rail-space-picker">
+              <span className="sr-only">切换 Agent 空间</span>
+              <select
+                aria-label="切换 Agent 空间"
+                value={agentID}
+                onChange={(event) => switchSpace(event.target.value)}
+                disabled={!liveAgents.length}
+              >
+                {!liveAgents.length && <option value="">尚未创建 Agent</option>}
+                {liveAgents.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              <Icon name="caret-down" size={14} />
+            </label>
+          </div>
+          <p className="mobile-menu-label">空间</p>
           <button
             className={navigation.page === "chat" ? "selected" : ""}
             onClick={() => {
@@ -1089,10 +1154,24 @@ function App() {
           >
             <Icon name="chat" size={18} /> Agent 对话
           </button>
-          {configSections.map((item, index) => (
+          {spaceSections.map((item) => (
+            <button
+              key={item.id}
+              className={
+                navigation.page === `settings/${item.id}` ? "selected" : ""
+              }
+              onClick={() => {
+                navigation.navigate(`settings/${item.id}`);
+                setMenuOpen(false);
+              }}
+            >
+              <Icon name={item.icon} size={18} /> {item.title}
+            </button>
+          ))}
+          {platformSections.map((item, index) => (
             <Fragment key={item.id}>
               {(index === 0 ||
-                configSections[index - 1].group !== item.group) && (
+                platformSections[index - 1].group !== item.group) && (
                 <p className="mobile-menu-label">{item.group}</p>
               )}
               <button

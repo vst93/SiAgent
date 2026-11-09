@@ -226,6 +226,9 @@ try {
     )
       errors.push(message.text());
   });
+  // The rail labels the Agent page "Agent 设置" because the Agent is also the
+  // space level; keep the shorter name working in the tests.
+  const railName = (name) => (name === "Agent" ? "Agent 设置" : name);
   const config = async (name) => {
     const modules = page.getByRole("navigation", { name: "主导航" });
     if (await modules.isVisible()) {
@@ -233,16 +236,18 @@ try {
       await modules.evaluate((nav) => {
         nav.scrollTop = 0;
       });
-      await modules.getByRole("button", { name, exact: true }).click();
+      await modules
+        .getByRole("button", { name: railName(name), exact: true })
+        .click();
     } else {
       await page.getByRole("button", { name: "打开导航", exact: true }).click();
       await page
         .getByRole("navigation", { name: "移动导航" })
-        .getByRole("button", { name, exact: true })
+        .getByRole("button", { name: railName(name), exact: true })
         .click();
     }
     await page
-      .locator(`.configuration-workspace[data-page-title="${name}"]`)
+      .locator(`.configuration-workspace[data-page-title="${railName(name)}"]`)
       .waitFor();
   };
   const chat = async () => {
@@ -479,7 +484,7 @@ try {
   await config("知识库");
   await page.goBack();
   await page
-    .locator('.configuration-workspace[data-page-title="Agent"]')
+    .locator('.configuration-workspace[data-page-title="Agent 设置"]')
     .waitFor();
   await chat();
   await page
@@ -1765,12 +1770,17 @@ try {
     scopeGroups.some((text) => text.includes("已挂载")),
     `scoped catalog needs a mounted group: ${scopeGroups.join("|")}`,
   );
+  // The Agent is now a navigation level, not a control repeated on each page,
+  // so the space picker lives in the rail and appears there.
   assert.equal(
-    await page.locator(".skill-scope-bar").count() > 0,
-    await page.evaluate(
-      async () => (await (await fetch("/api/agents")).json()).filter((a) => !a.archived).length > 1,
-    ),
-    "the scope picker appears once there is more than one Agent",
+    await page.locator(".app-rail .rail-space-picker select").count(),
+    1,
+    "the rail owns the single space picker",
+  );
+  assert.equal(
+    await page.locator(".skill-scope-bar").count(),
+    0,
+    "settings pages must not repeat the space picker",
   );
   // Sorting changes the visible order and is remembered for the browser.
   const skillNames = () =>

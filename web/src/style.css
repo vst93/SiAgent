@@ -1892,6 +1892,91 @@ summary {
   padding: 0 2px;
   scrollbar-gutter: stable;
 }
+/* The space is a level above the pages, so it gets a raised block instead of
+   another row: label, picker and the facts that belong to the space itself. */
+.rail-space {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+.rail-space-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.rail-space-picker {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.rail-space-picker select {
+  width: 100%;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 24px 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-strong);
+  text-overflow: ellipsis;
+  appearance: none;
+}
+.rail-space-picker select:hover:not(:disabled) {
+  border-color: var(--teal);
+}
+.rail-space-picker .ui-icon {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--muted);
+}
+.rail-space-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--faint);
+}
+.rail-space-meta > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-space-meta > span:last-child {
+  flex-shrink: 0;
+}
+/* A 64px rail cannot show a picker, so it shows the space as one button that
+   expands the rail. The scope is never silently hidden. */
+.rail-space-compact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 34px;
+  min-height: 34px;
+  margin: 0 auto 10px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+}
+.rail-space-compact:hover:not(:disabled) {
+  border-color: var(--teal);
+  color: var(--teal-strong);
+}
 .rail-group {
   margin: 15px 8px 5px;
   font-family: var(--font-mono);
@@ -6452,6 +6537,17 @@ details[open] > summary > .disclosure-icon {
     background: var(--teal-soft);
     color: var(--teal-strong);
     box-shadow: inset 2px 0 0 var(--teal);
+  }
+  .mobile-space {
+    padding: 8px 10px 2px;
+  }
+  .mobile-space .mobile-menu-label {
+    margin: 0 0 6px;
+  }
+  .mobile-space .rail-space-picker select {
+    height: 34px;
+    min-height: 34px;
+    font-size: 14px;
   }
   .mobile-menu-label {
     margin: 14px 10px 4px;

@@ -39,6 +39,7 @@ import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
 import { CheckIcon } from "@phosphor-icons/react/dist/csr/Check";
 import { CircleHalfIcon } from "@phosphor-icons/react/dist/csr/CircleHalf";
 import { CopyIcon } from "@phosphor-icons/react/dist/csr/Copy";
+import { StackIcon } from "@phosphor-icons/react/dist/csr/Stack";
 
 // System icons belong to one family. Add future icons here; keep the logo separate.
 const icons = {
@@ -75,6 +76,7 @@ const icons = {
   plus: PlusIcon,
   plugins: PuzzlePieceIcon,
   agent: RobotIcon,
+  space: StackIcon,
   logout: SignOutIcon,
   star: StarIcon,
   "thumbs-down": ThumbsDownIcon,

@@ -604,27 +604,6 @@ export function KnowledgeWorkspace({
         </p>
       ) : (
         <>
-          {space.agents.length > 1 && (
-            <div className="space-bar">
-              <label className="space-picker">
-                <span>当前 Agent</span>
-                <select
-                  aria-label="当前 Agent 空间"
-                  value={space.agentID}
-                  onChange={(event) => space.select(event.target.value)}
-                >
-                  {space.agents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="muted">
-                此 Agent 可检索 {bound.length} 个知识库；关联在下方按空间标注。
-              </p>
-            </div>
-          )}
           <div className="kb-library-toolbar">
             <label>
               <span className="sr-only">选择知识库</span>
