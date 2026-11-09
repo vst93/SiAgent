@@ -175,6 +175,18 @@ export function UsageWorkspace({ request }: { request: Api }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const sequence = useRef(0);
+  const [plotWidth, setPlotWidth] = useState(0);
+  const plotRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const element = plotRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? 0;
+      if (width) setPlotWidth(width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [loading, data]);
 
   async function load(next: Query) {
     const current = ++sequence.current;
@@ -223,7 +235,14 @@ export function UsageWorkspace({ request }: { request: Api }) {
   const series = data?.series ?? [];
   const max = Math.max(...series.map((item) => item.total), 0);
   const axisMax = max || 1;
-  const step = Math.max(1, Math.ceil(series.length / 6));
+  // Hourly buckets produce wide labels ("11/9 01:00"). A fixed count of six
+  // overlaps once the plot is narrower than a phone; the count follows the
+  // measured plot width instead so labels never collide.
+  const labelSlots = Math.max(
+    2,
+    Math.min(7, Math.floor(plotWidth / 78) || 2),
+  );
+  const step = Math.max(1, Math.ceil(series.length / labelSlots));
   const labelIndices: number[] = [];
   for (let index = 0; index < series.length; index += step) {
     labelIndices.push(index);
@@ -391,6 +410,7 @@ export function UsageWorkspace({ request }: { request: Api }) {
                 <span>0</span>
               </div>
               <div
+                ref={plotRef}
                 className="usage-plot"
                 role="img"
                 aria-label={`${range} 的 token 趋势，共 ${series.length} 个时间点`}
@@ -451,7 +471,12 @@ export function UsageWorkspace({ request }: { request: Api }) {
                     </div>
                   ))}
                 </div>
-                <div className="usage-chart-labels" aria-hidden="true">
+                <div
+                  className="usage-chart-labels"
+                  aria-hidden="true"
+                  data-slots={labelSlots}
+                  data-plot={Math.round(plotWidth)}
+                >
                   {labelIndices.map((index) => {
                     const item = series[index];
                     return (

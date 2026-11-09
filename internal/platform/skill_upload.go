@@ -132,6 +132,7 @@ func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
 	tree := skillUploadTree{root: staging, entries: 1, dirs: map[string]bool{}, seen: map[string]bool{}}
 	trusted, trustSeen := false, false
 	overwrite, overwriteSeen := false, false
+	mountAgent, mountSeen := "", false
 	mode := ""
 	for {
 		if r.Context().Err() != nil {
@@ -154,6 +155,19 @@ func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			trusted = true
+			continue
+		}
+		// mount names the Agent whose catalog the upload came from. It is optional
+		// so existing clients and the export/import round trip keep working.
+		if part.FormName() == "mount" && !mountSeen {
+			value, err := io.ReadAll(io.LimitReader(part, 129))
+			part.Close()
+			mountSeen = true
+			if err != nil {
+				fail(w, 400, "挂载目标无效。")
+				return
+			}
+			mountAgent = strings.TrimSpace(string(value))
 			continue
 		}
 		if part.FormName() == "overwrite" && !overwriteSeen {
@@ -261,6 +275,10 @@ func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, err.Error())
 			return
 		}
+		// The skill is already stored, so a mount failure must not fail the
+		// upload: the user would see an error and lose sight of a skill that does
+		// exist. It surfaces under "未挂载" and can be mounted manually.
+		s.mountOrAudit(mountAgent, []string{skill.ID})
 		if replaced {
 			respond(w, 200, skill)
 		} else {
@@ -269,6 +287,7 @@ func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	imported := make([]Skill, 0, len(units))
+	importedIDs := make([]string, 0, len(units))
 	replaced := 0
 	for _, unit := range units {
 		if r.Context().Err() != nil {
@@ -280,10 +299,12 @@ func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		imported = append(imported, skill)
+		importedIDs = append(importedIDs, skill.ID)
 		if overwritten {
 			replaced++
 		}
 	}
+	s.mountOrAudit(mountAgent, importedIDs)
 	status := 201
 	if replaced > 0 {
 		status = 200

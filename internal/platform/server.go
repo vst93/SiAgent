@@ -279,6 +279,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/mcps/{id}", s.authorize(http.HandlerFunc(s.saveMCP)))
 	mux.Handle("POST /api/mcps/{id}/test", s.authorize(http.HandlerFunc(s.testMCP)))
 	mux.Handle("DELETE /api/{kind}/{id}", s.authorize(http.HandlerFunc(s.deleteCapability)))
+	mux.Handle("GET /api/capability-links", s.authorize(http.HandlerFunc(s.capabilityLinks)))
+	mux.Handle("POST /api/agents/{agent}/skills/{id}/mount", s.authorize(http.HandlerFunc(s.mountSkill)))
 	mux.Handle("GET /api/skills/{id}/agents", s.authorize(http.HandlerFunc(s.linkedCapabilityAgents)))
 	mux.Handle("GET /api/mcps/{id}/agents", s.authorize(http.HandlerFunc(s.linkedCapabilityAgents)))
 	mux.Handle("DELETE /api/skills/{id}/agents/{agent}", s.authorize(http.HandlerFunc(s.unlinkCapabilityAgent)))

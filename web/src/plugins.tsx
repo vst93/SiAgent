@@ -11,6 +11,13 @@ import { MessageMarkdown } from "./message-markdown";
 import { LinkedAgents } from "./linked-agents";
 import { KnowledgeDialog as SettingsDialog } from "./knowledge-dialog";
 import { appURL } from "./urls";
+import {
+  emptyLinks,
+  groupByScope,
+  useCatalogScope,
+  type CapabilityLinks,
+  type LinkedAgent,
+} from "./catalog-scope";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 const errorText = (error: unknown) =>
@@ -54,7 +61,13 @@ async function downloadArchive(path: string, fallback: string) {
   URL.revokeObjectURL(url);
 }
 
-export function PluginsWorkspace({ request }: { request: Api }) {
+export function PluginsWorkspace({
+  request,
+  agents,
+}: {
+  request: Api;
+  agents: { id: string; name: string; archived: boolean }[];
+}) {
   const [tab, setTab] = useState<"skills" | "mcp">("skills");
   const [mcpVisited, setMCPVisited] = useState(false);
   function select(value: typeof tab) {
@@ -112,7 +125,7 @@ export function PluginsWorkspace({ request }: { request: Api }) {
         aria-labelledby="plugin-tab-skills"
         hidden={tab !== "skills"}
       >
-        <SkillCatalog request={request} />
+        <SkillCatalog request={request} agents={agents} />
       </div>
       <div
         role="tabpanel"
@@ -131,10 +144,14 @@ type UploadFile = { file: File; path: string };
 type UploadResult = Skill | { skills: Skill[]; replaced: number };
 function SkillUpload({
   request,
+  agentID,
+  agentName,
   onClose,
   onUploaded,
 }: {
   request: Api;
+  agentID: string;
+  agentName: string;
   onClose: () => void;
   onUploaded: (skills: Skill[]) => void;
 }) {
@@ -204,6 +221,7 @@ function SkillUpload({
       const body = new FormData();
       body.append("trusted", String(trusted));
       body.append("overwrite", String(overwrite));
+      if (agentID) body.append("mount", agentID);
       for (const item of files)
         body.append(mode === "folder" ? "files" : "file", item.file, item.path);
       const result = await request<UploadResult>("/skills", "POST", body);
@@ -215,7 +233,11 @@ function SkillUpload({
     }
   }
   return (
-    <SettingsDialog title="上传 Skill" pending={pending} onClose={onClose}>
+    <SettingsDialog
+      title={agentName ? `上传 Skill 到${agentName}` : "上传 Skill"}
+      pending={pending}
+      onClose={onClose}
+    >
       <form className="skill-upload-form" onSubmit={upload}>
         <fieldset disabled={pending}>
           <label>
@@ -307,8 +329,10 @@ function SkillUpload({
             我已确认该技能来自可信来源
           </label>
           <p className="muted">
-            上传不执行脚本，也不安装依赖。到 Agent
-            配置中挂载后，技能指令和按需读取的资源才能提供给该 Agent。
+            上传不执行脚本，也不安装依赖。
+            {agentName
+              ? `保存后自动挂载到${agentName}，其他 Agent 可在技能列表中一键复用。`
+              : "到 Agent 配置中挂载后，技能指令和按需读取的资源才能提供给该 Agent。"}
           </p>
         </fieldset>
         {error && (
@@ -414,12 +438,22 @@ function SkillTree({
 function SkillDetail({
   request,
   skill,
+  mounted,
+  scopeName,
+  others,
+  pending,
+  onMount,
   onArchive,
   onExport,
   onUpdated,
 }: {
   request: Api;
   skill: Skill;
+  mounted: boolean;
+  scopeName: string;
+  others: LinkedAgent[];
+  pending: boolean;
+  onMount: () => void;
   onArchive: () => void;
   onExport: () => void;
   onUpdated: (skill: Skill) => void;
@@ -491,6 +525,20 @@ function SkillDetail({
           </p>
         </div>
         <div className="skill-head-actions">
+          {mounted ? (
+            <span className="skill-mount-state">
+              <Icon name="check" size={14} />
+              已挂载到{scopeName}
+            </span>
+          ) : (
+            <button
+              className="primary"
+              disabled={pending}
+              onClick={onMount}
+            >
+              {pending ? "正在挂载…" : `挂载到${scopeName}`}
+            </button>
+          )}
           <button onClick={onExport}>导出 ZIP</button>
           <button className="danger-ghost" onClick={onArchive}>
             删除技能
@@ -498,6 +546,12 @@ function SkillDetail({
         </div>
       </header>
       <p className="skill-description">{skill.description}</p>
+      {others.length > 0 && (
+        <p className="skill-shared-note">
+          同一份技能文件也被 {others.map((agent) => agent.name).join("、")} 使用；
+          修改内容会同时生效，不会产生副本。
+        </p>
+      )}
       <LinkedAgents request={request} kind="skills" id={skill.id} />
       <details className="skill-compatibility">
         <summary>
@@ -621,10 +675,24 @@ function SkillDetail({
 
 type SkillSort = "name" | "recent" | "files" | "size";
 
-function SkillCatalog({ request }: { request: Api }) {
+// The catalog is scoped to one Agent: the scope picker decides where an upload
+// lands and which rows read as "mine". Skills are never copied — a shared skill
+// simply appears in more than one scope, and its badge is derived from usage.
+function SkillCatalog({
+  request,
+  agents,
+}: {
+  request: Api;
+  agents: { id: string; name: string; archived: boolean }[];
+}) {
+  const scope = useCatalogScope(agents);
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [links, setLinks] = useState<CapabilityLinks>(emptyLinks);
   const [selected, setSelected] = useState("");
   const [query, setQuery] = useState("");
+  // Skills nobody mounts are the least interesting rows; they stay collapsed so
+  // the two groups that need a decision are always on screen.
+  const [showUnused, setShowUnused] = useState(false);
   const [sort, setSort] = useState<SkillSort>(() => {
     try {
       const stored = localStorage.getItem("siagent.skill-sort");
@@ -654,15 +722,14 @@ function SkillCatalog({ request }: { request: Api }) {
     let active = true;
     setLoading(true);
     setError("");
-    void request<Skill[]>("/skills")
-      .then((values) => {
+    void Promise.all([
+      request<Skill[]>("/skills"),
+      request<CapabilityLinks>("/capability-links"),
+    ])
+      .then(([values, usage]) => {
         if (active) {
           setSkills(values);
-          setSelected((id) =>
-            values.some((skill) => skill.id === id)
-              ? id
-              : (values[0]?.id ?? ""),
-          );
+          setLinks(usage);
         }
       })
       .catch((error) => {
@@ -684,21 +751,35 @@ function SkillCatalog({ request }: { request: Api }) {
   }, [sort]);
   const sizeOf = (skill: Skill) =>
     skill.files.reduce((sum, file) => sum + file.size, 0);
-  // The API returns skills newest first. Sorting is a view concern only, so the
-  // selected skill stays selected when the order changes.
-  const visible = skills
-    .filter((skill) =>
-      `${skill.name} ${skill.description}`
-        .toLowerCase()
-        .includes(query.toLowerCase()),
-    )
-    .sort((a, b) => {
+  const filtered = skills.filter((skill) =>
+    `${skill.name} ${skill.description}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
+  const ordered = (values: Skill[]) =>
+    [...values].sort((a, b) => {
       if (sort === "files") return b.files.length - a.files.length;
       if (sort === "size") return sizeOf(b) - sizeOf(a);
       // "recent" keeps the server order (newest first); "name" is A-Z.
       return sort === "recent" ? 0 : a.name.localeCompare(b.name, "zh-CN");
     });
+  const groups = groupByScope(filtered, links.skills, scope.agentID);
+  const visible = ordered([
+    ...groups.mounted.map((entry) => entry.item),
+    ...groups.available.map((entry) => entry.item),
+    ...groups.unused,
+  ]);
   const current = visible.find((skill) => skill.id === selected) ?? visible[0];
+  const usersOf = (id: string) => links.skills[id] ?? [];
+  const othersOf = (id: string) =>
+    usersOf(id).filter((agent) => agent.id !== scope.agentID);
+  async function reloadUsage() {
+    try {
+      setLinks(await request<CapabilityLinks>("/capability-links"));
+    } catch {
+      // Grouping falls back to the previous snapshot; the list stays usable.
+    }
+  }
   async function exportArchive(
     path: string,
     fallback: string,
@@ -716,6 +797,55 @@ function SkillCatalog({ request }: { request: Api }) {
       setExporting(false);
     }
   }
+  async function mount(skill: Skill) {
+    setPending(true);
+    setError("");
+    setFeedback("");
+    try {
+      await request(
+        `/agents/${scope.agentID}/skills/${skill.id}/mount`,
+        "POST",
+      );
+      await reloadUsage();
+      setFeedback(`“${skill.name}”已挂载到${scope.agent?.name ?? "当前 Agent"}。`);
+    } catch (error) {
+      setError(errorText(error));
+    } finally {
+      setPending(false);
+    }
+  }
+  const row = (skill: Skill) => {
+    const users = usersOf(skill.id);
+    return (
+      <button
+        key={skill.id}
+        className="skill-list-item"
+        aria-current={current?.id === skill.id ? "true" : undefined}
+        onClick={() => setSelected(skill.id)}
+      >
+        <span className="skill-list-text">
+          <strong title={skill.name}>{skill.name}</strong>
+          <span title={skill.description}>{skill.description}</span>
+        </span>
+        <span className="skill-list-meta">
+          {users.length > 1 ? (
+            <span
+              className="skill-scope-badge"
+              title={users.map((agent) => agent.name).join("、")}
+            >
+              共享 · {users.length}
+            </span>
+          ) : (
+            <>
+              {skill.files.length}
+              <span className="skill-list-meta-label">文件</span>
+            </>
+          )}
+        </span>
+      </button>
+    );
+  };
+  const empty = !skills.length;
   return (
     <div className="skill-catalog">
       <header className="plugin-section-heading">
@@ -724,8 +854,7 @@ function SkillCatalog({ request }: { request: Api }) {
             技能库 <span>{skills.length}</span>
           </h2>
           <p>
-            上传并管理技能文件，再到 <a href="#/settings/agents">Agent 配置</a>
-            中挂载。
+            上传到当前 Agent 会自动挂载；同一份技能可被多个 Agent 使用，不会复制。
           </p>
         </div>
         <div className="plugin-heading-actions">
@@ -752,6 +881,30 @@ function SkillCatalog({ request }: { request: Api }) {
           </button>
         </div>
       </header>
+      {scope.agents.length > 1 && (
+        <div className="skill-scope-bar">
+          <label className="skill-scope-picker">
+            <span>当前 Agent</span>
+            <select
+              aria-label="技能库作用域"
+              value={scope.agentID}
+              onChange={(event) => {
+                scope.select(event.target.value);
+                setQuery("");
+              }}
+            >
+              {scope.agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="muted">
+            上传和挂载都作用于这个 Agent；其他 Agent 在用和无人使用的技能单独分组。
+          </p>
+        </div>
+      )}
       {feedback && (
         <p className="success plugin-feedback" role="status">
           {feedback}
@@ -774,12 +927,22 @@ function SkillCatalog({ request }: { request: Api }) {
         <p className="muted" role="status">
           正在读取技能库…
         </p>
-      ) : skills.length ? (
+      ) : empty ? (
+        <div className="plugin-empty">
+          <Icon name="plugins" size={28} />
+          <h3>上传第一个 Skill</h3>
+          <p>
+            选择 ZIP 技能包、SKILL.md
+            或本机文件夹。系统会创建独立的技能目录，保留包内文件结构。
+          </p>
+          <p>上传后会自动挂载到当前 Agent，无需再逐个勾选。</p>
+        </div>
+      ) : (
         <div className="skill-catalog-layout">
           <aside className="skill-catalog-list">
             <div className="pane-heading">
               <h2>
-                技能列表 <span>{skills.length}</span>
+                技能列表 <span>{visible.length}</span>
               </h2>
             </div>
             <div className="skill-list-filter">
@@ -807,31 +970,57 @@ function SkillCatalog({ request }: { request: Api }) {
               </label>
             </div>
             <nav className="skill-list" aria-label="技能列表">
-              {visible.map((skill) => (
-                <button
-                  key={skill.id}
-                  className="skill-list-item"
-                  aria-current={current?.id === skill.id ? "true" : undefined}
-                  onClick={() => setSelected(skill.id)}
-                >
-                  <span className="skill-list-text">
-                    <strong title={skill.name}>{skill.name}</strong>
-                    <span title={skill.description}>{skill.description}</span>
-                  </span>
-                  <span className="skill-list-meta">
-                    {skill.files.length}
-                    <span className="skill-list-meta-label">文件</span>
-                  </span>
-                </button>
-              ))}
+              {!!groups.mounted.length && (
+                <>
+                  <p className="skill-list-group">
+                    已挂载 · {scope.agent?.name ?? "当前 Agent"}
+                    <span>{groups.mounted.length}</span>
+                  </p>
+                  {ordered(groups.mounted.map((entry) => entry.item)).map(row)}
+                </>
+              )}
+              {!!groups.available.length && (
+                <>
+                  <p className="skill-list-group">
+                    可复用 · 其他 Agent 在用
+                    <span>{groups.available.length}</span>
+                  </p>
+                  {ordered(groups.available.map((entry) => entry.item)).map(
+                    row,
+                  )}
+                </>
+              )}
+              {!!groups.unused.length && (
+                <>
+                  <button
+                    type="button"
+                    className="skill-list-group skill-list-toggle"
+                    aria-expanded={showUnused || !!query}
+                    onClick={() => setShowUnused((value) => !value)}
+                  >
+                    未挂载
+                    <span>{groups.unused.length}</span>
+                  </button>
+                  {(showUnused || !!query) && ordered(groups.unused).map(row)}
+                </>
+              )}
             </nav>
-            {!visible.length && <p className="muted">没有匹配的技能。</p>}
+            {!visible.length && (
+              <p className="muted">没有匹配的技能。</p>
+            )}
           </aside>
           {current ? (
             <SkillDetail
               key={current.id}
               request={request}
               skill={current}
+              mounted={groups.mounted.some(
+                (entry) => entry.item.id === current.id,
+              )}
+              scopeName={scope.agent?.name ?? "当前 Agent"}
+              others={othersOf(current.id)}
+              pending={pending}
+              onMount={() => void mount(current)}
               onArchive={() => {
                 setArchiving(current);
                 setArchiveError("");
@@ -855,22 +1044,12 @@ function SkillCatalog({ request }: { request: Api }) {
             <p className="muted">请调整搜索条件。</p>
           )}
         </div>
-      ) : (
-        !error && (
-          <div className="plugin-empty">
-            <Icon name="plugins" size={28} />
-            <h3>上传第一个 Skill</h3>
-            <p>
-              选择 ZIP 技能包、SKILL.md
-              或本机文件夹。系统会创建独立的技能目录，保留包内文件结构。
-            </p>
-            <p>上传后到 Agent 配置中选择需要挂载的技能。</p>
-          </div>
-        )
       )}
       {upload && (
         <SkillUpload
           request={request}
+          agentID={scope.agentID}
+          agentName={scope.agent?.name ?? ""}
           onClose={() => setUpload(false)}
           onUploaded={(uploaded) => {
             const existing = new Set(skills.map((skill) => skill.name));
@@ -889,17 +1068,19 @@ function SkillCatalog({ request }: { request: Api }) {
             setSelected(uploaded[uploaded.length - 1]?.id ?? "");
             setQuery("");
             setUpload(false);
+            void reloadUsage();
+            const where = scope.agent?.name
+              ? `已挂载到${scope.agent.name}`
+              : "已上传";
             if (uploaded.length === 1 && replaced === 0) {
-              setFeedback(
-                `“${uploaded[0].name}”已上传，可到 Agent 配置中挂载。`,
-              );
+              setFeedback(`“${uploaded[0].name}”已上传，${where}。`);
             } else if (uploaded.length === 1) {
               setFeedback(
                 `“${uploaded[0].name}”已覆盖同名技能，原有 Agent 挂载关系保留。`,
               );
             } else {
               setFeedback(
-                `已导入 ${uploaded.length} 个技能${replaced ? `，覆盖 ${replaced} 个同名技能` : ""}，可到 Agent 配置中挂载。`,
+                `已导入 ${uploaded.length} 个技能${replaced ? `，覆盖 ${replaced} 个同名技能` : ""}，${where}。`,
               );
             }
           }}
@@ -941,6 +1122,7 @@ function SkillCatalog({ request }: { request: Api }) {
                     values.filter((skill) => skill.id !== archiving.id),
                   );
                   setArchiving(null);
+                  void reloadUsage();
                   setFeedback("技能已删除，关联 Agent 已自动解除；历史任务保留。");
                 } catch (error) {
                   setArchiveError(errorText(error));

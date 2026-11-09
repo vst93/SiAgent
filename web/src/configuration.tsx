@@ -65,7 +65,9 @@ export function Configuration({
             />
           )}
           {section === "knowledge" && <KnowledgeWorkspace request={request} />}
-          {section === "tools" && <PluginsWorkspace request={request} />}
+          {section === "tools" && (
+            <PluginsWorkspace request={request} agents={agents} />
+          )}
           {section === "extensions" && <ExtensionsWorkspace request={request} />}
           {section === "usage" && <UsageWorkspace request={request} />}
           {section === "channels" && (

@@ -793,10 +793,11 @@ try {
     .setInputFiles(skillDirectory);
   await page.getByLabel("我已确认该技能来自可信来源").check();
   await page.getByRole("button", { name: "上传并保存", exact: true }).click();
+  // The catalog is scoped to one Agent, so an upload mounts where it was made
+  // instead of leaving the user to find the checkbox in Agent settings.
   await page
-    .getByText("“browser-skill”已上传，可到 Agent 配置中挂载。", {
-      exact: true,
-    })
+    .getByRole("status")
+    .filter({ hasText: "“browser-skill”已上传" })
     .waitFor();
   assert.equal(
     await page.evaluate(
@@ -804,7 +805,8 @@ try {
         (await (await fetch("/api/agents/default/capabilities")).json()).skills
           .length,
     ),
-    0,
+    1,
+    "uploading inside a scope must mount the skill there",
   );
   await page.getByRole("button", { name: "上传 Skill", exact: false }).click();
   await page.getByLabel("选择技能包", { exact: true }).setInputFiles({
@@ -1743,6 +1745,33 @@ try {
   assert.equal(skillRowLayout.columns, 2);
   assert.equal(skillRowLayout.icons, 0);
   assert(skillRowLayout.title.length > 0, "skill rows must show a title");
+  // Rows must size to their content: a shrinking grid row used to centre two
+  // lines of text into a shorter box and bleed into the next row on narrow
+  // desktops, which read as overlapping labels.
+  const rowFit = await skillRow.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const text = el.querySelector(".skill-list-text").getBoundingClientRect();
+    return {
+      fits: text.bottom <= box.bottom + 1 && text.top >= box.top - 1,
+      rows: getComputedStyle(el.parentElement).gridAutoRows,
+    };
+  });
+  assert(rowFit.fits, "skill row content must stay inside the row box");
+  assert.equal(rowFit.rows, "min-content");
+  // The catalog is scoped: groups separate this Agent's skills from the ones
+  // only other Agents use, so shared rows stay visible without a flat list.
+  const scopeGroups = await page.locator(".skill-list-group").allInnerTexts();
+  assert(
+    scopeGroups.some((text) => text.includes("已挂载")),
+    `scoped catalog needs a mounted group: ${scopeGroups.join("|")}`,
+  );
+  assert.equal(
+    await page.locator(".skill-scope-bar").count() > 0,
+    await page.evaluate(
+      async () => (await (await fetch("/api/agents")).json()).filter((a) => !a.archived).length > 1,
+    ),
+    "the scope picker appears once there is more than one Agent",
+  );
   // Sorting changes the visible order and is remembered for the browser.
   const skillNames = () =>
     page.locator(".skill-list-item strong").allInnerTexts();
