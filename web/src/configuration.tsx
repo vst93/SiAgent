@@ -18,6 +18,8 @@ export function Configuration({
   request,
   agents,
   models,
+  spaceAgentID,
+  onSpaceAgent,
   onSaved,
   onSelectAgent,
   onConversation,
@@ -29,6 +31,8 @@ export function Configuration({
   request: Api;
   agents: Agent[];
   models: Model[];
+  spaceAgentID: string;
+  onSpaceAgent: (id: string) => void;
   onSaved: () => Promise<void>;
   onSelectAgent: (id: string) => void;
   onConversation: (id: string) => Promise<void>;
@@ -64,9 +68,21 @@ export function Configuration({
               onSelect={onSelectAgent}
             />
           )}
-          {section === "knowledge" && <KnowledgeWorkspace request={request} />}
+          {section === "knowledge" && (
+            <KnowledgeWorkspace
+              request={request}
+              agents={agents}
+              spaceAgentID={spaceAgentID}
+              onSpaceAgent={onSpaceAgent}
+            />
+          )}
           {section === "tools" && (
-            <PluginsWorkspace request={request} agents={agents} />
+            <PluginsWorkspace
+              request={request}
+              agents={agents}
+              spaceAgentID={spaceAgentID}
+              onSpaceAgent={onSpaceAgent}
+            />
           )}
           {section === "extensions" && <ExtensionsWorkspace request={request} />}
           {section === "usage" && <UsageWorkspace request={request} />}
@@ -74,6 +90,7 @@ export function Configuration({
             <ChannelsWorkspace
               request={request}
               agents={agents}
+              spaceAgentID={spaceAgentID}
               onConversation={onConversation}
             />
           )}

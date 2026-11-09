@@ -6,6 +6,7 @@ import {
 import { Icon } from "./icons";
 import { CapabilitySettings } from "./capabilities";
 import { KnowledgeBindings } from "./knowledge-bindings";
+import { KnowledgeDialog as SettingsDialog } from "./knowledge-dialog";
 import { MessageMarkdown } from "./message-markdown";
 import { FormEvent, useState } from "react";
 export type ModelOptions = {
@@ -87,6 +88,8 @@ export function AgentWorkspace({
   const [envRevealPending, setEnvRevealPending] = useState(false);
   const [envRevealOpen, setEnvRevealOpen] = useState(false);
   const [instructionsPreview, setInstructionsPreview] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveError, setArchiveError] = useState("");
   const savedAgent = agents.find((agent) => agent.id === editor.id);
   const advancedNeedsConfirm =
     editor.policy.advanced_tools &&
@@ -813,40 +816,93 @@ export function AgentWorkspace({
             ) : (
               editor.id &&
               editor.id !== "default" && (
-                <details className="agent-archive">
-                  <summary>
-                    <Icon
-                      name="caret-right"
-                      size={14}
-                      className="disclosure-icon"
-                    />
-                    归档助手
-                  </summary>
-                  <p>
-                    须先保存停用状态并解除渠道绑定。归档保留会话和任务历史，无法恢复或继续提交新消息。
+                <section className="agent-archive" aria-label="归档助手">
+                  <div className="agent-archive-head">
+                    <div>
+                      <h3>归档助手</h3>
+                      <p>
+                        归档后保留会话和任务历史，但无法恢复，也不再接收新消息。
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="danger-ghost"
+                      disabled={pending}
+                      onClick={() => {
+                        setArchiveOpen(true);
+                        setArchiveError("");
+                      }}
+                    >
+                      归档助手
+                    </button>
+                  </div>
+                  {/* The server enforces both preconditions. Stating them here
+                      turns a rejected request into an instruction; without this
+                      the control read as missing rather than as blocked. */}
+                  <p className="agent-archive-hint">
+                    {editor.enabled
+                      ? "归档前须先在“基本信息”停用此助手并保存。"
+                      : "若仍提示失败，请到渠道接入解除此助手的绑定。"}
                   </p>
-                  <button
-                    disabled={pending}
-                    onClick={() =>
-                      void action(async () => {
-                        await request(`/agents/${editor.id}`, "DELETE");
-                        setEditor({
-                          ...editor,
-                          archived: true,
-                          enabled: false,
-                        });
-                        setFeedback("助手已归档，历史仍可查看。");
-                      })
-                    }
-                  >
-                    确认归档助手
-                  </button>
-                </details>
+                </section>
               )
             )}
           </>
         )}
       </section>
+      {archiveOpen && editor.id && (
+        <SettingsDialog
+          title={`归档助手“${editor.name}”？`}
+          pending={pending}
+          onClose={() => setArchiveOpen(false)}
+        >
+          <p>
+            归档是永久操作：此助手不再接收新消息，也不能恢复配置。已有会话和任务历史保留，可继续查看。
+          </p>
+          <p className="muted">
+            {editor.enabled
+              ? "此助手仍在接收任务。请先在“基本信息”中关闭接收并保存，再归档。"
+              : "归档前须解除所有渠道绑定；若下方提示失败，请到渠道接入解除。"}
+          </p>
+          {archiveError && (
+            <p role="alert" className="error">
+              {archiveError}
+            </p>
+          )}
+          <footer>
+            <button
+              data-dialog-cancel
+              disabled={pending}
+              onClick={() => setArchiveOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              className="danger-button"
+              disabled={pending}
+              onClick={async () => {
+                setPending(true);
+                setArchiveError("");
+                try {
+                  await request(`/agents/${editor.id}`, "DELETE");
+                  setEditor({ ...editor, archived: true, enabled: false });
+                  setArchiveOpen(false);
+                  // Refresh so the list shows the archived state instead of
+                  // keeping a stale "enter chat" action.
+                  await onSaved();
+                  setFeedback("助手已归档，历史仍可查看。");
+                } catch (failure) {
+                  setArchiveError(errorText(failure));
+                } finally {
+                  setPending(false);
+                }
+              }}
+            >
+              {pending ? "正在归档…" : "确认归档"}
+            </button>
+          </footer>
+        </SettingsDialog>
+      )}
       {error && (
         <p className="error agents-feedback" role="alert">
           {error}

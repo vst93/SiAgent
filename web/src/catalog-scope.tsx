@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
-// The settings catalog is scoped: you are always looking at one Agent's view of
-// the shared library. The choice persists so returning to the page lands where
-// you left it, which is what keeps "upload here" unambiguous.
-const scopeKey = "siagent.catalog-agent";
+// One Agent is the current space for the whole workbench, not just for chat.
+// Every settings page reads this same scope, so "the Agent I am working on" has
+// exactly one answer and the title bar can state it.
+const scopeKey = "siagent.space-agent";
 
-export function storedCatalogAgent(): string {
+export function storedSpaceAgent(): string {
   try {
     return localStorage.getItem(scopeKey) ?? "";
   } catch {
@@ -13,28 +13,32 @@ export function storedCatalogAgent(): string {
   }
 }
 
-export function useCatalogScope(
+export function rememberSpaceAgent(id: string) {
+  try {
+    localStorage.setItem(scopeKey, id);
+  } catch {
+    // The scope still applies for this session.
+  }
+}
+
+// The scope is owned by the workbench shell so the title bar, chat and every
+// settings page agree on which Agent is current. This hook only resolves that
+// shared id into a usable Agent and filters archived ones out of the picker.
+export function useSpaceScope(
   agents: { id: string; name: string; archived?: boolean }[],
+  agentID: string,
+  select: (id: string) => void,
 ) {
-  const [agentID, setAgentID] = useState(storedCatalogAgent);
-  // An archived or deleted Agent must not leave the page scoped to nothing.
   const live = agents.filter((agent) => !agent.archived);
   const current = live.find((agent) => agent.id === agentID) ?? live[0] ?? null;
   useEffect(() => {
-    if (current && current.id !== agentID) setAgentID(current.id);
-  }, [current?.id]);
-  useEffect(() => {
-    try {
-      if (agentID) localStorage.setItem(scopeKey, agentID);
-    } catch {
-      // The scope still applies for this session.
-    }
-  }, [agentID]);
+    if (current && current.id !== agentID) select(current.id);
+  }, [current?.id, agentID]);
   return {
     agents: live,
     agent: current,
     agentID: current?.id ?? "",
-    select: setAgentID,
+    select,
   };
 }
 

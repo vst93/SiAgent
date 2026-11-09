@@ -98,6 +98,34 @@
   background: var(--surface);
   color: var(--ink);
 }
+/* The space switcher sits in the location trail: the Agent is a scope, not a
+   page, so it belongs with "where am I" rather than with the page actions. */
+.titlebar-space {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.titlebar-space select {
+  height: 22px;
+  min-height: 22px;
+  max-width: 180px;
+  padding: 0 20px 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+}
+.titlebar-space select:hover {
+  border-color: var(--line);
+  background-color: var(--surface);
+  color: var(--ink);
+}
+.titlebar-space select:focus-visible {
+  border-color: var(--teal);
+  color: var(--ink);
+}
 .titlebar-crumbs {
   display: flex;
   align-items: center;
@@ -1042,6 +1070,34 @@ button {
 }
 .app-statusbar {
   font-size: 9.5px;
+}
+/* The space switcher sits in the location trail: the Agent is a scope, not a
+   page, so it belongs with "where am I" rather than with the page actions. */
+.titlebar-space {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.titlebar-space select {
+  height: 22px;
+  min-height: 22px;
+  max-width: 180px;
+  padding: 0 20px 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+}
+.titlebar-space select:hover {
+  border-color: var(--line);
+  background-color: var(--surface);
+  color: var(--ink);
+}
+.titlebar-space select:focus-visible {
+  border-color: var(--teal);
+  color: var(--ink);
 }
 .titlebar-crumbs {
   font-size: 10px;

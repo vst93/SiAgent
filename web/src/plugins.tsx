@@ -14,7 +14,7 @@ import { appURL } from "./urls";
 import {
   emptyLinks,
   groupByScope,
-  useCatalogScope,
+  useSpaceScope,
   type CapabilityLinks,
   type LinkedAgent,
 } from "./catalog-scope";
@@ -64,9 +64,13 @@ async function downloadArchive(path: string, fallback: string) {
 export function PluginsWorkspace({
   request,
   agents,
+  spaceAgentID,
+  onSpaceAgent,
 }: {
   request: Api;
   agents: { id: string; name: string; archived: boolean }[];
+  spaceAgentID: string;
+  onSpaceAgent: (id: string) => void;
 }) {
   const [tab, setTab] = useState<"skills" | "mcp">("skills");
   const [mcpVisited, setMCPVisited] = useState(false);
@@ -125,7 +129,12 @@ export function PluginsWorkspace({
         aria-labelledby="plugin-tab-skills"
         hidden={tab !== "skills"}
       >
-        <SkillCatalog request={request} agents={agents} />
+        <SkillCatalog
+          request={request}
+          agents={agents}
+          spaceAgentID={spaceAgentID}
+          onSpaceAgent={onSpaceAgent}
+        />
       </div>
       <div
         role="tabpanel"
@@ -465,6 +474,13 @@ function SkillDetail({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saveError, setSaveError] = useState("");
+  // "Open" and "pending" must be separate: sharing one flag disabled the whole
+  // form the moment the dialog appeared.
+  const [adding, setAdding] = useState(false);
+  const [addPending, setAddPending] = useState(false);
+  const [newFile, setNewFile] = useState({ path: "", content: "" });
+  const [addError, setAddError] = useState("");
+  const [removing, setRemoving] = useState("");
   const resource = skill.files.find((file) => file.path === path);
   const tree = useMemo(() => fileTree(skill.files), [skill.files]);
   const markdown = /\.md$/i.test(path);
@@ -508,6 +524,42 @@ function SkillDetail({
       setSaveError(errorText(error));
     } finally {
       setSaving(false);
+    }
+  }
+  async function addFile(event: FormEvent) {
+    event.preventDefault();
+    setAddPending(true);
+    setAddError("");
+    try {
+      const updated = await request<Skill>(
+        `/skills/${skill.id}/files`,
+        "POST",
+        { path: newFile.path.trim(), content: newFile.content },
+      );
+      onUpdated(updated);
+      setPath(newFile.path.trim());
+      setAdding(false);
+      setNewFile({ path: "", content: "" });
+    } catch (failure) {
+      setAddError(errorText(failure));
+    } finally {
+      setAddPending(false);
+    }
+  }
+  async function removeFile(target: string) {
+    setRemoving(target);
+    setError("");
+    try {
+      const updated = await request<Skill>(
+        `/skills/${skill.id}/files/${target.split("/").map(encodeURIComponent).join("/")}`,
+        "DELETE",
+      );
+      onUpdated(updated);
+      if (path === target) setPath("SKILL.md");
+    } catch (failure) {
+      setError(errorText(failure));
+    } finally {
+      setRemoving("");
     }
   }
   const preview = path === "SKILL.md"
@@ -576,6 +628,19 @@ function SkillDetail({
           <div className="skill-file-tree-scroll">
             <SkillTree node={tree} selected={path} onSelect={setPath} />
           </div>
+          <div className="skill-file-tree-actions">
+            <button
+              type="button"
+              disabled={adding}
+              onClick={() => {
+                setAdding(true);
+                setNewFile({ path: "", content: "" });
+                setAddError("");
+              }}
+            >
+              <Icon name="plus" size={14} /> 添加文件
+            </button>
+          </div>
         </nav>
         <section className="skill-file-preview">
           <header className="skill-pane-head">
@@ -589,6 +654,17 @@ function SkillDetail({
               role="group"
               aria-label="文件视图"
             >
+              {path !== "SKILL.md" && (
+                <button
+                  type="button"
+                  className="danger-ghost"
+                  disabled={!!removing}
+                  onClick={() => void removeFile(path)}
+                  title="删除此文件"
+                >
+                  {removing === path ? "正在删除…" : "删除文件"}
+                </button>
+              )}
               <button
                 type="button"
                 aria-pressed={mode === "preview"}
@@ -669,6 +745,68 @@ function SkillDetail({
           </div>
         </section>
       </div>
+      {adding && (
+        <SettingsDialog title="添加技能文件" pending={addPending} onClose={() => setAdding(false)}>
+          <form className="skill-create-form" onSubmit={addFile}>
+            <fieldset disabled={addPending}>
+              <label htmlFor="skill-new-path">
+                文件路径
+                <input
+                  id="skill-new-path"
+                  value={newFile.path}
+                  onChange={(event) =>
+                    setNewFile({ ...newFile, path: event.target.value })
+                  }
+                  placeholder="references/status.md"
+                  required
+                  maxLength={200}
+                  spellCheck={false}
+                />
+              </label>
+              <p className="muted">
+                相对技能根目录，例如 references/status.md 或 scripts/check.py。
+              </p>
+              <label htmlFor="skill-new-content">
+                文件内容
+                <textarea
+                  id="skill-new-content"
+                  value={newFile.content}
+                  onChange={(event) =>
+                    setNewFile({ ...newFile, content: event.target.value })
+                  }
+                  rows={10}
+                  maxLength={128000}
+                  spellCheck={false}
+                />
+              </label>
+              <p className="muted">
+                仅支持 UTF-8 文本，最多 128 KB。脚本作为资源保存，不会自动执行。
+              </p>
+            </fieldset>
+            {addError && (
+              <p className="error" role="alert">
+                {addError}
+              </p>
+            )}
+            <footer>
+              <button
+                type="button"
+                data-dialog-cancel
+                disabled={addPending}
+                onClick={() => setAdding(false)}
+              >
+                取消
+              </button>
+              <button
+                className="primary"
+                disabled={addPending || !newFile.path.trim()}
+              >
+                {addPending ? "正在添加…" : "添加文件"}
+              </button>
+            </footer>
+          </form>
+        </SettingsDialog>
+      )}
     </section>
   );
 }
@@ -681,11 +819,15 @@ type SkillSort = "name" | "recent" | "files" | "size";
 function SkillCatalog({
   request,
   agents,
+  spaceAgentID,
+  onSpaceAgent,
 }: {
   request: Api;
   agents: { id: string; name: string; archived: boolean }[];
+  spaceAgentID: string;
+  onSpaceAgent: (id: string) => void;
 }) {
-  const scope = useCatalogScope(agents);
+  const scope = useSpaceScope(agents, spaceAgentID, onSpaceAgent);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [links, setLinks] = useState<CapabilityLinks>(emptyLinks);
   const [selected, setSelected] = useState("");
@@ -714,6 +856,7 @@ function SkillCatalog({
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
   const [upload, setUpload] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [archiving, setArchiving] = useState<Skill | null>(null);
   const [pending, setPending] = useState(false);
   const [archiveError, setArchiveError] = useState("");
@@ -878,6 +1021,13 @@ function SkillCatalog({
             onClick={() => setUpload(true)}
           >
             <Icon name="plus" size={16} /> 上传 Skill
+          </button>
+          <button
+            type="button"
+            disabled={loading || exporting}
+            onClick={() => setCreating(true)}
+          >
+            <Icon name="file" size={16} /> 新建技能
           </button>
         </div>
       </header>
@@ -1045,6 +1195,25 @@ function SkillCatalog({
           )}
         </div>
       )}
+      {creating && (
+        <SkillCreate
+          request={request}
+          agentID={scope.agentID}
+          agentName={scope.agent?.name ?? ""}
+          onClose={() => setCreating(false)}
+          onCreated={(skill) => {
+            setSkills((values) => [skill, ...values]);
+            setSelected(skill.id);
+            setQuery("");
+            setCreating(false);
+            void reloadUsage();
+            const where = scope.agent?.name
+              ? `已挂载到${scope.agent.name}`
+              : "已创建";
+            setFeedback(`“${skill.name}”${where}。`);
+          }}
+        />
+      )}
       {upload && (
         <SkillUpload
           request={request}
@@ -1137,5 +1306,124 @@ function SkillCatalog({
         </SettingsDialog>
       )}
     </div>
+  );
+}
+
+// Creating a Skill by hand writes the same SKILL.md an upload would produce.
+// The template keeps the frontmatter valid so the editor is not a syntax quiz.
+const skillTemplate = `---
+name: my-skill
+description: 一句话说明这个技能解决什么问题。
+---
+
+## 何时使用
+
+说明触发场景。
+
+## 步骤
+
+1. 第一步
+2. 第二步
+`;
+
+function SkillCreate({
+  request,
+  agentID,
+  agentName,
+  onClose,
+  onCreated,
+}: {
+  request: Api;
+  agentID: string;
+  agentName: string;
+  onClose: () => void;
+  onCreated: (skill: Skill) => void;
+}) {
+  const [content, setContent] = useState(skillTemplate);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  // A live name preview means an invalid frontmatter fails before the request,
+  // with the same rule the server applies.
+  const name = /^---\n[\s\S]*?^name:\s*(\S+)\s*$/m.exec(content)?.[1] ?? "";
+  const nameValid = /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name) && name.length <= 64;
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+    try {
+      const created = await request<Skill>("/skills/new", "POST", {
+        content,
+        mount: agentID,
+      });
+      onCreated(created);
+    } catch (failure) {
+      setError(errorText(failure));
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <SettingsDialog
+      title={agentName ? `新建技能到${agentName}` : "新建技能"}
+      pending={pending}
+      onClose={onClose}
+    >
+      <form className="skill-create-form" onSubmit={submit}>
+        <fieldset disabled={pending}>
+          <label htmlFor="skill-create-content">
+            SKILL.md
+            <textarea
+              id="skill-create-content"
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              spellCheck={false}
+              maxLength={64000}
+              rows={16}
+              required
+            />
+          </label>
+          <p className="skill-create-hint">
+            {name ? (
+              nameValid ? (
+                <>
+                  技能标识 <code>{name}</code>
+                </>
+              ) : (
+                <>
+                  技能标识 <code>{name}</code> 无效：只能使用小写字母、数字和单连字符。
+                </>
+              )
+            ) : (
+              "frontmatter 需要 name 与 description 两项。"
+            )}
+            {agentName && ` 保存后自动挂载到${agentName}。`}
+          </p>
+          <p className="muted">
+            创建后可在详情中继续添加参考文件和脚本；与上传的技能完全等价，也可以被其他 Agent 复用。
+          </p>
+        </fieldset>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <footer>
+          <button
+            type="button"
+            data-dialog-cancel
+            disabled={pending}
+            onClick={onClose}
+          >
+            取消
+          </button>
+          <button
+            className="primary"
+            disabled={pending || !nameValid || !content.trim()}
+          >
+            {pending ? "正在创建…" : "创建技能"}
+          </button>
+        </footer>
+      </form>
+    </SettingsDialog>
   );
 }

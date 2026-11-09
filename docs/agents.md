@@ -48,6 +48,9 @@ Agent 编辑器的“复制助手”会完整复制名称、角色指令、模�
 | `GET/PUT/DELETE /api/agents/{agent}` | 读取/编辑/校验后归档 |
 | `GET/PUT /api/agents/{agent}/capabilities` | 指定助手的 Skills/MCP 授权 |
 | `POST /api/agents/{agent}/skills/{skill}/mount` | 把已有技能挂载到该助手；只增引用，不复制技能 |
+| `POST /api/skills/new` | 手动创建技能，正文为 `SKILL.md`；可选 `mount` 直接挂载 |
+| `POST /api/skills/{id}/files` | 为技能添加文本文件（`path` + `content`） |
+| `DELETE /api/skills/{id}/files/{path...}` | 删除技能文件；`SKILL.md` 不允许删除 |
 | `GET /api/capability-links` | 全量 Skills/MCP/知识库挂载关系，供技能库分组显示 |
 | `GET/PUT /api/agents/{agent}/knowledge` | 指定助手的知识库绑定 |
 | `POST /api/conversations` | 可传 `{"agent_id":"..."}`，省略时仍使用默认助手 |

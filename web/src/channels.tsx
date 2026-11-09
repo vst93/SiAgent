@@ -515,10 +515,12 @@ function ChannelEditor({
 export function ChannelsWorkspace({
   request,
   agents,
+  spaceAgentID,
   onConversation,
 }: {
   request: Api;
   agents: Agent[];
+  spaceAgentID: string;
   onConversation: (id: string) => Promise<void>;
 }) {
   const [providers, setProviders] = useState<Provider[]>([]);

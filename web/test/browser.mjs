@@ -2449,8 +2449,16 @@ try {
   await page.getByLabel("我了解风险，仅对可信 Agent 开启").check();
   await page.getByRole("button", { name: "保存助手", exact: true }).click();
   await page.getByText("助手已保存，新任务使用新配置", { exact: false }).waitFor();
-  await page.locator(".agent-archive summary").click();
-  await page.getByRole("button", { name: "确认归档助手", exact: true }).click();
+  // Archiving is a visible action with a confirmation dialog; it used to hide
+  // behind a collapsed disclosure and read as missing.
+  assert.equal(
+    await page.getByRole("button", { name: "归档助手", exact: true }).isVisible(),
+    true,
+    "archive action must be visible without expanding anything",
+  );
+  await page.getByRole("button", { name: "归档助手", exact: true }).click();
+  await page.getByText("归档是永久操作", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "确认归档", exact: true }).click();
   await page.getByText("助手已归档，历史仍可查看。", { exact: true }).waitFor();
   await page.locator(".agent-card").filter({ hasText: "财务助手" }).getByRole("button", { name: "进入对话", exact: true }).click();
   await page.getByLabel("发送给助手的消息").fill("finance isolated question");
@@ -2509,8 +2517,10 @@ try {
     (await page.locator(".conversation-list button").count()) > 0,
     "switching Agent must show that Agent's conversations",
   );
+  // Chat and settings share one space key now, so switching Agent in the chat
+  // history also re-scopes the configuration pages.
   assert.equal(
-    await page.evaluate(() => localStorage.getItem("siagent.chat-agent")),
+    await page.evaluate(() => localStorage.getItem("siagent.space-agent")),
     "default",
   );
   const financeID = await page.evaluate(() =>
@@ -2534,8 +2544,16 @@ try {
       exact: true,
     })
     .waitFor();
-  await page.locator(".agent-archive summary").click();
-  await page.getByRole("button", { name: "确认归档助手", exact: true }).click();
+  // Archiving is a visible action with a confirmation dialog; it used to hide
+  // behind a collapsed disclosure and read as missing.
+  assert.equal(
+    await page.getByRole("button", { name: "归档助手", exact: true }).isVisible(),
+    true,
+    "archive action must be visible without expanding anything",
+  );
+  await page.getByRole("button", { name: "归档助手", exact: true }).click();
+  await page.getByText("归档是永久操作", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "确认归档", exact: true }).click();
   await page.getByText("助手已归档，历史仍可查看。", { exact: true }).waitFor();
   await page
     .locator(".agent-card")

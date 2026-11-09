@@ -3,6 +3,7 @@ import { appURL } from "./urls";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { KnowledgeDialog } from "./knowledge-dialog";
 import { RowMenu } from "./row-menu";
+import { useSpaceScope } from "./catalog-scope";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 type Base = {
@@ -521,7 +522,19 @@ function UploadDialog({
   );
 }
 
-export function KnowledgeWorkspace({ request }: { request: Api }) {
+export function KnowledgeWorkspace({
+  request,
+  agents,
+  spaceAgentID,
+  onSpaceAgent,
+}: {
+  request: Api;
+  agents: { id: string; name: string; archived: boolean }[];
+  spaceAgentID: string;
+  onSpaceAgent: (id: string) => void;
+}) {
+  const space = useSpaceScope(agents, spaceAgentID, onSpaceAgent);
+  const [bound, setBound] = useState<string[]>([]);
   const [bases, setBases] = useState<Base[]>([]);
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(true);
@@ -541,6 +554,25 @@ export function KnowledgeWorkspace({ request }: { request: Api }) {
       values.some((base) => base.id === id) ? id : (values[0]?.id ?? ""),
     );
   }
+  // The knowledge page reads the same space as the rest of the workbench, so it
+  // can state which bases this Agent actually retrieves instead of leaving that
+  // fact buried in the Agent editor.
+  useEffect(() => {
+    if (!space.agentID) return;
+    let active = true;
+    void request<{ knowledge_ids: string[] }>(
+      `/agents/${space.agentID}/knowledge`,
+    )
+      .then((binding) => {
+        if (active) setBound(binding.knowledge_ids ?? []);
+      })
+      .catch(() => {
+        if (active) setBound([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [space.agentID, bases.length]);
   useEffect(() => {
     mounted.current = true;
     void Promise.all([
@@ -572,6 +604,27 @@ export function KnowledgeWorkspace({ request }: { request: Api }) {
         </p>
       ) : (
         <>
+          {space.agents.length > 1 && (
+            <div className="space-bar">
+              <label className="space-picker">
+                <span>当前 Agent</span>
+                <select
+                  aria-label="当前 Agent 空间"
+                  value={space.agentID}
+                  onChange={(event) => space.select(event.target.value)}
+                >
+                  {space.agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="muted">
+                此 Agent 可检索 {bound.length} 个知识库；关联在下方按空间标注。
+              </p>
+            </div>
+          )}
           <div className="kb-library-toolbar">
             <label>
               <span className="sr-only">选择知识库</span>
@@ -589,6 +642,7 @@ export function KnowledgeWorkspace({ request }: { request: Api }) {
                 {bases.map((base) => (
                   <option key={base.id} value={base.id}>
                     {base.name} · {base.documents} 份文档
+                    {bound.includes(base.id) ? " · 已关联" : ""}
                   </option>
                 ))}
               </select>
@@ -662,8 +716,20 @@ export function KnowledgeWorkspace({ request }: { request: Api }) {
             )
           )}
           <p className="kb-scope-note">
-            文档在本地处理。Agent 的访问范围在{" "}
-            <a href="#/settings/agents">Agent 配置</a>中单独授权。
+            文档在本地处理。
+            {space.agent ? (
+              <>
+                {" "}
+                当前空间是{space.agent.name}；关联范围在
+                <a href="#/settings/agents">Agent 配置</a>中逐项授权。
+              </>
+            ) : (
+              <>
+                {" "}
+                Agent 的访问范围在
+                <a href="#/settings/agents">Agent 配置</a>中单独授权。
+              </>
+            )}
           </p>
         </>
       )}

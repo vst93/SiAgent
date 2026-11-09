@@ -18,6 +18,7 @@ import {
 } from "./navigation";
 import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { appURL, setPublicBase } from "./urls";
+import { rememberSpaceAgent, storedSpaceAgent } from "./catalog-scope";
 import {
   applyLanguage,
   rememberLanguage,
@@ -53,21 +54,7 @@ window.setInterval(() => {
 }, 60 * 1000);
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 const commandKey = isMac ? "⌘K" : "Ctrl K";
-const chatAgentKey = "siagent.chat-agent";
-function storedChatAgent() {
-  try {
-    return localStorage.getItem(chatAgentKey) ?? "";
-  } catch {
-    return "";
-  }
-}
-function rememberChatAgent(id: string) {
-  try {
-    localStorage.setItem(chatAgentKey, id);
-  } catch {
-    // The selection still applies for this session.
-  }
-}
+
 
 type Auth = {
   initialized: boolean;
@@ -422,7 +409,7 @@ function App() {
       if (!models.length && !sourceID) navigation.navigate("settings/models");
       // Honor the last Agent the user explicitly opened instead of jumping to
       // whichever Agent happened to receive the latest conversation.
-      const preferred = storedChatAgent();
+      const preferred = storedSpaceAgent();
       const selectedAgent =
         agents.find((value) => value.id === preferred) ??
         agents.find((value) => value.id === "default") ??
@@ -737,7 +724,7 @@ function App() {
     setAgents(agents);
   }
   function selectAgent(id: string) {
-    rememberChatAgent(id);
+    rememberSpaceAgent(id);
     setAgentID(id);
     setSelected(conversations.find((item) => item.agent_id === id)?.id ?? "");
     setInput("");
@@ -750,7 +737,7 @@ function App() {
     const item = list.find((value) => value.id === id);
     if (!item) throw new Error("会话不存在，请刷新后重试。");
     setConversations(list);
-    rememberChatAgent(item.agent_id);
+    rememberSpaceAgent(item.agent_id);
     setAgentID(item.agent_id);
     setSelected(id);
     setInput("");
@@ -842,6 +829,17 @@ function App() {
           (section) => navigation.page === `settings/${section.id}`,
         );
   const contextLabel = activeSection?.title ?? "Agent 对话";
+  const liveAgents = agents.filter((item) => !item.archived);
+  // Switching the space keeps you where you are: it re-scopes the current page
+  // rather than navigating, because the space is a filter over the whole shell.
+  function switchSpace(id: string) {
+    rememberSpaceAgent(id);
+    setAgentID(id);
+    const owned = conversations.filter((item) => item.agent_id === id);
+    setSelected(owned[0]?.id ?? "");
+    setInput("");
+    setAttachments([]);
+  }
   const commandItems: CommandItem[] = [
     {
       id: "chat",
@@ -916,7 +914,26 @@ function App() {
           </button>
         </div>
         <div className="titlebar-crumbs" aria-label="当前位置">
-          <span>{navigation.page === "chat" ? "工作区" : "配置"}</span>
+          {/* The Agent is the space the whole workbench is scoped to, so the
+              switcher lives here instead of on each settings page. */}
+          {liveAgents.length > 1 ? (
+            <label className="titlebar-space">
+              <span className="sr-only">当前 Agent 空间</span>
+              <select
+                aria-label="当前 Agent 空间"
+                value={agentID}
+                onChange={(event) => switchSpace(event.target.value)}
+              >
+                {liveAgents.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span title="当前 Agent 空间">{agent?.name ?? "未选择 Agent"}</span>
+          )}
           <span className="titlebar-slash" aria-hidden="true">
             /
           </span>
@@ -1194,6 +1211,8 @@ function App() {
               request={api}
               models={models}
               agents={agents}
+              spaceAgentID={agentID}
+              onSpaceAgent={setAgentID}
               onSaved={refreshCatalog}
               onStart={() => selectAgent("default")}
               onSelectAgent={selectAgent}
