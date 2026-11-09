@@ -742,3 +742,61 @@ func (s *Server) RunChannels(ctx context.Context) error {
 		}
 	}
 }
+
+// Purging an archived channel removes its routing and transport rows. The
+// conversations it produced belong to an Agent, not to the channel, so they are
+// left alone; only channel-scoped bookkeeping goes.
+func (s *Server) purgeChannel(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Confirm string `json:"confirm"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	s.channelConfigMu.Lock()
+	defer s.channelConfigMu.Unlock()
+	if s.channelTests[r.PathValue("channel")] {
+		fail(w, 409, "渠道正在连接测试，请等待结束后再删除。")
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, _, err := s.loadChannel(r.Context(), r.PathValue("channel"))
+	if err != nil {
+		fail(w, 404, "渠道不存在。")
+		return
+	}
+	if !c.Archived {
+		fail(w, 409, "只能彻底删除已归档的渠道；请先归档。")
+		return
+	}
+	if input.Confirm != c.Name {
+		fail(w, 400, fmt.Sprintf("请输入渠道名称“%s”以确认彻底删除。", c.Name))
+		return
+	}
+	tx, err := s.store.db.Begin()
+	if err != nil {
+		internal(w)
+		return
+	}
+	defer tx.Rollback()
+	for _, query := range []string{
+		"DELETE FROM channel_outbox WHERE channel_id=?",
+		"DELETE FROM channel_inbox WHERE channel_id=?",
+		"DELETE FROM channel_sessions WHERE channel_id=?",
+		"DELETE FROM channel_contacts WHERE channel_id=?",
+		"DELETE FROM channels WHERE id=?",
+	} {
+		if _, err := tx.Exec(query, c.ID); err != nil {
+			internal(w)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		internal(w)
+		return
+	}
+	s.resetChannelMedia(c.ID)
+	s.audit("channel.purge", c.ID, "name="+c.Name)
+	respond(w, 200, map[string]bool{"purged": true})
+}

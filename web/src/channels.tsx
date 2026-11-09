@@ -535,6 +535,9 @@ export function ChannelsWorkspace({
   const [editor, setEditor] = useState<Channel | null>(null);
   const [archive, setArchive] = useState<Channel | null>(null);
   const [archiveError, setArchiveError] = useState("");
+  const [purge, setPurge] = useState<Channel | null>(null);
+  const [purgeConfirm, setPurgeConfirm] = useState("");
+  const [purgeError, setPurgeError] = useState("");
   const [pending, setPending] = useState(false);
   const [diagnostics, setDiagnostics] = useState<Diagnostics>(empty);
   const [refresh, setRefresh] = useState(0);
@@ -793,6 +796,20 @@ export function ChannelsWorkspace({
                 >
                   归档渠道
                 </button>
+                {current.archived && (
+                  <button
+                    className="danger-ghost"
+                    disabled={pending}
+                    onClick={() => {
+                      setPurge(current);
+                      setPurgeConfirm("");
+                      setPurgeError("");
+                    }}
+                    title="永久移除此渠道配置"
+                  >
+                    彻底删除
+                  </button>
+                )}
               </div>
             )}
             <p className="channel-help">
@@ -931,6 +948,68 @@ export function ChannelsWorkspace({
             setRefresh((value) => value + 1);
           }}
         />
+      )}
+      {purge && (
+        <SettingsDialog
+          title={`彻底删除渠道“${purge.name}”？`}
+          pending={pending}
+          onClose={() => setPurge(null)}
+        >
+          <p>
+            这会永久移除渠道配置、入站去重记录与投递记录。由该渠道产生的会话仍归其 Agent 所有，不受影响。
+          </p>
+          <p className="muted">
+            如需确认，请输入渠道名称“{purge.name}”。
+          </p>
+          <label>
+            渠道名称
+            <input
+              value={purgeConfirm}
+              onChange={(event) => setPurgeConfirm(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          {purgeError && (
+            <p role="alert" className="error">
+              {purgeError}
+            </p>
+          )}
+          <footer>
+            <button
+              data-dialog-cancel
+              disabled={pending}
+              onClick={() => setPurge(null)}
+            >
+              取消
+            </button>
+            <button
+              className="danger-button"
+              disabled={pending || purgeConfirm !== purge.name}
+              onClick={async () => {
+                setPending(true);
+                setPurgeError("");
+                try {
+                  await request(`/channels/${purge.id}/purge`, "DELETE", {
+                    confirm: purgeConfirm,
+                  });
+                  setChannels((values) =>
+                    values.filter((value) => value.id !== purge.id),
+                  );
+                  setPurge(null);
+                  setFeedback("渠道已彻底删除。");
+                  setRefresh((value) => value + 1);
+                } catch (failure) {
+                  setPurgeError(note(failure));
+                } finally {
+                  setPending(false);
+                }
+              }}
+            >
+              {pending ? "正在删除…" : "彻底删除"}
+            </button>
+          </footer>
+        </SettingsDialog>
       )}
       {archive && (
         <SettingsDialog

@@ -744,7 +744,7 @@ type LinkedAgent struct {
 }
 
 func (s *Server) linkedAgents(kind, id string) ([]LinkedAgent, error) {
-	rows, err := s.store.db.Query("SELECT a.id,a.name,a.archived,c.config FROM agents a LEFT JOIN agent_capabilities c ON c.agent_id=a.id ORDER BY CASE WHEN a.id='default' THEN 0 ELSE 1 END,a.rowid")
+	rows, err := s.store.db.Query("SELECT a.id,a.name,a.archived,c.config FROM agents a LEFT JOIN agent_capabilities c ON c.agent_id=a.id ORDER BY a.archived, CASE WHEN a.id='default' THEN 0 ELSE 1 END, a.rowid")
 	if err != nil {
 		return nil, err
 	}

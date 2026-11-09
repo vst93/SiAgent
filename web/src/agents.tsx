@@ -105,6 +105,9 @@ export function AgentWorkspace({
   const [instructionsPreview, setInstructionsPreview] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [archiveError, setArchiveError] = useState("");
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [purgeConfirm, setPurgeConfirm] = useState("");
+  const [purgeError, setPurgeError] = useState("");
   const savedAgent = agents.find((agent) => agent.id === editor.id);
   const advancedNeedsConfirm =
     editor.policy.advanced_tools &&
@@ -223,7 +226,9 @@ export function AgentWorkspace({
         </div>
         {agents.map((agent) => (
           <div
-            className={`agent-card ${editor.id === agent.id ? "selected" : ""}`}
+            className={`agent-card ${editor.id === agent.id ? "selected" : ""} ${
+              agent.archived ? "is-archived" : ""
+            }`}
             key={agent.id}
           >
             <button
@@ -864,12 +869,33 @@ export function AgentWorkspace({
               </fieldset>
             </form>
             {editor.archived ? (
-              <p className="permission-notice">
-                此助手已归档，只能查看历史。已有会话不会改绑到其他助手。
-              </p>
+              <section className="agent-archive" aria-label="彻底删除助手">
+                <div className="agent-archive-head">
+                  <div>
+                    <h3>已归档</h3>
+                    <p>
+                      只能查看历史，不能继续提交消息。若确定不再需要，可以彻底删除。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="danger-ghost"
+                    disabled={pending}
+                    onClick={() => {
+                      setPurgeOpen(true);
+                      setPurgeConfirm("");
+                      setPurgeError("");
+                    }}
+                  >
+                    彻底删除
+                  </button>
+                </div>
+                <p className="agent-archive-hint">
+                  彻底删除会移除该助手的全部会话、任务、工具记录与工作区，且无法恢复。
+                </p>
+              </section>
             ) : (
-              editor.id &&
-              editor.id !== "default" && (
+              editor.id && (
                 <section className="agent-archive" aria-label="归档助手">
                   <div className="agent-archive-head">
                     <div>
@@ -904,6 +930,66 @@ export function AgentWorkspace({
           </>
         )}
       </section>
+      )}
+      {purgeOpen && editor.id && (
+        <SettingsDialog
+          title={`彻底删除助手“${editor.name}”？`}
+          pending={pending}
+          onClose={() => setPurgeOpen(false)}
+        >
+          <p>
+            这会永久删除该助手的全部会话、消息、任务、工具记录、用量记录和工作区文件。此操作无法撤销。
+          </p>
+          <p className="muted">
+            如需确认，请输入助手名称“{editor.name}”。
+          </p>
+          <label>
+            助手名称
+            <input
+              value={purgeConfirm}
+              onChange={(event) => setPurgeConfirm(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          {purgeError && (
+            <p role="alert" className="error">
+              {purgeError}
+            </p>
+          )}
+          <footer>
+            <button
+              data-dialog-cancel
+              disabled={pending}
+              onClick={() => setPurgeOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              className="danger-button"
+              disabled={pending || purgeConfirm !== editor.name}
+              onClick={async () => {
+                setPending(true);
+                setPurgeError("");
+                try {
+                  await request(`/agents/${editor.id}/purge`, "DELETE", {
+                    confirm: purgeConfirm,
+                  });
+                  setPurgeOpen(false);
+                  await onSaved();
+                  setEditor(blank);
+                  setFeedback("助手已彻底删除。");
+                } catch (failure) {
+                  setPurgeError(errorText(failure));
+                } finally {
+                  setPending(false);
+                }
+              }}
+            >
+              {pending ? "正在删除…" : "彻底删除"}
+            </button>
+          </footer>
+        </SettingsDialog>
       )}
       {archiveOpen && editor.id && (
         <SettingsDialog

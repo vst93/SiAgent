@@ -77,6 +77,9 @@ export function ModelsWorkspace({
   const [error, setError] = useState("");
   const [archiving, setArchiving] = useState(false);
   const [archiveError, setArchiveError] = useState("");
+  const [purging, setPurging] = useState(false);
+  const [purgeConfirm, setPurgeConfirm] = useState("");
+  const [purgeError, setPurgeError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [query, setQuery] = useState("");
   const [providers, setProviders] = useState<ProviderPreset[]>([]);
@@ -809,6 +812,33 @@ export function ModelsWorkspace({
               <small>配置用于新提交的任务。连接测试会发送一条简短文本。</small>
             </footer>
           </fieldset>
+          {editor.id > 1 && editor.archived && (
+            <section className="agent-archive" aria-label="彻底删除模型连接">
+              <div className="agent-archive-head">
+                <div>
+                  <h3>已归档</h3>
+                  <p>
+                    不再可被选择。历史运行仍保留其提交时的配置快照。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="danger-ghost"
+                  disabled={pending}
+                  onClick={() => {
+                    setPurging(true);
+                    setPurgeConfirm("");
+                    setPurgeError("");
+                  }}
+                >
+                  彻底删除
+                </button>
+              </div>
+              <p className="agent-archive-hint">
+                彻底删除会移除这条连接记录，且无法恢复。
+              </p>
+            </section>
+          )}
           {editor.id > 1 && !editor.archived && (
             <section className="agent-archive" aria-label="归档模型连接">
               <div className="agent-archive-head">
@@ -831,6 +861,71 @@ export function ModelsWorkspace({
             </section>
           )}
         </form>
+        {purging && (
+          <SettingsDialog
+            title={`彻底删除模型连接“${editor.options.display_name || editor.name}”？`}
+            pending={pending}
+            onClose={() => setPurging(false)}
+          >
+            <p>
+              这会永久移除这条连接记录，无法恢复。历史运行仍保留其提交时的配置快照。
+            </p>
+            <p className="muted">
+              如需确认，请输入连接名称“{editor.options.display_name || editor.name}”。
+            </p>
+            <label>
+              连接名称
+              <input
+                value={purgeConfirm}
+                onChange={(event) => setPurgeConfirm(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            {purgeError && (
+              <p role="alert" className="error">
+                {purgeError}
+              </p>
+            )}
+            <footer>
+              <button
+                data-dialog-cancel
+                disabled={pending}
+                onClick={() => setPurging(false)}
+              >
+                取消
+              </button>
+              <button
+                className="danger-button"
+                disabled={
+                  pending ||
+                  purgeConfirm !== (editor.options.display_name || editor.name)
+                }
+                onClick={() =>
+                  void action(async () => {
+                    setPurgeError("");
+                    try {
+                      await request(`/models/${editor.id}/purge`, "DELETE", {
+                        confirm: purgeConfirm,
+                      });
+                      setPurging(false);
+                      await onSaved();
+                      setFeedback("模型连接已彻底删除。");
+                    } catch (failure) {
+                      setPurgeError(
+                        failure instanceof Error
+                          ? failure.message
+                          : "删除未完成，请稍后重试。",
+                      );
+                    }
+                  })
+                }
+              >
+                {pending ? "正在删除…" : "彻底删除"}
+              </button>
+            </footer>
+          </SettingsDialog>
+        )}
         {archiving && (
           <SettingsDialog
             title={`归档模型连接“${editor.options.display_name || editor.name}”？`}

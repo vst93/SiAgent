@@ -32,7 +32,7 @@ func (s *Store) capabilityLinks() (CapabilityLinks, error) {
 		Knowledge: map[string][]LinkedAgent{},
 	}
 	agents := map[string]LinkedAgent{}
-	rows, err := s.db.Query("SELECT id,name,archived FROM agents ORDER BY CASE WHEN id='default' THEN 0 ELSE 1 END,rowid")
+	rows, err := s.db.Query("SELECT id,name,archived FROM agents ORDER BY archived, CASE WHEN id='default' THEN 0 ELSE 1 END, rowid")
 	if err != nil {
 		return links, err
 	}

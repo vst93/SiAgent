@@ -2499,6 +2499,29 @@ try {
   await page.getByText("归档是永久操作", { exact: false }).waitFor();
   await page.getByRole("button", { name: "确认归档", exact: true }).click();
   await page.getByText("助手已归档，历史仍可查看。", { exact: true }).waitFor();
+  // Archived Agents sort after live ones and read as recessed history.
+  const archivedOrder = await page.locator(".agent-card").evaluateAll((els) =>
+    els.map((el) => ({
+      name: el.querySelector("strong")?.textContent ?? "",
+      archived: el.classList.contains("is-archived"),
+    })),
+  );
+  const firstArchived = archivedOrder.findIndex((row) => row.archived);
+  if (firstArchived >= 0) {
+    assert(
+      archivedOrder.slice(firstArchived).every((row) => row.archived),
+      `archived Agents must sort last: ${archivedOrder.map((r) => `${r.name}:${r.archived}`).join(",")}`,
+    );
+    assert(
+      Number(
+        await page
+          .locator(".agent-card.is-archived")
+          .first()
+          .evaluate((el) => getComputedStyle(el).opacity),
+      ) < 1,
+      "archived rows must be visually recessed",
+    );
+  }
   await page.locator(".agent-card").filter({ hasText: "财务助手" }).getByRole("button", { name: "进入对话", exact: true }).click();
   await page.getByLabel("发送给助手的消息").fill("finance isolated question");
   await page.getByRole("button", { name: "发送", exact: false }).click();

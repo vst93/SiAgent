@@ -278,7 +278,7 @@ func requestedModel(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return value, true
 }
 func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.db.Query("SELECT id,base_url,name,version,archived,options,provider FROM models ORDER BY id")
+	rows, err := s.store.db.Query("SELECT id,base_url,name,version,archived,options,provider FROM models ORDER BY archived, id")
 	if err != nil {
 		internal(w)
 		return
@@ -307,6 +307,58 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, 200, models)
 }
+
+// Purging an archived model connection is irreversible and separate from
+// archiving, because archived connections still explain historical runs.
+func (s *Server) purgeModel(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Confirm string `json:"confirm"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	modelID, ok := requestedModel(w, r)
+	if !ok {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old, err := s.store.modelByID(modelID)
+	if err == sql.ErrNoRows {
+		fail(w, 404, "模型连接不存在。")
+		return
+	}
+	if err != nil {
+		internal(w)
+		return
+	}
+	if !old.Archived {
+		fail(w, 409, "只能彻底删除已归档的模型连接；请先归档。")
+		return
+	}
+	if input.Confirm != (old.Options.DisplayName) && input.Confirm != old.Name {
+		fail(w, 400, "请输入模型连接名称以确认彻底删除。")
+		return
+	}
+	// Runs keep their own frozen snapshot, but an Agent still pointing at this
+	// connection would break, so both references must be clear.
+	var references int
+	if err := s.store.db.QueryRow("SELECT count(*) FROM agents WHERE (model_id=? OR fallback_model_ids LIKE ?)", modelID, "%"+strconv.FormatInt(modelID, 10)+"%").Scan(&references); err != nil {
+		internal(w)
+		return
+	}
+	if references > 0 {
+		fail(w, 409, "仍有助手引用此连接，请先改用其他模型。")
+		return
+	}
+	if _, err := s.store.db.Exec("DELETE FROM models WHERE id=? AND archived=1", modelID); err != nil {
+		internal(w)
+		return
+	}
+	s.audit("model.purge", strconv.FormatInt(modelID, 10), "name="+old.Name)
+	respond(w, 200, map[string]bool{"purged": true})
+}
+
 func (s *Server) archiveModel(w http.ResponseWriter, r *http.Request) {
 	modelID, ok := requestedModel(w, r)
 	if !ok {

@@ -161,7 +161,9 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, a)
 }
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.db.Query("SELECT id,name,instructions,enabled,model_id,archived,policy,revision,fallback_model_ids,environment FROM agents ORDER BY CASE WHEN id='default' THEN 0 ELSE 1 END,rowid")
+	// Live Agents first, archived ones last: an archived Agent is history, not a
+	// peer of the ones receiving work.
+	rows, err := s.store.db.Query("SELECT id,name,instructions,enabled,model_id,archived,policy,revision,fallback_model_ids,environment FROM agents ORDER BY archived, CASE WHEN id='default' THEN 0 ELSE 1 END, rowid")
 	if err != nil {
 		internal(w)
 		return
@@ -538,10 +540,10 @@ func (s *Server) archiveAgent(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	agentID := agentPath(r)
-	if agentID == "default" {
-		fail(w, 409, "默认助手保留，可停用以停止接收新任务。")
-		return
-	}
+	// The default Agent is only a bootstrap convenience: it is the row the first
+	// model save creates, not an identity. Any Agent can be archived, including
+	// the last one — with no live Agent the UI shows "no Agent yet" and disables
+	// new conversations, which is a valid state.
 	a, err := s.agentByID(agentID)
 	if err == sql.ErrNoRows {
 		fail(w, 404, "助手不存在。")

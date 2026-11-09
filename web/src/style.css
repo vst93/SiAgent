@@ -1803,6 +1803,38 @@ summary {
   color: var(--faint);
   font-size: 11px;
 }
+/* Archived rows are history, not peers. They keep their position in the list
+   (the server sorts them last) but read as recessed: muted text, no accent, and
+   a dashed edge instead of the selected ring. */
+.is-archived,
+.is-archived:hover:not(:disabled) {
+  background: transparent;
+  color: var(--faint);
+}
+.is-archived strong,
+.is-archived .model-connection-copy strong {
+  color: var(--muted);
+  font-weight: 500;
+}
+.is-archived .ui-icon {
+  opacity: 0.45;
+}
+.is-archived small {
+  color: var(--faint);
+}
+.agent-card.is-archived,
+.model-connection.is-archived {
+  opacity: 0.72;
+}
+.agent-card.is-archived .agent-card-select strong::after,
+.model-connection.is-archived strong::after {
+  content: " · 已归档";
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--faint);
+}
 /* "All" space: an overview of every Agent. Rows switch into one space instead
    of editing fields that only make sense for a single Agent. */
 .agent-overview-list {
