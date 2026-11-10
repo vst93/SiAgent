@@ -3,7 +3,7 @@ import { chromium } from "playwright";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
@@ -3041,6 +3041,121 @@ try {
     await new Promise((resolve) => probe.close(resolve));
     return port;
   };
+  // Update backups accumulate and are never pruned by the updater. They are
+  // listed newest first from the directory name and can be removed one by one
+  // or all at once, without touching unrelated entries in the backups folder.
+  const backupWork = await mkdtemp(join(tmpdir(), "siagent-backups-"));
+  const backupInstall = join(backupWork, "install");
+  const backupData = join(backupWork, "data");
+  await mkdir(join(backupInstall, "versions", "v0.0.60"), { recursive: true });
+  await cp(
+    join(root, "bin/siagent"),
+    join(backupInstall, "versions", "v0.0.60", "siagent"),
+  );
+  await symlink(
+    join(backupInstall, "versions", "v0.0.60"),
+    join(backupInstall, "current"),
+  );
+  await writeFile(join(backupInstall, ".siagent-install"), "");
+  for (const [stamp, version, body] of [
+    ["20260101T010101", "v0.0.55", "aaa"],
+    ["20260202T020202", "v0.0.58", "bbbbbb"],
+    ["20260303T030303", "v0.0.60", "cccccccccc"],
+  ]) {
+    const directory = join(backupInstall, "backups", `update-${stamp}-${version}`);
+    await mkdir(join(directory, "sub"), { recursive: true });
+    await writeFile(join(directory, "siagent.db"), body);
+    await writeFile(join(directory, "sub", "extra.bin"), "x");
+  }
+  await mkdir(join(backupInstall, "backups", "manual-keep"), { recursive: true });
+  const backupPort = await freePort();
+  const backupChild = spawn(
+    join(backupInstall, "current", "siagent"),
+    ["-data-dir", backupData, "-listen", `127.0.0.1:${backupPort}`],
+    { cwd: root, stdio: ["ignore", "ignore", "pipe"] },
+  );
+  let backupToken = "";
+  backupChild.stderr.on("data", (chunk) => {
+    const match = String(chunk).match(/令牌.*?: (\S+)/);
+    if (match) backupToken = match[1];
+  });
+  const backupBase = `http://127.0.0.1:${backupPort}`;
+  for (let i = 0; i < 200; i++) {
+    try {
+      if ((await fetch(backupBase + "/health/ready")).ok) break;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const backupContext = await browser.newContext({ viewport: { width: 1440, height: 950 } });
+  const backupPage = await backupContext.newPage();
+  backupPage.on("pageerror", (error) => errors.push(error.message));
+  await backupPage.goto(backupBase);
+  await backupPage.getByLabel("首次启动令牌").fill(backupToken);
+  await backupPage
+    .getByLabel("管理员密码")
+    .fill("browser-backup-password");
+  await backupPage.getByRole("button", { name: "设置密码并继续" }).click();
+  await backupPage
+    .getByLabel("服务地址")
+    .fill(`http://127.0.0.1:${model.address().port}/v1`);
+  await backupPage.getByLabel("API 密钥").fill("browser-key");
+  await backupPage.getByRole("button", { name: "保存并开始对话" }).click();
+  await backupPage.waitForTimeout(1200);
+  await backupPage.goto(backupBase + "/#/settings/system");
+  await backupPage.locator(".backup-list > li").first().waitFor();
+  assert.equal(
+    await backupPage.locator(".backup-list > li").count(),
+    3,
+    "every snapshot must be listed",
+  );
+  const backupOrder = await backupPage
+    .locator(".backup-copy > strong")
+    .allInnerTexts();
+  assert(
+    backupOrder[0].startsWith("v0.0.60"),
+    `snapshots must sort newest first: ${backupOrder.join("|")}`,
+  );
+  // One snapshot at a time.
+  await backupPage
+    .locator(".backup-list > li")
+    .filter({ hasText: "v0.0.58" })
+    .getByRole("button", { name: /删除备份/ })
+    .click();
+  await backupPage.getByRole("button", { name: "确认删除", exact: true }).click();
+  await backupPage.waitForTimeout(600);
+  assert.equal(await backupPage.locator(".backup-list > li").count(), 2);
+  let backupDirs = await readdir(join(backupInstall, "backups"));
+  assert(
+    !backupDirs.includes("update-20260202T020202-v0.0.58"),
+    "the deleted snapshot directory must be gone",
+  );
+  assert(
+    backupDirs.includes("manual-keep"),
+    "unrelated directories must survive a single delete",
+  );
+  // Everything at once.
+  await backupPage.getByRole("button", { name: "全部清理", exact: true }).click();
+  await backupPage
+    .getByRole("button", { name: "全部清理", exact: true })
+    .last()
+    .click();
+  await backupPage.waitForTimeout(700);
+  backupDirs = await readdir(join(backupInstall, "backups"));
+  assert.deepEqual(
+    backupDirs,
+    ["manual-keep"],
+    `delete-all must leave unrelated entries: ${backupDirs.join(",")}`,
+  );
+  await backupPage.getByText("暂无备份", { exact: false }).waitFor();
+  await backupPage.close();
+  await backupContext.close();
+  backupChild.kill("SIGTERM");
+  await Promise.race([
+    once(backupChild, "close"),
+    new Promise((resolve) => setTimeout(resolve, 15000)),
+  ]);
+  await rm(backupWork, { recursive: true, force: true });
+
   const prefixProxyPort = await freePort();
   const prefixInstancePort = await freePort();
   // Keeps the prefix, exactly like the documented nginx recipe that forwards
@@ -3206,6 +3321,11 @@ try {
 
   // Two connections can share a model name and base URL with different keys, so
   // the operator's connection name leads and the technical fields disambiguate.
+  // The narrow-viewport checks above left the page at phone width; the rail
+  // helpers need the desktop layout.
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(base + "/#/settings/models");
+  await page.waitForTimeout(600);
   await config("模型连接");
   await page.getByRole("button", { name: "新增模型连接", exact: true }).click();
   await page.getByLabel("服务地址").fill(`http://127.0.0.1:${model.address().port}/v1`);

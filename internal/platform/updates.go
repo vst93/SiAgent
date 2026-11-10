@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"siagent/internal/selfupdate"
@@ -206,4 +207,58 @@ func (s *Server) updateBarrier(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// listBackups reports the offline snapshots taken by past updates. They are
+// listed on demand rather than with the update status, because sizing them walks
+// the whole snapshot.
+func (s *Server) listBackups(w http.ResponseWriter, r *http.Request) {
+	if s.updater == nil {
+		respond(w, 200, map[string]any{"backups": []any{}, "supported": false})
+		return
+	}
+	backups, err := s.updater.Backups()
+	if err != nil {
+		fail(w, 500, "无法读取备份目录："+err.Error())
+		return
+	}
+	respond(w, 200, map[string]any{"backups": backups, "supported": s.updater.Status().Supported})
+}
+
+func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request) {
+	if s.updater == nil {
+		fail(w, 409, "此实例未配置更新检查。")
+		return
+	}
+	name := r.PathValue("name")
+	if err := s.updater.DeleteBackup(name); err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	s.audit("backup.delete", name, "")
+	respond(w, 200, map[string]bool{"deleted": true})
+}
+
+func (s *Server) deleteAllBackups(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Confirm bool `json:"confirm"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if !input.Confirm {
+		fail(w, 400, "请确认删除全部备份。")
+		return
+	}
+	if s.updater == nil {
+		fail(w, 409, "此实例未配置更新检查。")
+		return
+	}
+	deleted, err := s.updater.DeleteBackups()
+	if err != nil {
+		fail(w, 500, fmt.Sprintf("已删除 %d 个备份，其余失败：%s", deleted, err.Error()))
+		return
+	}
+	s.audit("backup.delete_all", "", fmt.Sprintf("deleted=%d", deleted))
+	respond(w, 200, map[string]any{"deleted": deleted})
 }

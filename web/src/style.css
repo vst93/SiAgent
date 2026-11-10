@@ -8585,7 +8585,130 @@ select option:disabled {
 .update-notes-empty {
   margin: 0;
 }
+/* Update backups: a compact list, one row per snapshot, with the row action on
+   the right so the destructive control is never the thing you click by accident. */
+.backup-manager {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.backup-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.backup-head > div:first-child {
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.backup-head h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.backup-head h3 > span {
+  margin-left: 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--faint);
+}
+.backup-head p {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.backup-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.backup-actions > button {
+  font-size: 11.5px;
+  padding: 6px 10px;
+}
+.backup-feedback {
+  margin: 0;
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.backup-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.backup-list > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+.backup-list > li:hover {
+  border-color: var(--line);
+  background: var(--surface);
+}
+.backup-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.backup-copy > strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.backup-copy > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--faint);
+}
+.backup-current {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--teal-soft);
+  font-family: var(--font-sans);
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--teal-strong);
+}
+.backup-list > li > button {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  padding: 4px 9px;
+}
 @media (max-width: 520px) {
+  .backup-actions {
+    width: 100%;
+  }
+  .backup-actions > button {
+    flex: 1 1 auto;
+  }
+  .backup-copy > small {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   /* Two 132px cards plus the arrow and gaps overflow a 320px panel, and the
      arrow could not shrink, so the version was clipped instead of wrapping.
      Stack the versions and let each card shrink below its min-width. */

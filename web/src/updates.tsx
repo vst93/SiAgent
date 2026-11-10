@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { MessageMarkdown } from "./message-markdown";
+import { KnowledgeDialog as SettingsDialog } from "./knowledge-dialog";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 type UpdateStatus = {
@@ -18,7 +19,25 @@ type UpdateStatus = {
   download_total?: number;
 };
 const megabytes = (bytes: number) =>
-  `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  bytes >= 1024 * 1024 * 1024
+    ? `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+    : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+const backupTime = (value: number) =>
+  new Date(value).toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+type Backup = {
+  name: string;
+  version: string;
+  created: number;
+  bytes: number;
+  files: number;
+  current: boolean;
+};
 const phases: Record<string, string> = {
   idle: "就绪",
   checking: "检查中",
@@ -260,12 +279,7 @@ export function ApplicationUpdates({ request }: { request: Api }) {
             </button>
           )}
         </div>
-        {status.backup && (
-          <p className="muted">
-            最近更新备份：<code>{status.backup}</code>
-            。备份含私密数据，不会自动删除；请按需要离线保存或清理。
-          </p>
-        )}
+        <BackupManager request={request} enabled={status.supported} />
         {error && (
           <p className="error" role="alert">
             {error}
@@ -276,6 +290,233 @@ export function ApplicationUpdates({ request }: { request: Api }) {
           <code>siagent help</code> 查看帮助。
         </small>
       </div>
+    </section>
+  );
+}
+
+// Offline snapshots are written before every update and are never pruned, so a
+// long-lived install accumulates them. They are listed on demand (sizing walks
+// the tree) and can be removed one at a time or all at once.
+function BackupManager({ request, enabled }: { request: Api; enabled: boolean }) {
+  const [backups, setBackups] = useState<Backup[] | null>(null);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState("");
+  const [feedback, setFeedback] = useState("");
+  const [deleting, setDeleting] = useState<Backup | null>(null);
+  const [deleteAll, setDeleteAll] = useState(false);
+  const [dialogError, setDialogError] = useState("");
+
+  async function refresh() {
+    setError("");
+    try {
+      const result = await request<{ backups: Backup[] }>("/backups");
+      setBackups(result.backups);
+    } catch (failure) {
+      setError(
+        failure instanceof Error ? failure.message : "无法读取备份列表。",
+      );
+      setBackups([]);
+    }
+  }
+  useEffect(() => {
+    if (enabled) void refresh();
+  }, [enabled]);
+  if (!enabled) return null;
+
+  const total = (backups ?? []).reduce((sum, item) => sum + item.bytes, 0);
+
+  async function removeOne(backup: Backup) {
+    setPending(backup.name);
+    setDialogError("");
+    try {
+      await request(`/backups/${encodeURIComponent(backup.name)}`, "DELETE");
+      setBackups((values) =>
+        (values ?? []).filter((item) => item.name !== backup.name),
+      );
+      setDeleting(null);
+      setFeedback(`已删除备份 ${backup.name}。`);
+    } catch (failure) {
+      setDialogError(
+        failure instanceof Error ? failure.message : "删除未完成，请重试。",
+      );
+    } finally {
+      setPending("");
+    }
+  }
+  async function removeAll() {
+    setPending("all");
+    setDialogError("");
+    try {
+      const result = await request<{ deleted: number }>(
+        "/backups/delete-all",
+        "POST",
+        { confirm: true },
+      );
+      setDeleteAll(false);
+      setFeedback(`已删除 ${result.deleted} 个备份。`);
+      await refresh();
+    } catch (failure) {
+      setDialogError(
+        failure instanceof Error ? failure.message : "删除未完成，请重试。",
+      );
+    } finally {
+      setPending("");
+    }
+  }
+
+  return (
+    <section className="backup-manager" aria-label="更新备份">
+      <header className="backup-head">
+        <div>
+          <h3>
+            更新备份 <span>{backups?.length ?? 0}</span>
+          </h3>
+          <p>
+            每次停机更新前的完整数据快照。备份含私密数据，不会自动删除。
+            {backups && backups.length > 0 && ` 共 ${megabytes(total)}。`}
+          </p>
+        </div>
+        <div className="backup-actions">
+          <button
+            type="button"
+            disabled={!!pending}
+            onClick={() => void refresh()}
+          >
+            {backups === null ? "读取中…" : "刷新"}
+          </button>
+          <button
+            type="button"
+            className="danger-ghost"
+            disabled={!!pending || !backups?.length}
+            onClick={() => {
+              setDeleteAll(true);
+              setDialogError("");
+            }}
+          >
+            全部清理
+          </button>
+        </div>
+      </header>
+      {feedback && (
+        <p className="success backup-feedback" role="status">
+          {feedback}
+        </p>
+      )}
+      {error && (
+        <p className="error backup-feedback" role="alert">
+          {error}
+        </p>
+      )}
+      {backups === null ? (
+        <p className="muted">正在读取备份…</p>
+      ) : !backups.length ? (
+        <p className="muted">暂无备份。</p>
+      ) : (
+        <ul className="backup-list">
+          {backups.map((backup) => (
+            <li key={backup.name}>
+              <div className="backup-copy">
+                <strong title={backup.name}>
+                  {backup.version}
+                  {backup.current && (
+                    <span className="backup-current">最近一次</span>
+                  )}
+                </strong>
+                <small title={backup.name}>
+                  {backupTime(backup.created)} · {megabytes(backup.bytes)} ·{" "}
+                  {backup.files} 个文件
+                </small>
+              </div>
+              <button
+                type="button"
+                className="danger-ghost"
+                disabled={!!pending}
+                aria-label={`删除备份 ${backup.name}`}
+                onClick={() => {
+                  setDeleting(backup);
+                  setDialogError("");
+                }}
+              >
+                删除
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {deleting && (
+        <SettingsDialog
+          title={`删除备份“${deleting.name}”？`}
+          pending={!!pending}
+          onClose={() => setDeleting(null)}
+        >
+          <p>
+            这会删除该次更新前的完整数据快照（{megabytes(deleting.bytes)}）。
+            删除后无法用这个快照回退数据。
+          </p>
+          {deleting.current && (
+            <p className="permission-notice">
+              这是最近一次更新引用的备份，也是当前记录的默认回退点。确认新版本运行正常后再删除。
+            </p>
+          )}
+          {dialogError && (
+            <p role="alert" className="error">
+              {dialogError}
+            </p>
+          )}
+          <footer>
+            <button
+              data-dialog-cancel
+              disabled={!!pending}
+              onClick={() => setDeleting(null)}
+            >
+              取消
+            </button>
+            <button
+              className="danger-button"
+              disabled={!!pending}
+              onClick={() => void removeOne(deleting)}
+            >
+              {pending ? "正在删除…" : "确认删除"}
+            </button>
+          </footer>
+        </SettingsDialog>
+      )}
+      {deleteAll && (
+        <SettingsDialog
+          title="清理全部更新备份？"
+          pending={!!pending}
+          onClose={() => setDeleteAll(false)}
+        >
+          <p>
+            这会删除全部 {backups?.length ?? 0} 个快照，释放约{" "}
+            {megabytes(total)}。删除后无法再用任何历史快照回退数据。
+          </p>
+          <p className="permission-notice">
+            只删除更新前生成的备份目录；数据目录、程序版本和无关文件不受影响。
+          </p>
+          {dialogError && (
+            <p role="alert" className="error">
+              {dialogError}
+            </p>
+          )}
+          <footer>
+            <button
+              data-dialog-cancel
+              disabled={!!pending}
+              onClick={() => setDeleteAll(false)}
+            >
+              取消
+            </button>
+            <button
+              className="danger-button"
+              disabled={!!pending}
+              onClick={() => void removeAll()}
+            >
+              {pending ? "正在清理…" : "全部清理"}
+            </button>
+          </footer>
+        </SettingsDialog>
+      )}
     </section>
   );
 }
