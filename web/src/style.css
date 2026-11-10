@@ -8586,11 +8586,19 @@ select option:disabled {
   margin: 0;
 }
 @media (max-width: 520px) {
+  /* Two 132px cards plus the arrow and gaps overflow a 320px panel, and the
+     arrow could not shrink, so the version was clipped instead of wrapping.
+     Stack the versions and let each card shrink below its min-width. */
   .update-version-row {
-    gap: 8px;
+    gap: 6px;
+    flex-wrap: wrap;
   }
   .update-version {
-    flex: 1 1 132px;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .update-version-row > .ui-icon {
+    display: none;
   }
   .update-notes-body {
     max-height: 42vh;

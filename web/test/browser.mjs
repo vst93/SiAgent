@@ -3204,6 +3204,31 @@ try {
   ]);
   await rm(prefixDirectory, { recursive: true, force: true });
 
+  // Two connections can share a model name and base URL with different keys, so
+  // the operator's connection name leads and the technical fields disambiguate.
+  await config("模型连接");
+  await page.getByRole("button", { name: "新增模型连接", exact: true }).click();
+  await page.getByLabel("服务地址").fill(`http://127.0.0.1:${model.address().port}/v1`);
+  await page.getByLabel("模型名称", { exact: true }).fill("browser-fixture");
+  await page.getByLabel("API 密钥").fill("second-key");
+  await page.getByLabel("连接名称", { exact: true }).fill("备用连接");
+  await page.getByRole("button", { name: "保存模型连接", exact: true }).click();
+  await page.waitForTimeout(600);
+  await config("Agent");
+  await page
+    .locator(".agent-card")
+    .filter({ hasText: "默认助手" })
+    .locator(".agent-card-select")
+    .click();
+  const modelOptions = await page
+    .getByLabel("使用模型", { exact: true })
+    .locator("option")
+    .allInnerTexts();
+  assert(
+    modelOptions.some((text) => text.startsWith("备用连接")),
+    `the connection name must lead the option: ${modelOptions.join("|")}`,
+  );
+
   assert.deepEqual(errors, []);
   console.log(
     "Browser passed: subpath deployment with the readiness probe in the API namespace, Agent default/custom timezone and per-turn model time context, real channel conversation without composer on desktop/320px/390px with cancellation and return to local chat, dated message history, safe Markdown headings/lists/tables/code/links with no automatic remote images and 320px/390px layouts, live unsaved model discovery/dropdown/manual entry/saved-key reuse without persistence, favicon, structured model configuration, protocol-specific controls, context/output/sampling wire parameters, modal deletion with cancel/Escape, two workspaces, draft and active-run continuity, pinned exact default page, deep links and history, cross-tab preference sync, invalid/stored-denied preference fallback, resource management separate from Agent authorization, 320px/390px configuration layouts, explicit UI logout, first setup, model save, chat, connection test, masked key, refresh history, safe text rendering, mobile width, CSP, queue submission/cancel, runtime limits, diagnostics, managed Skill folder/single-file upload, nested resources and archive, Skills/MCP tabs and draft preservation, MCP connection/permission/tool call, credential redaction, desktop/mobile tool settings, native knowledge library selector/tabs/filtering/isolated delayed responses/upload and confirmation dialogs/320px and 390px layouts/index/search/binding/Agent tools/source viewing, failed/successful document replacement, historical/deleted references, Agent session restrictions/shared group scope, context strategies/output presets, policy persistence and 320px/390px policy layouts, multiple model/Agent creation and isolated tool/context scope, Agent selection/refresh/archive/history, generic channel adapters, WeCom bot configuration and masked secrets, legacy app/independent Node crypto callback verification/desktop and mobile, explicit conversation deletion and authenticated disk usage, provider-reported token usage in the chat header and usage dashboard with today/yesterday/time filters, cache hit/write/non-cache split, cost and trend/breakdowns, Chinese/English switch with reload persistence, no JS errors.",

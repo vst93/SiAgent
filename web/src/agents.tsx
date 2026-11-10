@@ -46,6 +46,23 @@ export type Agent = {
   env_keys?: string[];
 };
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
+// Model rows can share a model name and base URL while using different keys, so
+// the operator's connection name leads and the technical fields follow as
+// disambiguation rather than as the primary label.
+export function modelLabel(model: Model) {
+  const label = model.options.display_name?.trim();
+  const technical = `${model.name} · ${model.base_url}`;
+  const base = label ? `${label}（${technical}）` : technical;
+  return model.archived ? `${base} · 已归档` : base;
+}
+
+// Lists are narrow, so they show the operator's connection name and fall back to
+// the technical model name; the full label belongs in a select.
+export function modelShortName(model?: Model) {
+  if (!model) return "";
+  return model.options.display_name?.trim() || model.name;
+}
+
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : "操作未完成，请稍后重试。";
 export function AgentWorkspace({
@@ -247,8 +264,9 @@ export function AgentWorkspace({
                       ? "接收新任务"
                       : "已停用") +
                   " · " +
-                  (models.find((model) => model.id === agent.model_id)?.name ??
-                    "模型不可用")
+                  (modelShortName(
+                    models.find((model) => model.id === agent.model_id),
+                  ) ?? "模型不可用")
                 }
               >
                 {agent.archived
@@ -257,8 +275,9 @@ export function AgentWorkspace({
                     ? "接收新任务"
                     : "已停用"}{" "}
                 ·{" "}
-                {models.find((model) => model.id === agent.model_id)?.name ??
-                  "模型不可用"}
+                {modelShortName(
+                  models.find((model) => model.id === agent.model_id),
+                ) ?? "模型不可用"}
               </small>
             </button>
             <button
@@ -302,11 +321,9 @@ export function AgentWorkspace({
                         ? "接收新任务"
                         : "已停用"}
                     {" · "}
-                    {models.find((model) => model.id === agent.model_id)
-                      ?.options.display_name ??
-                      models.find((model) => model.id === agent.model_id)
-                        ?.name ??
-                      "模型不可用"}
+                    {modelShortName(
+                      models.find((model) => model.id === agent.model_id),
+                    ) ?? "模型不可用"}
                   </small>
                   <Icon name="arrow-right" size={14} />
                 </button>
@@ -423,8 +440,10 @@ export function AgentWorkspace({
                           )
                           .map((model) => (
                             <option key={model.id} value={model.id}>
-                              {model.name} · {model.base_url}
-                              {model.archived ? "（已归档）" : ""}
+                              {/* The connection name is the operator's own label and is
+                                  what distinguishes two entries that point at the same
+                                  model with different keys. */}
+                              {modelLabel(model)}
                             </option>
                           ))}
                       </select>
@@ -501,7 +520,7 @@ export function AgentWorkspace({
                             )
                             .map((model) => (
                               <option key={model.id} value={model.id}>
-                                {model.name}
+                                {modelLabel(model)}
                               </option>
                             ))}
                         </select>
